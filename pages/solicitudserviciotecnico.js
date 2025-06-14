@@ -83,12 +83,7 @@ export default function SolicitudServicios() {
         body: JSON.stringify({
           to: "soportesistemas@soporteia.net",
           subject: "Nueva Solicitud de Servicio",
-          text: `
-Consecutivo: ${formData.consecutivo}
-Nombre: ${formData.nombre}
-Fecha: ${formData.fecha.toLocaleDateString()}
-Descripción: ${formData.descripcion}
-          `,
+          text: `\nConsecutivo: ${formData.consecutivo}\nNombre: ${formData.nombre}\nFecha: ${formData.fecha.toLocaleDateString()}\nDescripción: ${formData.descripcion}`,
         }),
       });
 
@@ -98,17 +93,11 @@ Descripción: ${formData.descripcion}
         body: JSON.stringify({
           to: formData.correo,
           subject: "Código de seguimiento de su solicitud",
-          text: `
-Gracias por registrar su solicitud.
-
-Código de seguimiento: ${formData.codigo}
-
-Sin este código el técnico no podrá finalizar el servicio sin su consentimiento de aprobación de servicio terminado con éxito.
-          `,
+          text: `\nGracias por registrar su solicitud.\n\nCódigo de seguimiento: ${formData.codigo}\n\nSin este código el técnico no podrá finalizar el servicio sin su consentimiento de aprobación de servicio terminado con éxito.`,
         }),
       });
 
-      setMensaje("¡Solicitud enviada con éxito!");
+      setMensaje("\u00a1Solicitud enviada con éxito!");
       setFormData({ nombre: "", correo: "", descripcion: "", fecha: new Date(), consecutivo: "", codigo: "" });
       cargarRegistros();
     } catch (error) {
@@ -132,6 +121,15 @@ Sin este código el técnico no podrá finalizar el servicio sin su consentimien
 
   return (
     <div style={{ maxWidth: 900, margin: "auto", padding: "20px", paddingBottom: "100px" }}>
+
+      {/* 🚩 LOGOS AGREGADOS */}
+      <div style={{ position: "fixed", top: 10, left: 10, zIndex: 2000 }}>
+        <img src="/img/logo1.png" alt="Logo Izquierdo" style={{ height: "60px" }} />
+      </div>
+      <div style={{ position: "fixed", top: 10, right: 10, zIndex: 2000 }}>
+        <img src="/img/logo2.png" alt="Logo Derecho" style={{ height: "60px" }} />
+      </div>
+
       <div style={{
         position: "sticky",
         top: 0,
@@ -141,90 +139,27 @@ Sin este código el técnico no podrá finalizar el servicio sin su consentimien
         borderBottom: "2px solid #007acc",
         textAlign: "center"
       }}>
-       <h1 style={{
-        fontSize: "36px",
-        color: "#2c3e50",
-        textShadow: "2px 2px 4px rgba(0,0,0,0.3)",
-        fontWeight: "900",
-        letterSpacing: "1px",
-        textAlign: "center",
-        marginBottom: "24px"
-      }}>
-        Solicitud servicios tecnicos
-      </h1>
+        <h1 style={{
+          fontSize: "36px",
+          color: "#2c3e50",
+          textShadow: "2px 2px 4px rgba(0,0,0,0.3)",
+          fontWeight: "900",
+          letterSpacing: "1px",
+          textAlign: "center",
+          marginBottom: "24px"
+        }}>
+          Solicitud servicios técnicos
+        </h1>
       </div>
 
       <form onSubmit={handleSubmit} style={{ display: "grid", gap: "20px", marginTop: "30px" }}>
-        <input
-          type="text"
-          name="consecutivo"
-          placeholder="Consecutivo"
-          value={formData.consecutivo}
-          readOnly
-          style={{ ...inputEstilo, backgroundColor: "#e9ecef", color: "#495057", fontWeight: "bold" }}
-        />
-
-        <input
-          type="text"
-          name="codigo"
-          placeholder="Código generado"
-          value={formData.codigo}
-          readOnly
-          style={{ ...inputEstilo, backgroundColor: "#f0f0f0", fontWeight: "bold" }}
-        />
-
-        <input
-          type="text"
-          name="nombre"
-          placeholder="Nombre"
-          value={formData.nombre}
-          onChange={handleChange}
-          required
-          style={inputEstilo}
-        />
-
-        <input
-          type="email"
-          name="correo"
-          placeholder="Correo electrónico"
-          value={formData.correo}
-          onChange={handleChange}
-          required
-          style={inputEstilo}
-        />
-
-        <DatePicker
-          selected={formData.fecha}
-          onChange={handleDateChange}
-          dateFormat="dd/MM/yyyy"
-          className="custom-datepicker"
-          style={inputEstilo}
-        />
-
-        <textarea
-          name="descripcion"
-          placeholder="Descripción del problema"
-          value={formData.descripcion}
-          onChange={handleChange}
-          required
-          rows={4}
-          style={inputEstilo}
-        />
-
-        <button
-          type="submit"
-          disabled={!formularioCompleto || enviando}
-          style={{
-            padding: "12px",
-            fontWeight: "bold",
-            fontSize: "16px",
-            border: "none",
-            borderRadius: "8px",
-            backgroundColor: formularioCompleto ? "#007acc" : "#ccc",
-            color: "#fff",
-            cursor: formularioCompleto ? "pointer" : "not-allowed",
-          }}
-        >
+        <input type="text" name="consecutivo" placeholder="Consecutivo" value={formData.consecutivo} readOnly style={{ ...inputEstilo, backgroundColor: "#e9ecef", color: "#495057", fontWeight: "bold" }} />
+        <input type="text" name="codigo" placeholder="Código generado" value={formData.codigo} readOnly style={{ ...inputEstilo, backgroundColor: "#f0f0f0", fontWeight: "bold" }} />
+        <input type="text" name="nombre" placeholder="Nombre" value={formData.nombre} onChange={handleChange} required style={inputEstilo} />
+        <input type="email" name="correo" placeholder="Correo electrónico" value={formData.correo} onChange={handleChange} required style={inputEstilo} />
+        <DatePicker selected={formData.fecha} onChange={handleDateChange} dateFormat="dd/MM/yyyy" className="custom-datepicker" style={inputEstilo} />
+        <textarea name="descripcion" placeholder="Descripción del problema" value={formData.descripcion} onChange={handleChange} required rows={4} style={inputEstilo} />
+        <button type="submit" disabled={!formularioCompleto || enviando} style={{ padding: "12px", fontWeight: "bold", fontSize: "16px", border: "none", borderRadius: "8px", backgroundColor: formularioCompleto ? "#007acc" : "#ccc", color: "#fff", cursor: formularioCompleto ? "pointer" : "not-allowed" }}>
           {enviando ? "Enviando..." : "Enviar solicitud"}
         </button>
       </form>
@@ -241,40 +176,14 @@ Sin este código el técnico no podrá finalizar el servicio sin su consentimien
             <p><strong>Fecha:</strong> {new Date(registro.fecha).toLocaleDateString()}</p>
             <p><strong>Descripción:</strong> {registro.descripcion}</p>
             <div style={{ display: "flex", justifyContent: "space-between", marginTop: "10px" }}>
-              <button
-                style={{ ...btnEstilo, backgroundColor: "#e74c3c" }}
-                onClick={() => eliminarRegistro(registro.id)}
-              >
-                Eliminar
-              </button>
-              <button
-                style={{ ...btnEstilo, backgroundColor: "#3498db" }}
-                onClick={() => alert("Funcionalidad de edición no implementada")}
-              >
-                Editar
-              </button>
+              <button style={{ ...btnEstilo, backgroundColor: "#e74c3c" }} onClick={() => eliminarRegistro(registro.id)}>Eliminar</button>
+              <button style={{ ...btnEstilo, backgroundColor: "#3498db" }} onClick={() => alert("Funcionalidad de edición no implementada")}>Editar</button>
             </div>
           </div>
         ))}
       </div>
 
-      <button
-        style={{
-          position: "fixed",
-          bottom: "20px",
-          left: "20px",
-          padding: "10px 20px",
-          backgroundColor: "#2980b9",
-          color: "white",
-          border: "none",
-          borderRadius: "5px",
-          cursor: "pointer",
-          zIndex: 1000,
-        }}
-        onClick={() => router.push("/")}
-      >
-        Regresar
-      </button>
+      <button style={{ position: "fixed", bottom: "20px", left: "20px", padding: "10px 20px", backgroundColor: "#2980b9", color: "white", border: "none", borderRadius: "5px", cursor: "pointer", zIndex: 1000 }} onClick={() => router.push("/")}>Regresar</button>
     </div>
   );
 }
@@ -304,4 +213,3 @@ const btnEstilo = {
   color: "white",
   cursor: "pointer",
 };
-

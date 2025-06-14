@@ -197,19 +197,13 @@ export default function Estadisticas() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto relative">
-      <img
-        src="/logo-estadisticas.png"
-        alt="Estadística Servicios Técnicos"
-        style={{
-          position: "fixed",
-          top: "15px",
-          right: "15px",
-          width: "120px",
-          height: "auto",
-          opacity: 0.2,
-          zIndex: 0
-        }}
-      />
+      {/* ✅ LOGOS AGREGADOS */}
+      <div style={{ position: "fixed", top: 10, left: 10, zIndex: 2000 }}>
+        <img src="/img/logo1.png" alt="Logo Izquierdo" style={{ height: "60px" }} />
+      </div>
+      <div style={{ position: "fixed", top: 10, right: 10, zIndex: 2000 }}>
+        <img src="/img/logo2.png" alt="Logo Derecho" style={{ height: "60px" }} />
+      </div>
 
       <h1 style={{
         fontSize: "36px",
@@ -281,23 +275,6 @@ export default function Estadisticas() {
             ))}
           </select>
         </div>
-        <button
-          style={{
-            position: "fixed",
-            bottom: "20px",
-            left: "20px",
-            padding: "10px 20px",
-            backgroundColor: "#2980b9",
-            color: "white",
-            border: "none",
-            borderRadius: "5px",
-            cursor: "pointer",
-            zIndex: 1000
-          }}
-          onClick={() => router.push("/")}
-        >
-          Regresar
-        </button>
       </div>
 
       <div className="mb-8">
@@ -327,6 +304,24 @@ export default function Estadisticas() {
       {resumen.porSolucion && renderResumen("Servicios por Solución", resumen.porSolucion, "solucion")}
       {resumen.porPartes && renderResumen("Cambios de Partes", resumen.porPartes, "partes")}
       {resumen.porServicios && renderResumen("Servicios Realizados", resumen.porServicios, "servicios")}
+
+      <button
+        style={{
+          position: "fixed",
+          bottom: "20px",
+          left: "20px",
+          padding: "10px 20px",
+          backgroundColor: "#2980b9",
+          color: "white",
+          border: "none",
+          borderRadius: "5px",
+          cursor: "pointer",
+          zIndex: 1000
+        }}
+        onClick={() => router.push("/")}
+      >
+        Regresar
+      </button>
     </div>
   );
 }

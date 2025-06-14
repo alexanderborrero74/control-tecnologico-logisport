@@ -237,8 +237,36 @@ export default function ServiciosTecnicos() {
       .includes(filtroTexto.toLowerCase())
   );
 
+  const logoStyle = {
+    position: "fixed",
+    top: "10px",
+    width: "120px",
+    height: "auto",
+    zIndex: 9999,
+  };
+
+  const logoContainerStyle = {
+    position: "fixed",
+    top: 0,
+    left: 0,
+    width: "100%",
+    display: "flex",
+    justifyContent: "space-between",
+    padding: "10px 30px",
+    zIndex: 9999,
+  };
+
+
+
+
   return (
     <div style={{ padding: 24, marginTop: "80px" }}>
+
+            <div style={logoContainerStyle}>
+        <img src="/logo1.png" alt="Logo izquierdo" style={logoStyle} />
+        <img src="/logo1.png" alt="Logo derecho" style={{ ...logoStyle, right: 0 }} />
+      </div>
+
        <h1 style={{
         fontSize: "36px",
         color: "#2c3e50",

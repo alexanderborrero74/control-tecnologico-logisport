@@ -21,19 +21,37 @@ export default function DocumentacionTi() {
 
   return (
     <div style={{ padding: "24px" }}>
-      <h1 style={{
-        fontSize: "36px",
-        color: "#2c3e50",
-        textShadow: "2px 2px 4px rgba(0,0,0,0.3)",
-        fontWeight: "900",
-        letterSpacing: "1px",
-        textAlign: "center",
-        marginBottom: "24px"
-      }}>
-        Documentos implementacion TI
-      </h1>
+      {/* Logos fijos */}
+      <div style={{ position: "fixed", top: 10, left: 10, zIndex: 2000 }}>
+        <img src="/img/logo1.png" alt="Logo Izquierdo" style={{ height: "60px" }} />
+      </div>
+      <div style={{ position: "fixed", top: 10, right: 10, zIndex: 2000 }}>
+        <img src="/img/logo2.png" alt="Logo Derecho" style={{ height: "60px" }} />
+      </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "16px" }}>
+      {/* Título fijo */}
+      <div style={{
+        position: "sticky",
+        top: 0,
+        backgroundColor: "#fff",
+        zIndex: 1500,
+        padding: "12px",
+        borderBottom: "2px solid #007acc",
+        textAlign: "center"
+      }}>
+        <h1 style={{
+          fontSize: "36px",
+          color: "#2c3e50",
+          textShadow: "2px 2px 4px rgba(0,0,0,0.3)",
+          fontWeight: "900",
+          letterSpacing: "1px",
+          margin: 0
+        }}>
+          Documentos implementación TI
+        </h1>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "16px", marginTop: "24px" }}>
         {archivos.map((archivo, index) => (
           <div
             key={index}
@@ -52,7 +70,7 @@ export default function DocumentacionTi() {
         ))}
       </div>
 
-      {/* Modal para visualizar en grande */}
+      {/* Modal de vista ampliada */}
       {archivoActivo && (
         <div
           style={{

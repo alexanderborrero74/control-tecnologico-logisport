@@ -269,7 +269,7 @@ export default function ControlTecnologico() {
         }}
       >
         <button style={botonStyle} onClick={() => router.push("/servicios-tecnicos")}>
-          Servicios Técnicos
+          Servicios Técnicos Realizados
         </button>
         
         <button style={botonStyle} onClick={() => router.push("/solicitudserviciotecnico")}>

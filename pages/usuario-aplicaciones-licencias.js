@@ -1,4 +1,4 @@
-import { useRouter } from "next/router"; 
+import { useRouter } from "next/router";  
 import { useState, useEffect } from "react";
 import { db } from "@/firebase/firebaseConfig";
 import {
@@ -90,6 +90,14 @@ export default function UsuarioAplicacionesLicencias() {
 
   return (
     <div style={{ padding: "24px", fontFamily: "Arial, sans-serif" }}>
+      {/* ✅ LOGOS AGREGADOS */}
+      <div style={{ position: "fixed", top: 10, left: 10, zIndex: 2000 }}>
+        <img src="/img/logo1.png" alt="Logo Izquierdo" style={{ height: "60px" }} />
+      </div>
+      <div style={{ position: "fixed", top: 10, right: 10, zIndex: 2000 }}>
+        <img src="/img/logo2.png" alt="Logo Derecho" style={{ height: "60px" }} />
+      </div>
+
       <div style={{ position: "sticky", top: 0, backgroundColor: "white", zIndex: 10, paddingBottom: "10px" }}>
         <h1 style={{
           fontSize: "36px", color: "#2c3e50", textShadow: "2px 2px 4px rgba(0,0,0,0.3)",
@@ -239,8 +247,4 @@ export default function UsuarioAplicacionesLicencias() {
     </div>
   );
 }
-
-
-
-
 

@@ -32,7 +32,15 @@ export default function Procesoit() {
 
   return (
     <div style={{ padding: "24px", paddingBottom: "80px" }}>
-      {/* Título fijo */}
+      {/* ✅ LOGOS AGREGADOS */}
+      <div style={{ position: "fixed", top: 10, left: 10, zIndex: 2000 }}>
+        <img src="/img/logo1.png" alt="Logo Izquierdo" style={{ height: "60px" }} />
+      </div>
+      <div style={{ position: "fixed", top: 10, right: 10, zIndex: 2000 }}>
+        <img src="/img/logo2.png" alt="Logo Derecho" style={{ height: "60px" }} />
+      </div>
+
+      {/* ✅ Título fijo */}
       <div style={{
         position: "sticky",
         top: 0,
@@ -77,7 +85,7 @@ export default function Procesoit() {
         <p style={{ marginTop: "20px" }}>Cargando datos de implementación...</p>
       )}
 
-      {/* Botón fijo en esquina inferior izquierda */}
+      {/* ✅ Botón fijo en esquina inferior izquierda */}
       <button
         style={{
           position: "fixed",
@@ -98,4 +106,3 @@ export default function Procesoit() {
     </div>
   );
 }
-
