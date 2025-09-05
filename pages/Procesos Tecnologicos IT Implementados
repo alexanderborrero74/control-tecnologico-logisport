@@ -19,7 +19,8 @@ export default function Procesoit() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await fetch("/implementacion  actualizado_archivos/sheet001.htm");
+        // Cambiar la ruta al archivo en la carpeta public
+        const res = await fetch("/archivos/sheet001.htm"); // Ajustar la ruta
         const html = await res.text();
         const data = parseHTMLTable(html);
         setTabla(data);
@@ -32,16 +33,18 @@ export default function Procesoit() {
 
   return (
     <div style={{ padding: "24px", marginTop: "80px" }}>
-     <h1 style={{
-        fontSize: "36px",
-        color: "#2c3e50",
-        textShadow: "2px 2px 4px rgba(0,0,0,0.3)",
-        fontWeight: "900",
-        letterSpacing: "1px",
-        textAlign: "center",
-        marginBottom: "24px"
-      }}>
-        Procesos tecnologicos IT implementados Basc
+      <h1
+        style={{
+          fontSize: "36px",
+          color: "#2c3e50",
+          textShadow: "2px 2px 4px rgba(0,0,0,0.3)",
+          fontWeight: "900",
+          letterSpacing: "1px",
+          textAlign: "center",
+          marginBottom: "24px",
+        }}
+      >
+        Procesos tecnológicos IT implementados BASC
       </h1>
 
       {tabla.length > 0 ? (
@@ -77,7 +80,7 @@ export default function Procesoit() {
           padding: "10px 20px",
           border: "none",
           borderRadius: "5px",
-          cursor: "pointer"
+          cursor: "pointer",
         }}
         onClick={() => router.push("/")}
       >

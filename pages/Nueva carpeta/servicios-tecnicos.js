@@ -155,7 +155,7 @@ export default function ServiciosTecnicos() {
         height: "100vh",
         zIndex: -1,
         opacity: 0.05,
-        backgroundImage: `url('/logo1.png')`,
+        backgroundImage: `url('/nexoti-logo.svg')`,
         backgroundRepeat: "no-repeat",
         backgroundSize: "contain",
         backgroundPosition: "center",

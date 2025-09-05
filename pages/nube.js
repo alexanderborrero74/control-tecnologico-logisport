@@ -25,7 +25,7 @@ export default function NubePrivada() {
 
   useEffect(() => {
     const fetchData = async () => {
-      const res = await fetch("/synovpnlog.html"); // Asegúrate de colocar el archivo en /public
+      const res = await fetch("/nube sidecomex.pdf"); // Asegúrate de colocar el archivo en /public
       const text = await res.text();
       const datos = parseHTMLLogs(text);
       setRegistros(datos);
@@ -43,7 +43,7 @@ export default function NubePrivada() {
         left: 0,
         width: "100%",
         backgroundColor: "white",
-        padding: "20px 0",
+        padding: "10px 0",
         borderBottom: "2px solid #ccc",
         textAlign: "center",
         zIndex: 1000

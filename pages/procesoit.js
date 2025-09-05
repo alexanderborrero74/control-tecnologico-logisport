@@ -19,7 +19,7 @@ export default function Procesoit() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await fetch("/implementacion  actualizado_archivos/sheet001.htm");
+        const res = await fetch("/2025_CAOP105_ Planeador de Mantenimiento Tecnologico_archivos/sheet001.htm");
         const html = await res.text();
         const data = parseHTMLTable(html);
         setTabla(data);
@@ -32,15 +32,7 @@ export default function Procesoit() {
 
   return (
     <div style={{ padding: "24px", paddingBottom: "80px" }}>
-      {/* ✅ LOGOS AGREGADOS */}
-      <div style={{ position: "fixed", top: 10, left: 10, zIndex: 2000 }}>
-        <img src="/img/logo1.png" alt="Logo Izquierdo" style={{ height: "60px" }} />
-      </div>
-      <div style={{ position: "fixed", top: 10, right: 10, zIndex: 2000 }}>
-        <img src="/img/logo2.png" alt="Logo Derecho" style={{ height: "60px" }} />
-      </div>
-
-      {/* ✅ Título fijo */}
+      {/* Título fijo */}
       <div style={{
         position: "sticky",
         top: 0,
@@ -85,7 +77,7 @@ export default function Procesoit() {
         <p style={{ marginTop: "20px" }}>Cargando datos de implementación...</p>
       )}
 
-      {/* ✅ Botón fijo en esquina inferior izquierda */}
+      {/* Botón fijo en esquina inferior izquierda */}
       <button
         style={{
           position: "fixed",
@@ -106,3 +98,4 @@ export default function Procesoit() {
     </div>
   );
 }
+

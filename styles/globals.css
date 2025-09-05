@@ -24,3 +24,10 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Fondo SOLO para el menú principal (index) */
+body.menu-home {
+  min-height: 100vh;
+  background: url("/img/logisport.jpeg") center center / cover no-repeat fixed;
+}
+
