@@ -166,14 +166,15 @@ export default function NominaTrabajadores() {
   const [guardando,    setGuardando]    = useState(false);
 
   /* Modal importar Excel */
-  const [modalExcel,    setModalExcel]    = useState(false);
-  const [excelRows,     setExcelRows]     = useState([]);   // filas parseadas
-  const [excelCols,     setExcelCols]     = useState({});   // { campo: indexColumna }
-  const [excelHeaders,  setExcelHeaders]  = useState([]);
-  const [eliminarAntes, setEliminarAntes] = useState(false);
-  const [importando,    setImportando]    = useState(false);
-  const [importResult,  setImportResult]  = useState(null); // { ok, errores }
-  const [excelNombre,   setExcelNombre]   = useState("");
+  const [modalExcel,      setModalExcel]      = useState(false);
+  const [excelRows,       setExcelRows]       = useState([]);   // filas parseadas
+  const [excelCols,       setExcelCols]       = useState({});   // { campo: indexColumna }
+  const [excelHeaders,    setExcelHeaders]    = useState([]);
+  const [eliminarAntes,   setEliminarAntes]   = useState(false);
+  const [importando,      setImportando]      = useState(false);
+  const [importResult,    setImportResult]    = useState(null); // { ok, errores }
+  const [excelNombre,     setExcelNombre]     = useState("");
+  const [importarClienteId, setImportarClienteId] = useState("spia"); // cliente destino
   const fileRef    = useRef(null);
 
   /* Modal actualizar salarios */
@@ -210,9 +211,15 @@ export default function NominaTrabajadores() {
       const snap = await getDocs(collection(db, "nomina_clientes"));
       if (!snap.empty) {
         const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        const orden = ["spia","cliente1","cliente2","cliente3"];
-        data.sort((a,b) => orden.indexOf(a.id) - orden.indexOf(b.id));
-        const merged = data.map(c => { const base = CLIENTES_BASE.find(b => b.id === c.id); return { ...base, ...c }; });
+        const orden = ["spia","cliente1","cliente2","cliente3","admon"];
+        data.sort((a,b) => {
+          const ia = orden.indexOf(a.id); const ib = orden.indexOf(b.id);
+          if (ia===-1 && ib===-1) return (a.nombre||'').localeCompare(b.nombre||'');
+          if (ia===-1) return 1; if (ib===-1) return -1;
+          return ia - ib;
+        });
+        // merge con CLIENTES_BASE para fallback de color/emoji
+        const merged = data.map(c => { const base = CLIENTES_BASE.find(b => b.id === c.id); return { color:"#6366f1", emoji:"🏢", ...base, ...c }; });
         setClientes(merged.length > 0 ? merged : CLIENTES_BASE);
       }
     } catch {}
@@ -399,17 +406,32 @@ export default function NominaTrabajadores() {
     setModalExcel(true);
   };
 
+  /* ── Descargar plantilla Excel ── */
+  const descargarPlantilla = async () => {
+    const XLSX = await import("xlsx");
+    const wb = XLSX.utils.book_new();
+    const datos = [
+      ["NOMBRE", "CEDULA", "CARGO", "SALARIO"],
+      ["GARCIA LOPEZ JUAN", "1000000001", "ESTIBADOR", 1750905],
+      ["MARTINEZ RUIZ PEDRO", "1000000002", "TARJADOR", 1750905],
+      ["LOPEZ CASTRO MARIA", "1000000003", "AUXILIAR DE OPERACIONES", 1787405],
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(datos);
+    ws['!cols'] = [{wch:35},{wch:14},{wch:28},{wch:14}];
+    XLSX.utils.book_append_sheet(wb, ws, "Trabajadores");
+    XLSX.writeFile(wb, "plantilla_trabajadores.xlsx");
+  };
+
   /* ── Importar a Firestore ── */
   const importar = async () => {
     setImportando(true);
+    const clienteDestino = importarClienteId || "spia";
     try {
       // 0. Si es formato LOGISPORT, actualizar también nomina_cargos
       if (formatoLogisport?.cargoSalario) {
         const cargosSnap = await getDocs(collection(db, "nomina_cargos"));
         const cargosBatch = writeBatch(db);
-        // Eliminar cargos anteriores
         cargosSnap.docs.forEach(d => cargosBatch.delete(d.ref));
-        // Insertar los nuevos cargos con sus salarios
         for (const [nombre, basicoMensual] of Object.entries(formatoLogisport.cargoSalario)) {
           const ref = doc(collection(db, "nomina_cargos"));
           cargosBatch.set(ref, { nombre, basicoMensual, actualizadoEn: new Date() });
@@ -417,40 +439,66 @@ export default function NominaTrabajadores() {
         await cargosBatch.commit();
       }
 
-      // 1. Eliminar trabajadores existentes si se pidió
+      // 1. Si se pidió eliminar, solo eliminar los del cliente destino
       if (eliminarAntes) {
         const snap = await getDocs(collection(db, "nomina_trabajadores"));
         const batchDel = writeBatch(db);
-        snap.docs.forEach(d => batchDel.delete(d.ref));
+        snap.docs.forEach(d => {
+          const ids = d.data().clienteIds || ["spia"];
+          if (ids.includes(clienteDestino)) batchDel.delete(d.ref);
+        });
         await batchDel.commit();
       }
 
-      // 2. Importar trabajadores en lotes de 400
-      let ok = 0; const errores = [];
+      // 2. Cargar cédulas existentes para detectar duplicados
+      const existSnap = await getDocs(collection(db, "nomina_trabajadores"));
+      const existMap = new Map(); // cedula → { id, clienteIds }
+      existSnap.docs.forEach(d => {
+        const ced = String(d.data().cedula || "").trim();
+        if (ced) existMap.set(ced, { id: d.id, clienteIds: d.data().clienteIds || ["spia"] });
+      });
+
+      // 3. Importar trabajadores en lotes de 400
+      let ok = 0; let actualizados = 0; const errores = [];
       let batch = writeBatch(db);
       let count = 0;
       for (const row of excelRows) {
         const nombre = row.nombre?.toString().trim().toUpperCase();
         const cedula = row.cedula?.toString().trim();
-        if (!nombre || !cedula) { errores.push(`Fila sin nombre/cédula: ${JSON.stringify(row)}`); continue; }
-        const ref = doc(collection(db, "nomina_trabajadores"));
-        batch.set(ref, {
-          nombre,
-          cedula,
-          cargo:         row.cargo?.toString().trim().toUpperCase() || "",
-          cuadrilla:     row.cuadrilla?.toString().trim() || "",
-          basicoMensual: parseFloat(row.basicoMensual) || 0,
-          activo:        true,
-          creadoEn:      new Date(),
-          actualizadoEn: new Date(),
-        });
-        ok++; count++;
+        if (!nombre || !cedula) { errores.push(`Fila sin nombre/cédula`); continue; }
+        const existing = existMap.get(cedula);
+        if (existing) {
+          // Ya existe — agregar el cliente a su lista si no está
+          const newIds = Array.from(new Set([...existing.clienteIds, clienteDestino]));
+          batch.update(doc(db, "nomina_trabajadores", existing.id), {
+            clienteIds:    newIds,
+            activo:        true,
+            actualizadoEn: new Date(),
+          });
+          actualizados++;
+        } else {
+          // Nuevo trabajador
+          const ref = doc(collection(db, "nomina_trabajadores"));
+          batch.set(ref, {
+            nombre,
+            cedula,
+            cargo:         row.cargo?.toString().trim().toUpperCase() || "",
+            basicoMensual: parseFloat(row.basicoMensual) || 0,
+            clienteIds:    [clienteDestino],
+            centroCostos:  row.centroCostos?.toString().trim() || "",
+            activo:        true,
+            creadoEn:      new Date(),
+            actualizadoEn: new Date(),
+          });
+          ok++;
+        }
+        count++;
         if (count === 400) { await batch.commit(); batch = writeBatch(db); count = 0; }
       }
       if (count > 0) await batch.commit();
 
       await cargar();
-      setImportResult({ ok, errores, cargosActualizados: formatoLogisport ? Object.keys(formatoLogisport.cargoSalario).length : 0 });
+      setImportResult({ ok, actualizados, errores, cargosActualizados: formatoLogisport ? Object.keys(formatoLogisport.cargoSalario).length : 0, clienteNombre: clientes.find(c=>c.id===clienteDestino)?.nombre || clienteDestino });
     } catch (e) {
       alert("Error al importar: " + e.message);
     }
@@ -762,6 +810,7 @@ export default function NominaTrabajadores() {
     setImportResult(null);
     setExcelNombre("");
     setFormatoLogisport(null);
+    setImportarClienteId("spia");
     if (fileRef.current) fileRef.current.value = "";
   };
 
@@ -828,6 +877,12 @@ export default function NominaTrabajadores() {
                 <input ref={fileRefSal} type="file" accept=".xlsx,.xls" style={{ display:"none" }}
                   onChange={e => { if (e.target.files[0]) leerExcelSalarios(e.target.files[0]); }}/>
               </label>
+              {/* Botón descargar plantilla */}
+              <button onClick={descargarPlantilla}
+                title="Descarga la plantilla Excel con el formato correcto para importar trabajadores"
+                style={{ background:"#f5f3ff", border:"1.5px solid #8b5cf6", borderRadius:"10px", padding:"0.7rem 1.1rem", color:"#7c3aed", cursor:"pointer", fontWeight:"700", fontSize:"0.9rem", display:"flex", alignItems:"center", gap:"0.5rem" }}>
+                <Download size={18}/> Plantilla
+              </button>
               {/* Botón importar Excel completo */}
               <label style={{ background:"#f0fdf4", border:`1.5px solid ${SUCCESS}`, borderRadius:"10px", padding:"0.7rem 1.1rem", color:SUCCESS, cursor:"pointer", fontWeight:"700", fontSize:"0.9rem", display:"flex", alignItems:"center", gap:"0.5rem" }}>
                 <FileSpreadsheet size={18}/> Importar Excel
@@ -1085,10 +1140,22 @@ export default function NominaTrabajadores() {
 
             {/* Header */}
             <div style={{ padding:"1.25rem 1.5rem", borderBottom:"1px solid #f1f5f9", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-              <div>
+              <div style={{ flex:1 }}>
                 <h2 style={{ margin:0, color:PRIMARY, fontWeight:"800", fontSize:"1.1rem" }}>📊 Importar desde Excel</h2>
                 <div style={{ color:"#64748b", fontSize:"0.82rem", marginTop:"0.2rem" }}>
                   {excelNombre} — <strong>{excelRows.length}</strong> filas detectadas
+                </div>
+                {/* Selector de cliente */}
+                <div style={{ marginTop:"0.75rem", display:"flex", alignItems:"center", gap:"0.6rem", flexWrap:"wrap" }}>
+                  <span style={{ fontSize:"0.82rem", fontWeight:"700", color:"#374151" }}>📂 Importar para cliente:</span>
+                  <div style={{ display:"flex", gap:"0.4rem", flexWrap:"wrap" }}>
+                    {clientes.map(c => (
+                      <button key={c.id} onClick={() => setImportarClienteId(c.id)}
+                        style={{ padding:"0.3rem 0.85rem", borderRadius:"20px", fontSize:"0.78rem", fontWeight:"700", cursor:"pointer", border:`2px solid ${importarClienteId===c.id ? c.color||PRIMARY : "#e2e8f0"}`, background: importarClienteId===c.id ? c.color||PRIMARY : "#f8fafc", color: importarClienteId===c.id ? "#fff" : "#64748b", transition:"all 0.15s" }}>
+                        {c.emoji} {c.nombre}
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 {formatoLogisport && (
                   <div style={{ marginTop:"0.4rem", display:"inline-flex", alignItems:"center", gap:"0.4rem", background:"#f0fdf4", border:"1.5px solid #86efac", borderRadius:"20px", padding:"2px 10px", fontSize:"0.76rem", fontWeight:"700", color:"#065f46" }}>
@@ -1170,16 +1237,15 @@ export default function NominaTrabajadores() {
               {/* Resultado importación */}
               {importResult && (
                 <div style={{ marginBottom:"1rem", background: importResult.errores.length ? "#fffbeb" : "#f0fdf4", border:`1px solid ${importResult.errores.length?"#fcd34d":"#86efac"}`, borderRadius:"10px", padding:"0.75rem 1rem" }}>
-                  <div style={{ fontWeight:"700", color: importResult.errores.length ? "#92400e" : "#065f46", marginBottom:"0.25rem" }}>
-                    ✅ {importResult.ok} trabajador(es) importado(s) correctamente
-                    {importResult.errores.length > 0 && ` · ⚠️ ${importResult.errores.length} fila(s) con error`}
+                  <div style={{ fontWeight:"800", color:"#065f46", marginBottom:"0.4rem", fontSize:"0.95rem" }}>
+                    ✅ Importación completada para <strong>{importResult.clienteNombre}</strong>
                   </div>
-                  {importResult.cargosActualizados > 0 && (
-                    <div style={{ fontSize:"0.82rem", color:"#065f46", marginTop:"0.3rem", fontWeight:"600" }}>
-                      🏢 {importResult.cargosActualizados} cargos actualizados en el catálogo con las nuevas tarifas salariales
-                    </div>
-                  )}
-                  {importResult.errores.slice(0,3).map((e,i) => <div key={i} style={{ fontSize:"0.75rem", color:"#92400e" }}>{e}</div>)}
+                  <div style={{ fontSize:"0.83rem", color:"#374151", lineHeight:"1.7" }}>
+                    {importResult.ok > 0 && <div>👤 <strong>{importResult.ok}</strong> trabajadores nuevos creados</div>}
+                    {importResult.actualizados > 0 && <div>🔄 <strong>{importResult.actualizados}</strong> trabajadores existentes vinculados al cliente</div>}
+                    {importResult.cargosActualizados > 0 && <div>📋 <strong>{importResult.cargosActualizados}</strong> cargos actualizados en catálogo</div>}
+                    {importResult.errores.length > 0 && <div style={{color:"#92400e"}}>⚠️ {importResult.errores.length} fila(s) sin nombre/cédula ignoradas</div>}
+                  </div>
                 </div>
               )}
 
