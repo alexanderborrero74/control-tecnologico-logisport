@@ -200,11 +200,18 @@ export default function NominaAdministrar() {
         }));
         await batchInit.commit();
       }
-      // Cargar clientes actualizados — deduplicar por ID
+      // Cargar clientes actualizados — deduplicar por ID y por nombre
       const clientesMap = new Map();
       clientesSnap.docs.forEach(d => clientesMap.set(d.id, { id:d.id, ...d.data() }));
       faltantes.forEach(c => { if (!clientesMap.has(c.id)) clientesMap.set(c.id, { ...c }); });
-      const clientesData = Array.from(clientesMap.values());
+      // Deduplicar por nombre (mantener el primero que aparezca)
+      const seenNombresAdm = new Set();
+      const clientesData = Array.from(clientesMap.values()).filter(c => {
+        const key = (c.nombre||'').toUpperCase().trim();
+        if (seenNombresAdm.has(key)) return false;
+        seenNombresAdm.add(key);
+        return true;
+      });
       const orden = ["spia","cliente1","cliente2","cliente3","admon"];
       clientesData.sort((a,b) => {
         const ia = orden.indexOf(a.id); const ib = orden.indexOf(b.id);

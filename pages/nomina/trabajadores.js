@@ -218,8 +218,16 @@ export default function NominaTrabajadores() {
           if (ia===-1) return 1; if (ib===-1) return -1;
           return ia - ib;
         });
-        // merge con CLIENTES_BASE para fallback de color/emoji
-        const merged = data.map(c => { const base = CLIENTES_BASE.find(b => b.id === c.id); return { color:"#6366f1", emoji:"🏢", ...base, ...c }; });
+        // merge con CLIENTES_BASE para fallback de color/emoji + deduplicar por nombre
+        const seenNombres = new Set();
+        const merged = data
+          .map(c => { const base = CLIENTES_BASE.find(b => b.id === c.id); return { color:"#6366f1", emoji:"🏢", ...base, ...c }; })
+          .filter(c => {
+            const key = (c.nombre||'').toUpperCase().trim();
+            if (seenNombres.has(key)) return false;
+            seenNombres.add(key);
+            return true;
+          });
         setClientes(merged.length > 0 ? merged : CLIENTES_BASE);
       }
     } catch {}
