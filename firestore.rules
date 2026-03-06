@@ -1,0 +1,467 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /* ======================
+       Helpers
+    =======================*/
+    function isSignedIn() { return request.auth != null; }
+    function isSelf(uid) { return isSignedIn() && request.auth.uid == uid; }
+
+    // Admin por custom claim o por doc de usuarios/{uid}.rol
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.admin == true ||
+        (
+          exists(/databases/$(database)/documents/usuarios/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.rol in
+            ['admin','administrador','administracion','owner']
+        )
+      );
+    }
+
+    // Auditor: puede leer para estadísticas e indicadores
+    function isAuditor() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/usuarios/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.rol in
+          ['auditor','audit','revisor']
+      );
+    }
+
+    /* ======================
+       LOGINS
+    ======================*/
+    match /logins/{logId} {
+      // Solo admin puede leer todo el historial
+      allow read: if isAdmin();
+
+      // Cualquier usuario autenticado puede CREAR su propio registro de login
+      allow create: if
+        isSignedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['uid','email','role','rol','timestamp','fecha','source'])
+        && (
+             !( 'email' in request.resource.data )
+             || !( 'email' in request.auth.token )
+             || request.resource.data.email == request.auth.token.email
+           )
+        && (
+             ( 'role' in request.resource.data && request.resource.data.role in ['admin','usuario'] ) ||
+             ( 'rol'  in request.resource.data && request.resource.data.rol  in ['admin','usuario'] )
+           )
+        && (
+             ( 'timestamp' in request.resource.data && request.resource.data.timestamp is timestamp ) ||
+             ( 'fecha'     in request.resource.data && request.resource.data.fecha     is timestamp )
+           );
+
+      // No se permite editar ni borrar trazas
+      allow update, delete: if false;
+    }
+
+    // ¿El doc "pertenece" al usuario? (acepta varios nombres de campo)
+    function isOwner(res) {
+      return isSignedIn() && (
+        res.data.uid == request.auth.uid ||
+        res.data.usuarioUid == request.auth.uid ||
+        res.data.solicitanteUid == request.auth.uid ||
+        res.data.creadoPorUid == request.auth.uid ||
+        res.data.tecnicoUid == request.auth.uid
+      );
+    }
+
+    // Para creaciones: ¿está declarando su propio UID en alguno de esos campos?
+    function isCreatingOwn(req) {
+      return isSignedIn() && (
+        req.resource.data.uid == request.auth.uid ||
+        req.resource.data.usuarioUid == request.auth.uid ||
+        req.resource.data.solicitanteUid == request.auth.uid ||
+        req.resource.data.creadoPorUid == request.auth.uid ||
+        req.resource.data.tecnicoUid == request.auth.uid
+      );
+    }
+
+    /* ======================
+       USUARIOS (Perfiles de usuario individuales)
+    =======================*/
+    match /usuarios/{uid} {
+      allow read: if isSelf(uid) || isAdmin();
+      // crear tu propio perfil
+      allow create: if isSelf(uid);
+      // actualizar: el usuario puede editar su perfil excepto el rol; el rol solo admin
+      allow update: if
+        isAdmin() ||
+        ( isSelf(uid) && request.resource.data.rol == resource.data.rol );
+      // borrar: solo admin
+      allow delete: if isAdmin();
+    }
+
+    /* ======================
+       USUARIOS CATÁLOGO (Sistema de gestión dinámica de usuarios)
+       ⚠️ NUEVO: Catálogo de usuarios para formularios
+    =======================*/
+    match /usuariosCatalogo/{usuarioId} {
+      // Leer: cualquier usuario autenticado puede leer el catálogo
+      allow read: if isSignedIn();
+      
+      // Crear/Actualizar/Eliminar: cualquier usuario autenticado
+      // (Cambia a isAdmin() si solo quieres que admins gestionen el catálogo)
+      allow create, update, delete: if isSignedIn();
+    }
+
+    /* ======================
+       CARGOS CATÁLOGO (Catálogo de cargos para formularios)
+    =======================*/
+    match /cargosCatalogo/{cargoId} {
+      // Leer: cualquier usuario autenticado puede leer el catálogo
+      allow read: if isSignedIn();
+      
+      // Crear/Actualizar/Eliminar: solo admin
+      allow create, update, delete: if isAdmin();
+    }
+
+    /* ======================
+       TÉCNICOS (Catálogo de técnicos externos para servicios)
+    =======================*/
+    match /tecnicos/{tecnicoId} {
+      // Leer: cualquier usuario autenticado (se usa en formularios de servicios)
+      allow read: if isSignedIn();
+      
+      // Crear/Actualizar/Eliminar: solo admin
+      allow create, update, delete: if isAdmin();
+    }
+
+    /* ======================
+       SOLICITUDES
+       (usuarios ven las suyas; admin todo)
+    =======================*/
+    match /solicitudes/{sid} {
+      allow read: if isAdmin() || isOwner(resource);
+      // Debe quedar registrado el UID del usuario que crea
+      allow create: if isCreatingOwn(request);
+      allow update: if isAdmin() || isOwner(resource);
+      allow delete: if isAdmin();
+    }
+
+    /* ======================
+       SERVICIOS TÉCNICOS
+       (admin todo; usuarios solo propios si el doc guarda su UID; auditor lectura total)
+    =======================*/
+    match /serviciosTecnicos/{id} {
+      allow read: if isAdmin() || isAuditor() || isOwner(resource);
+      // permite crear siempre que establezca su propio UID en alguno de los campos aceptados
+      allow create: if isCreatingOwn(request) || isAdmin();
+      allow update: if isAdmin() || isOwner(resource);
+      allow delete: if isAdmin();
+    }
+
+    /* ======================
+       LICENCIAS
+       (sensibles: admin puede todo; auditor puede leer)
+    =======================*/
+    match /licencias/{id} {
+      allow read: if isAdmin() || isAuditor();
+      allow create, update, delete: if isAdmin();
+    }
+
+    /* ======================
+       PENDIENTES
+       (puede ser admin o dueño)
+    =======================*/
+    match /pendientes/{id} {
+      allow read: if isAdmin() || isOwner(resource);
+      allow create: if isCreatingOwn(request) || isAdmin();
+      allow update: if isAdmin() || isOwner(resource);
+      allow delete: if isAdmin();
+    }
+
+    /* ======================
+       ALERTAS
+       (admin todo; usuarios solo las suyas si el doc guarda su UID)
+    ======================*/
+    match /alertas/{id} {
+      // Leer: los administradores pueden ver todas; los usuarios solo las propias
+      allow read: if isAdmin() || isOwner(resource);
+
+      // Crear: debe registrar su propio UID o ser admin
+      allow create: if isCreatingOwn(request) || isAdmin();
+
+      // Actualizar: admin o dueño (por si se marca como leída)
+      allow update: if isAdmin() || isOwner(resource);
+
+      // Eliminar: solo admin
+      allow delete: if isAdmin();
+    }
+
+    /* ======================
+       CÁPSULAS
+    =======================*/
+    match /capsulas/{id} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    /* ======================
+       CONFIGURACIÓN (para notificaciones configurables)
+    =======================*/
+    match /configuracion/{docId} {
+      // Leer: cualquier usuario autenticado
+      allow read: if isSignedIn();
+      // Escribir: solo admin
+      allow write: if isAdmin();
+    }
+
+    /* ======================
+       LOGINS (bloque adicional que ya tenías)
+    =======================*/
+    match /logins/{logId} {
+      allow create: if
+        isSignedIn() &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.email == request.auth.token.email &&
+        (request.resource.data.rol == 'admin' || request.resource.data.rol == 'usuario') &&
+        request.resource.data.fecha is timestamp;
+      allow read: if isAdmin();
+      allow update, delete: if false;
+    }
+
+    /* ======================
+       CONTADORES (consecutivos)
+       Ej: contadores/solicitudes_LOGI
+    =======================*/
+    match /contadores/{nombre} {
+      // Leer: autenticados
+      allow read: if isSignedIn();
+
+      // Crear contador por primera vez: solo admin
+      allow create: if isAdmin();
+
+      // Actualizar: autenticado, solo cambia claves permitidas y obliga incremento +1
+      allow update: if isSignedIn()
+        && resource.data.diff(request.resource.data).changedKeys().hasOnly(['valor','consecutivo','seq','updatedAt','updatedBy'])
+        && (
+             (('valor' in resource.data) && ('valor' in request.resource.data)
+               && request.resource.data.valor is int
+               && request.resource.data.valor == resource.data.valor + 1)
+          || (('consecutivo' in resource.data) && ('consecutivo' in request.resource.data)
+               && request.resource.data.consecutivo is int
+               && request.resource.data.consecutivo == resource.data.consecutivo + 1)
+          || (('seq' in resource.data) && ('seq' in request.resource.data)
+               && request.resource.data.seq is int
+               && request.resource.data.seq == resource.data.seq + 1)
+        );
+
+      // Borrar: solo admin
+      allow delete: if isAdmin();
+    }
+
+    /* ======================
+       MAIL / COLA DE CORREO
+       (para Trigger Email/worker propio)
+    =======================*/
+    match /mail/{messageId} {
+      allow create: if isSignedIn();
+      allow read, update, delete: if false;
+    }
+
+    /* ======================
+       DOCUMENTACION
+       (lectura pública; creación solo autenticados con campos mínimos)
+    =======================*/
+    match /documentacion/{docId} {
+      allow read: if true;
+
+      allow create: if isSignedIn()
+        && request.resource.data.name is string
+        && request.resource.data.url is string
+        && request.resource.data.extension is string;
+
+      // ✅ Permitir borrar: admin o dueño (si el doc guarda alguno de los campos uid/usuarioUid/solicitanteUid/creadoPorUid/tecnicoUid)
+      allow delete: if isAdmin() || isOwner(resource);
+
+      // Seguimos sin permitir updates para no romper tu flujo actual
+      allow update: if false;
+    }
+
+    /* ======================
+       REGISTRO FOTOGRÁFICO
+    =======================*/
+    match /registroFotografico/{id} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isAdmin() || isOwner(resource);
+      allow delete: if isAdmin() || isOwner(resource);
+    }
+
+    /* ======================
+       HOJA DE VIDA EQUIPOS
+    =======================*/
+    match /hojaVidaEquipos/{id} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isAdmin() || isOwner(resource);
+      allow delete: if isAdmin();
+    }
+
+    /* ======================
+       CREDENCIALES (MUY SENSIBLES)
+       Solo admin
+    =======================*/
+    match /credenciales_servidor/{id}     { allow read, write: if isAdmin(); }
+    match /credenciales_correo/{id}       { allow read, write: if isAdmin(); }
+    match /credenciales_nube/{id}         { allow read, write: if isAdmin(); }
+    match /credenciales_equipo/{id}       { allow read, write: if isAdmin(); }
+    match /credenciales_syga/{id}         { allow read, write: if isAdmin(); }
+    match /credenciales_sitios/{id}       { allow read, write: if isAdmin(); }
+
+    /* ======================
+       NÓMINA — Colecciones del módulo de nómina
+       Roles: admin, admin_nomina, rrhh
+    =======================*/
+
+    function isNominaAdmin() {
+      return isSignedIn() && (
+        isAdmin() ||
+        (
+          exists(/databases/$(database)/documents/usuarios/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.rol in
+            ['admin_nomina', 'nomina']
+        )
+      );
+    }
+
+    function isNominaRRHH() {
+      return isSignedIn() && (
+        isNominaAdmin() ||
+        (
+          exists(/databases/$(database)/documents/usuarios/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.rol in
+            ['rrhh']
+        )
+      );
+    }
+
+    // Trabajadores del módulo nómina
+    match /nomina_trabajadores/{id} {
+      allow read: if isNominaRRHH();
+      allow create, update: if isNominaAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // Catálogo de servicios y tarifas
+    match /nomina_servicios/{id} {
+      allow read: if isNominaRRHH();
+      allow create, update: if isNominaAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // Registro de operaciones (Matriz)
+    match /nomina_operaciones/{id} {
+      allow read: if isNominaRRHH();
+      allow create, update: if isNominaAdmin();
+      allow delete: if isNominaAdmin();
+    }
+
+    // Períodos de nómina (NOMINA PRUEBA)
+    // Lectura pública: los trabajadores consultan su comprobante por cédula desde /mi-pago
+    match /nomina_periodos/{id} {
+      allow read: if true;          // público — acceso controlado por cédula en el cliente
+      allow create, update: if isNominaAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // Catálogo de cargos (página administrar)
+    match /nomina_cargos/{id} {
+      allow read: if isNominaRRHH();
+      allow create, update: if isNominaAdmin();
+      allow delete: if isNominaAdmin();
+    }
+
+    // Catálogo de cuadrillas - configuración (página administrar)
+    match /nomina_cuadrillas_config/{id} {
+      allow read: if isNominaRRHH();
+      allow create, update: if isNominaAdmin();
+      allow delete: if isNominaAdmin();
+    }
+
+    // Listado de Asistencia — composición de cuadrillas
+    match /nomina_asistencia/{id} {
+      allow read: if isNominaRRHH();
+      allow create, update: if isNominaAdmin();
+      allow delete: if isNominaAdmin();
+    }
+
+    // Registro mensual de asistencia — novedades por día
+    match /nomina_asistencia_registro/{id} {
+      allow read: if isNominaRRHH();
+      allow create, update: if isNominaAdmin();
+      allow delete: if isNominaAdmin();
+    }
+
+    // Catálogo de motivos (página administrar)
+    match /nomina_motivos/{id} {
+      allow read: if isNominaRRHH();
+      allow create, update: if isNominaAdmin();
+      allow delete: if isNominaAdmin();
+    }
+
+    // Catálogo de observaciones (página administrar)
+    match /nomina_observaciones/{id} {
+      allow read: if isNominaRRHH();
+      allow create, update: if isNominaAdmin();
+      allow delete: if isNominaAdmin();
+    }
+
+    // Catálogo de novedades de asistencia (página administrar)
+    match /nomina_novedades/{id} {
+      allow read: if isNominaRRHH();
+      allow create, update: if isNominaAdmin();
+      allow delete: if isNominaAdmin();
+    }
+
+    // Adelantos de salario
+    match /nomina_adelantos/{id} {
+      allow read: if isNominaRRHH();
+      allow create: if isNominaRRHH();
+      allow update: if isNominaAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // Clientes del módulo nómina
+    match /nomina_clientes/{id} {
+      allow read: if isNominaRRHH();
+      allow create, update: if isNominaAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // Subgrupos contables (centros de costo) por cliente
+    match /nomina_subgrupos/{id} {
+      allow read: if isNominaRRHH();
+      allow create, update: if isNominaAdmin();
+      allow delete: if isNominaAdmin();
+    }
+
+    // Desprendibles de pago — lectura pública (por token o cédula), escritura solo admin
+    match /nomina_desprendibles/{id} {
+      allow read: if true; // el trabajador accede por token o cédula sin auth
+      allow create, update: if isNominaAdmin();
+      allow delete: if isNominaAdmin();
+    }
+
+    /* ======================
+       CONFIG ACCESOS
+       (contraseñas y accesos directos por módulo)
+    =======================*/
+    match /config_accesos/{moduloId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    /* ======================
+       Denegar el resto
+    =======================*/
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

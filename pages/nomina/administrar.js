@@ -108,11 +108,19 @@ const TABS = [
 
 // Clientes predeterminados del sistema
 const CLIENTES_DEFAULT = [
-  { id:"spia",     nombre:"SPIA",     color:"#0B3D91", emoji:"🏭", descripcion:"Cliente principal — Puerto SPIA",       codContable:"CC110206" },
-  { id:"cliente1", nombre:"Cliente 1",color:"#10b981", emoji:"🏢", descripcion:"Sin datos aún",                         codContable:"" },
-  { id:"cliente2", nombre:"CIAMSA 2", color:"#8b5cf6", emoji:"🏗️", descripcion:"CIAMSA — Terminal 2",                  codContable:"CC110203" },
-  { id:"cliente3", nombre:"CIAMSA 3", color:"#f59e0b", emoji:"🏭", descripcion:"CIAMSA — Terminal 3",                  codContable:"CC110203" },
-  { id:"admon",    nombre:"ADMON SPIA",color:"#6366f1", emoji:"🏛️", descripcion:"Personal administrativo y operativo", codContable:"CC110205" },
+  { id:"spia",     nombre:"SPIA",     color:"#0B3D91", emoji:"🏭", descripcion:"Cliente principal — Puerto SPIA",  codContable:"CC110206" },
+  { id:"cliente1", nombre:"Cliente 1",color:"#10b981", emoji:"🏢", descripcion:"Sin datos aún",                    codContable:"" },
+  { id:"cliente2", nombre:"CIAMSA 2", color:"#8b5cf6", emoji:"🏗️", descripcion:"CIAMSA — Terminal 2",             codContable:"CC110203" },
+  { id:"cliente3", nombre:"CIAMSA 3", color:"#f59e0b", emoji:"🏭", descripcion:"CIAMSA — Terminal 3",             codContable:"CC110203" },
+];
+
+// Subgrupos contables predeterminados por cliente (código y nombre en campos separados)
+const SUBGRUPOS_DEFAULT = [
+  { clienteId:"spia",    codigo:"110204", nombre:"Estibadores",  orden:1 },
+  { clienteId:"spia",    codigo:"110205", nombre:"Admon",        orden:2 },
+  { clienteId:"spia",    codigo:"110226", nombre:"Operadores",   orden:3 },
+  { clienteId:"spia",    codigo:"110207", nombre:"Estibador -1", orden:4 },
+  { clienteId:"cliente3",codigo:"110203", nombre:"CIAMSA",       orden:1 },
 ];
 
 const COLECCION = {
@@ -162,6 +170,13 @@ export default function NominaAdministrar() {
   const [formCodContable, setFormCodContable] = useState("");
   const [formClienteDocId, setFormClienteDocId] = useState(""); // ID Firestore para nuevo cliente
   const [clientesTrabCount, setClientesTrabCount] = useState({}); // clienteId → count
+  const [subgrupos, setSubgrupos] = useState([]); // todos los subgrupos de nomina_subgrupos
+  // Formulario subgrupo inline
+  const [agregandoSubClienteId, setAgregandoSubClienteId] = useState(null);
+  const [editandoSubId, setEditandoSubId] = useState(null);
+  const [formSubCodigo, setFormSubCodigo] = useState("");
+  const [formSubNombre, setFormSubNombre] = useState("");
+  const [guardandoSub, setGuardandoSub] = useState(false);
   const [agregando, setAgregando] = useState(false);
   const [guardando, setGuardando] = useState(false);
 
@@ -183,11 +198,12 @@ export default function NominaAdministrar() {
   const cargarTodo = async () => {
     setCargando(true);
     try {
-      const [cargosSnap, novSnap, clientesSnap, trabSnap] = await Promise.all([
+      const [cargosSnap, novSnap, clientesSnap, trabSnap, subgruposSnap] = await Promise.all([
         getDocs(query(collection(db, "nomina_cargos"),    orderBy("nombre"))),
         getDocs(query(collection(db, "nomina_novedades"), orderBy("orden"))),
         getDocs(collection(db, "nomina_clientes")),
         getDocs(collection(db, "nomina_trabajadores")),
+        getDocs(query(collection(db, "nomina_subgrupos"), orderBy("orden"))),
       ]);
       // Asegurar que todos los clientes por defecto existan en Firestore
       const existIds = new Set(clientesSnap.docs.map(d => d.id));
@@ -200,11 +216,11 @@ export default function NominaAdministrar() {
         }));
         await batchInit.commit();
       }
-      // Cargar clientes actualizados — deduplicar por ID y por nombre
+      // Cargar clientes — excluir ID "admon" (fue migrado a subgrupo de SPIA)
       const clientesMap = new Map();
-      clientesSnap.docs.forEach(d => clientesMap.set(d.id, { id:d.id, ...d.data() }));
+      clientesSnap.docs.forEach(d => { if (d.id !== "admon") clientesMap.set(d.id, { id:d.id, ...d.data() }); });
       faltantes.forEach(c => { if (!clientesMap.has(c.id)) clientesMap.set(c.id, { ...c }); });
-      // Deduplicar por nombre (mantener el primero que aparezca)
+      // Deduplicar por nombre
       const seenNombresAdm = new Set();
       const clientesData = Array.from(clientesMap.values()).filter(c => {
         const key = (c.nombre||'').toUpperCase().trim();
@@ -212,9 +228,9 @@ export default function NominaAdministrar() {
         seenNombresAdm.add(key);
         return true;
       });
-      const orden = ["spia","cliente1","cliente2","cliente3","admon"];
+      const ordenClientes = ["spia","cliente1","cliente2","cliente3"];
       clientesData.sort((a,b) => {
-        const ia = orden.indexOf(a.id); const ib = orden.indexOf(b.id);
+        const ia = ordenClientes.indexOf(a.id); const ib = ordenClientes.indexOf(b.id);
         if (ia === -1 && ib === -1) return (a.nombre||'').localeCompare(b.nombre||'');
         if (ia === -1) return 1; if (ib === -1) return -1;
         return ia - ib;
@@ -226,6 +242,23 @@ export default function NominaAdministrar() {
         ids.forEach(id => { counts[id] = (counts[id]||0)+1; });
       });
       setClientesTrabCount(counts);
+      // Cargar subgrupos — asegurar defaults
+      const subExistIds = new Set(subgruposSnap.docs.map(d => d.id));
+      const subFaltantes = SUBGRUPOS_DEFAULT.filter(s =>
+        !subgruposSnap.docs.some(d => d.data().clienteId===s.clienteId && d.data().codigo===s.codigo)
+      );
+      if (subFaltantes.length > 0) {
+        const batchSub = writeBatch(db);
+        subFaltantes.forEach(s => {
+          const ref = doc(collection(db, "nomina_subgrupos"));
+          batchSub.set(ref, { ...s, activo:true, creadoEn:new Date() });
+        });
+        await batchSub.commit();
+        const subSnap2 = await getDocs(query(collection(db, "nomina_subgrupos"), orderBy("orden")));
+        setSubgrupos(subSnap2.docs.map(d => ({ id:d.id, ...d.data() })));
+      } else {
+        setSubgrupos(subgruposSnap.docs.map(d => ({ id:d.id, ...d.data() })));
+      }
       setDatos({
         cargos:    cargosSnap.docs.map(d => ({ id: d.id, ...d.data() })),
         novedades: novSnap.docs.map(d => ({ id: d.id, ...d.data() })),
@@ -431,6 +464,55 @@ export default function NominaAdministrar() {
     if (!confirm(`¿Eliminar "${nombre}"?`)) return;
     await deleteDoc(doc(db, COLECCION[tabActiva], item.id));
     await cargarTab(tabActiva);
+  };
+
+  // ── SUBGRUPOS CRUD ──
+  const iniciarNuevoSubgrupo = (clienteId) => {
+    setAgregandoSubClienteId(clienteId);
+    setEditandoSubId(null);
+    setFormSubCodigo("");
+    setFormSubNombre("");
+  };
+  const iniciarEditarSubgrupo = (sg) => {
+    setEditandoSubId(sg.id);
+    setAgregandoSubClienteId(null);
+    setFormSubCodigo(sg.codigo || "");
+    setFormSubNombre(sg.nombre || "");
+  };
+  const cancelarSubgrupo = () => {
+    setAgregandoSubClienteId(null);
+    setEditandoSubId(null);
+    setFormSubCodigo("");
+    setFormSubNombre("");
+  };
+  const guardarSubgrupo = async (clienteId) => {
+    if (!formSubNombre.trim() || !formSubCodigo.trim()) return;
+    setGuardandoSub(true);
+    try {
+      if (editandoSubId) {
+        await updateDoc(doc(db, "nomina_subgrupos", editandoSubId), {
+          codigo: formSubCodigo.trim(),
+          nombre: formSubNombre.trim(),
+          actualizadoEn: new Date(),
+        });
+      } else {
+        const maxOrden = Math.max(0, ...subgrupos.filter(s=>s.clienteId===clienteId).map(s=>s.orden||0));
+        await addDoc(collection(db, "nomina_subgrupos"), {
+          clienteId, codigo: formSubCodigo.trim(),
+          nombre: formSubNombre.trim(),
+          orden: maxOrden + 1, activo: true, creadoEn: new Date(),
+        });
+      }
+      const snap = await getDocs(query(collection(db, "nomina_subgrupos"), orderBy("orden")));
+      setSubgrupos(snap.docs.map(d => ({ id:d.id, ...d.data() })));
+      cancelarSubgrupo();
+    } catch(e) { alert("Error: " + e.message); }
+    setGuardandoSub(false);
+  };
+  const eliminarSubgrupo = async (sg) => {
+    if (!confirm(`¿Eliminar subgrupo "${sg.codigo} ${sg.nombre}"?`)) return;
+    await deleteDoc(doc(db, "nomina_subgrupos", sg.id));
+    setSubgrupos(prev => prev.filter(s => s.id !== sg.id));
   };
 
   const cambiarTab = (tab) => {
@@ -1095,7 +1177,7 @@ export default function NominaAdministrar() {
                         </div>
                       )}
                       {/* Stats */}
-                      <div style={{ display:"flex", gap:"0.6rem" }}>
+                      <div style={{ display:"flex", gap:"0.6rem", marginBottom:"0.85rem" }}>
                         <div style={{ flex:1, background:`${c.color||"#6366f1"}12`, borderRadius:"8px", padding:"0.5rem 0.75rem", textAlign:"center" }}>
                           <div style={{ fontWeight:"900", fontSize:"1.2rem", color:c.color||"#4f46e5" }}>{count}</div>
                           <div style={{ fontSize:"0.7rem", color:"#64748b" }}>Trabajadores</div>
@@ -1104,6 +1186,98 @@ export default function NominaAdministrar() {
                           onClick={()=>router.push(`/nomina/trabajadores`)}
                           title="Ver trabajadores de este cliente">
                           <div style={{ fontSize:"0.75rem", fontWeight:"700", color:"#0ea5e9", lineHeight:1.3 }}>Ver en<br/>Trabajadores →</div>
+                        </div>
+                      </div>
+                      {/* ── SUBGRUPOS CONTABLES ── */}
+                      <div style={{ borderTop:"1px solid #f1f5f9", paddingTop:"0.75rem" }}>
+                        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:"0.5rem" }}>
+                          <span style={{ fontSize:"0.72rem", fontWeight:"800", color:"#475569", textTransform:"uppercase", letterSpacing:"0.05em" }}>📊 Centros de Costo</span>
+                          <button onClick={()=>iniciarNuevoSubgrupo(c.id)}
+                            style={{ background:`${c.color||"#6366f1"}15`, border:`1px solid ${c.color||"#6366f1"}30`,
+                              borderRadius:"6px", padding:"2px 8px", fontSize:"0.7rem",
+                              color:c.color||"#6366f1", fontWeight:"700", cursor:"pointer",
+                              display:"flex", alignItems:"center", gap:"3px" }}>
+                            <Plus size={10}/> Nuevo
+                          </button>
+                        </div>
+                        {/* Fila nueva subgrupo */}
+                        {agregandoSubClienteId === c.id && (
+                          <div style={{ display:"flex", gap:"0.4rem", marginBottom:"0.5rem", alignItems:"center" }}>
+                            <input value={formSubCodigo} onChange={e=>setFormSubCodigo(e.target.value)}
+                              placeholder="Código (ej: 110204)"
+                              style={{ width:"110px", border:"1.5px solid #a5b4fc", borderRadius:"6px",
+                                padding:"0.3rem 0.5rem", fontSize:"0.78rem", fontFamily:"monospace",
+                                fontWeight:"700", boxSizing:"border-box" }}/>
+                            <input autoFocus value={formSubNombre} onChange={e=>setFormSubNombre(e.target.value)}
+                              onKeyDown={e=>{ if(e.key==="Enter")guardarSubgrupo(c.id); if(e.key==="Escape")cancelarSubgrupo(); }}
+                              placeholder="Nombre del subgrupo"
+                              style={{ flex:1, border:"1.5px solid #a5b4fc", borderRadius:"6px",
+                                padding:"0.3rem 0.5rem", fontSize:"0.78rem", boxSizing:"border-box" }}/>
+                            <button onClick={()=>guardarSubgrupo(c.id)} disabled={guardandoSub||!formSubNombre.trim()||!formSubCodigo.trim()}
+                              style={{ background:"#f0fdf4", border:"1.5px solid #10b981", borderRadius:"6px",
+                                padding:"0.3rem 0.45rem", cursor:"pointer", color:"#10b981" }}>
+                              <Check size={12}/>
+                            </button>
+                            <button onClick={cancelarSubgrupo}
+                              style={{ background:"#fff1f2", border:"1.5px solid #fca5a5", borderRadius:"6px",
+                                padding:"0.3rem 0.45rem", cursor:"pointer", color:"#ef4444" }}>
+                              <X size={12}/>
+                            </button>
+                          </div>
+                        )}
+                        {/* Lista de subgrupos */}
+                        <div style={{ display:"flex", flexDirection:"column", gap:"0.3rem" }}>
+                          {subgrupos.filter(sg=>sg.clienteId===c.id).map(sg => (
+                            <div key={sg.id} style={{ display:"flex", alignItems:"center", gap:"0.4rem",
+                              background:editandoSubId===sg.id?"#fffbeb":"#f8fafc",
+                              borderRadius:"7px", padding:"0.3rem 0.5rem",
+                              border:`1px solid ${editandoSubId===sg.id?"#fbbf24":"#f1f5f9"}` }}>
+                              {editandoSubId === sg.id ? (
+                                <>
+                                  <input value={formSubCodigo} onChange={e=>setFormSubCodigo(e.target.value)}
+                                    style={{ width:"100px", border:"1.5px solid #fbbf24", borderRadius:"5px",
+                                      padding:"0.2rem 0.4rem", fontSize:"0.75rem", fontFamily:"monospace",
+                                      fontWeight:"700", boxSizing:"border-box" }}/>
+                                  <input autoFocus value={formSubNombre} onChange={e=>setFormSubNombre(e.target.value)}
+                                    onKeyDown={e=>{ if(e.key==="Enter")guardarSubgrupo(sg.clienteId); if(e.key==="Escape")cancelarSubgrupo(); }}
+                                    style={{ flex:1, border:"1.5px solid #fbbf24", borderRadius:"5px",
+                                      padding:"0.2rem 0.4rem", fontSize:"0.75rem", boxSizing:"border-box" }}/>
+                                  <button onClick={()=>guardarSubgrupo(sg.clienteId)} disabled={guardandoSub}
+                                    style={{ background:"#f0fdf4", border:"1px solid #10b981", borderRadius:"5px",
+                                      padding:"0.2rem 0.35rem", cursor:"pointer", color:"#10b981" }}>
+                                    <Check size={11}/>
+                                  </button>
+                                  <button onClick={cancelarSubgrupo}
+                                    style={{ background:"#fff1f2", border:"1px solid #fca5a5", borderRadius:"5px",
+                                      padding:"0.2rem 0.35rem", cursor:"pointer", color:"#ef4444" }}>
+                                    <X size={11}/>
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <span style={{ fontFamily:"monospace", fontWeight:"800", fontSize:"0.73rem",
+                                    background:`${c.color||"#6366f1"}15`, color:c.color||"#6366f1",
+                                    borderRadius:"5px", padding:"1px 6px", flexShrink:0 }}>
+                                    {sg.codigo}
+                                  </span>
+                                  <span style={{ flex:1, fontSize:"0.78rem", fontWeight:"600", color:"#334155" }}>{sg.nombre}</span>
+                                  <button onClick={()=>iniciarEditarSubgrupo(sg)}
+                                    style={{ background:"transparent", border:"none", padding:"2px 4px",
+                                      cursor:"pointer", color:"#94a3b8", borderRadius:"4px" }}>
+                                    <Edit2 size={11}/>
+                                  </button>
+                                  <button onClick={()=>eliminarSubgrupo(sg)}
+                                    style={{ background:"transparent", border:"none", padding:"2px 4px",
+                                      cursor:"pointer", color:"#fca5a5", borderRadius:"4px" }}>
+                                    <Trash2 size={11}/>
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          ))}
+                          {subgrupos.filter(sg=>sg.clienteId===c.id).length === 0 && agregandoSubClienteId !== c.id && (
+                            <div style={{ fontSize:"0.72rem", color:"#cbd5e1", fontStyle:"italic", padding:"0.25rem 0" }}>Sin centros de costo definidos</div>
+                          )}
                         </div>
                       </div>
                     </div>
