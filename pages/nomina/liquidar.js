@@ -996,39 +996,32 @@ export default function NominaLiquidar() {
 
           {/* ═══ BARRA FILTROS + HERRAMIENTAS ═══ */}
           <div style={{
-            padding: "0.75rem 1.25rem",
-            display: "flex", gap: "0.6rem", flexWrap: "wrap", alignItems: "center",
+            padding: "0.6rem 1.25rem",
+            display: "flex", flexDirection: "column", gap: "0.5rem",
             background: "#ffffff",
             boxShadow: "0 4px 20px rgba(11,61,145,0.18)",
             borderBottom: "2.5px solid #bfdbfe",
           }}>
-            <button onClick={agregarFila} style={btnStyle(ACCENT, false, "sm")}>
-              <Plus size={14} /> Agregar fila
-            </button>
-            <button onClick={cargarTodosTrabajadores} style={btnStyle("#8b5cf6", false, "sm")}>
-              <UserPlus size={14} /> Cargar trabajadores BD
-            </button>
-            {filas.length > 0 && (
-              <button onClick={() => { if (confirm("¿Limpiar todas las filas?")) setFilas([]); }}
-                style={btnStyle(DANGER, false, "sm")}>
-                <Trash2 size={14} /> Limpiar todo
-              </button>
-            )}
 
-            {/* ── Filtros de búsqueda — siempre visibles ── */}
-            <div style={{ marginLeft: "auto", display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+            {/* ── Fila 1: Filtros de búsqueda — SIEMPRE VISIBLES A LA IZQUIERDA ── */}
+            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+              {/* Etiqueta */}
+              <span style={{ fontSize: "0.72rem", color: "#94a3b8", fontWeight: "700", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: "0.25rem" }}>
+                <Search size={12} /> FILTRAR:
+              </span>
+
               {/* Filtro NOMBRE */}
               <div style={{ position: "relative" }}>
                 <Search size={13} style={{ position: "absolute", left: "0.6rem", top: "50%", transform: "translateY(-50%)", color: "#94a3b8", pointerEvents: "none" }} />
                 <input
                   value={filtroNombre}
                   onChange={e => setFiltroNombre(e.target.value)}
-                  placeholder="Buscar nombre..."
+                  placeholder="Nombre..."
                   style={{
                     border: `1.5px solid ${filtroNombre ? PRIMARY : "#e2e8f0"}`,
-                    borderRadius: "8px", padding: "0.42rem 1.8rem 0.42rem 2rem",
+                    borderRadius: "8px", padding: "0.38rem 1.6rem 0.38rem 2rem",
                     fontSize: "0.82rem", outline: "none",
-                    background: filtroNombre ? "#eff6ff" : "#f8fafc", width: "190px",
+                    background: filtroNombre ? "#eff6ff" : "#f8fafc", width: "160px",
                     color: "#1e293b", transition: "border-color 0.15s",
                   }}
                 />
@@ -1044,13 +1037,13 @@ export default function NominaLiquidar() {
                 <input
                   value={filtroCedula}
                   onChange={e => setFiltroCedula(e.target.value)}
-                  placeholder="Buscar cédula..."
+                  placeholder="Cédula..."
                   inputMode="numeric"
                   style={{
                     border: `1.5px solid ${filtroCedula ? "#8b5cf6" : "#e2e8f0"}`,
-                    borderRadius: "8px", padding: "0.42rem 1.8rem 0.42rem 2rem",
+                    borderRadius: "8px", padding: "0.38rem 1.6rem 0.38rem 2rem",
                     fontSize: "0.82rem", outline: "none", fontFamily: "monospace",
-                    background: filtroCedula ? "#f5f3ff" : "#f8fafc", width: "165px",
+                    background: filtroCedula ? "#f5f3ff" : "#f8fafc", width: "140px",
                     color: "#1e293b", transition: "border-color 0.15s",
                   }}
                 />
@@ -1069,13 +1062,13 @@ export default function NominaLiquidar() {
                     style={{
                       border: `1.5px solid ${filtroSubgrupo ? "#f59e0b" : "#e2e8f0"}`,
                       borderRadius: "8px",
-                      padding: "0.42rem 0.9rem 0.42rem 0.75rem",
+                      padding: "0.38rem 0.9rem 0.38rem 0.75rem",
                       fontSize: "0.82rem", outline: "none",
                       background: filtroSubgrupo ? "#fffbeb" : "#f8fafc",
                       color: filtroSubgrupo ? "#92400e" : "#64748b",
                       fontWeight: filtroSubgrupo ? "700" : "500",
                       cursor: "pointer", height: "34px",
-                      transition: "border-color 0.15s", minWidth: "175px",
+                      transition: "border-color 0.15s", minWidth: "170px",
                     }}
                   >
                     <option value="">📊 Centro de costo...</option>
@@ -1090,6 +1083,7 @@ export default function NominaLiquidar() {
                 </div>
               )}
 
+              {/* Contador + limpiar */}
               {hayFiltro && (
                 <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
                   <span style={{ fontSize: "0.78rem", color: "#64748b", fontWeight: "700", background: "#f1f5f9", padding: "0.25rem 0.6rem", borderRadius: "20px", whiteSpace: "nowrap" }}>
@@ -1097,11 +1091,28 @@ export default function NominaLiquidar() {
                   </span>
                   <button onClick={limpiarFiltros}
                     style={{ background: "#f1f5f9", border: "none", borderRadius: "6px", padding: "0.28rem 0.55rem", cursor: "pointer", color: "#64748b", fontSize: "0.75rem", fontWeight: "700" }}>
-                    Limpiar
+                    ✕ Limpiar
                   </button>
                 </div>
               )}
             </div>
+
+            {/* ── Fila 2: Botones de acción ── */}
+            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+              <button onClick={agregarFila} style={btnStyle(ACCENT, false, "sm")}>
+                <Plus size={14} /> Agregar fila
+              </button>
+              <button onClick={cargarTodosTrabajadores} style={btnStyle("#8b5cf6", false, "sm")}>
+                <UserPlus size={14} /> Cargar trabajadores BD
+              </button>
+              {filas.length > 0 && (
+                <button onClick={() => { if (confirm("¿Limpiar todas las filas?")) setFilas([]); }}
+                  style={btnStyle(DANGER, false, "sm")}>
+                  <Trash2 size={14} /> Limpiar todo
+                </button>
+              )}
+            </div>
+
           </div>
 
             {/* Leyenda */}
