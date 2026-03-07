@@ -973,11 +973,11 @@ export default function NominaLiquidar() {
           </div>
         )}
 
-        {/* ── Tabla principal ── */}
-        <div id="nomina-print">
+        {/* Título + toolbar + leyenda: FUERA de nomina-print para no heredar el ancho de la tabla */}
+        <div style={{ background: "#fff", borderRadius: "12px 12px 0 0", boxShadow: "0 2px 4px rgba(0,0,0,0.04)", position: "sticky", top: 0, zIndex: 50, width: "100%", boxSizing: "border-box" }}>
 
-          {/* Título + toolbar + leyenda: FUERA del scroll, sticky al viewport */}
-          <div style={{ background: "#fff", borderRadius: "12px 12px 0 0", boxShadow: "0 2px 4px rgba(0,0,0,0.04)", position: "sticky", top: 0, zIndex: 50 }}>
+          {/* ── Tabla principal ── */}
+          {/* El div id=nomina-print ahora solo contiene la tabla */}
 
             {/* Título */}
             <div style={{ padding: "0.75rem 1.5rem", borderBottom: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
@@ -1132,6 +1132,9 @@ export default function NominaLiquidar() {
               ))}
             </div>
           </div>{/* fin sticky header */}
+
+        {/* ── Tabla principal — solo la tabla dentro de nomina-print ── */}
+        <div id="nomina-print">
 
           {/* Tabla — scroll libre horizontal + vertical, sin contenedor padre que recorte */}
           <div style={{
