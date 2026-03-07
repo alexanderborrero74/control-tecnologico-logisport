@@ -835,7 +835,7 @@ export default function NominaLiquidar() {
 
   return (
     <LayoutWithSidebar>
-      <div style={{ width: "100%" }}>
+      <div style={{ width: "100%", overflowX: "hidden" }}>
 
         {/* ── Header ── */}
         <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: "1.5rem", flexWrap: "wrap" }}>
