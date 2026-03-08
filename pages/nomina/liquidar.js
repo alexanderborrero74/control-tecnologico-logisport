@@ -326,6 +326,22 @@ export default function NominaLiquidar() {
   const agregarFila = () => setFilas(p => [...p, filaVacia(diasDef)]);
   const eliminarFila = key => setFilas(p => p.filter(f => f._key !== key));
 
+  // Eliminar cédulas duplicadas — conserva la primera ocurrencia de cada cédula
+  const deduplicarFilas = () => {
+    const vistas = new Set();
+    const unicas = filas.filter(f => {
+      const cc = String(f.cedula || "").trim();
+      if (!cc) return true; // sin cédula: conservar siempre
+      if (vistas.has(cc)) return false;
+      vistas.add(cc);
+      return true;
+    });
+    const eliminadas = filas.length - unicas.length;
+    if (eliminadas === 0) { alert("No hay cédulas duplicadas."); return; }
+    if (!confirm(`Se eliminarán ${eliminadas} fila(s) duplicada(s). ¿Continuar?`)) return;
+    setFilas(unicas);
+  };
+
   const actualizarFila = useCallback((key, campo, valor) => {
     setFilas(prev => prev.map(f => {
       if (f._key !== key) return f;
@@ -1132,6 +1148,13 @@ export default function NominaLiquidar() {
               <button onClick={cargarTodosTrabajadores} style={btnStyle("#8b5cf6", false, "sm")}>
                 <UserPlus size={14} /> Cargar trabajadores BD
               </button>
+              {filas.length > 0 && (
+                <button onClick={deduplicarFilas}
+                  title="Elimina filas con cédula repetida, conserva la primera"
+                  style={btnStyle("#0891b2", false, "sm")}>
+                  🗹 Sin duplicados
+                </button>
+              )}
               {filas.length > 0 && (
                 <button onClick={() => { if (confirm("¿Limpiar todas las filas?")) setFilas([]); }}
                   style={btnStyle(DANGER, false, "sm")}>
