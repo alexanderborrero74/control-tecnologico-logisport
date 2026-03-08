@@ -8,7 +8,7 @@ import { useRouter } from "next/router";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import {
   collection, getDocs, getDoc, setDoc, deleteDoc, doc,
-  query, orderBy, where, Timestamp
+  query, orderBy, where, Timestamp, writeBatch
 } from "firebase/firestore";
 import { db } from "@/firebase/firebaseConfig";
 import { getUserRoleByUid } from "@/utils/getUserRole";
@@ -113,7 +113,19 @@ export default function Desprendibles() {
   const cargarDesprendibles = async () => {
     try {
       const snap = await getDocs(collection(db, "nomina_desprendibles"));
-      setDesprendibles(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      const todos = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+      // Deduplicar por cédula: conservar solo el más reciente por trabajador
+      const porCedula = {};
+      todos.forEach(d => {
+        const ced = String(d.cedula || "").trim();
+        if (!ced) return;
+        const t = d.generadoEn?.toDate?.()?.getTime?.() || 0;
+        if (!porCedula[ced] || t > (porCedula[ced]._t || 0)) {
+          porCedula[ced] = { ...d, _t: t };
+        }
+      });
+      setDesprendibles(Object.values(porCedula).sort((a,b) => (a.nombre||"").localeCompare(b.nombre||"","es")));
     } catch(e) { console.error(e); }
   };
 
@@ -228,6 +240,29 @@ export default function Desprendibles() {
           const ced = String(ad.cedula || ad.trabajadorCedula || "").trim();
           if (ced) adelantosMap[ced] = (adelantosMap[ced] || 0) + (ad.monto || 0);
         });
+      } catch (_) {}
+
+      // Eliminar documentos viejos (versiones anteriores por quincena) de cada trabajador
+      // para que no queden duplicados en Firestore
+      try {
+        const todosSnap = await getDocs(collection(db, "nomina_desprendibles"));
+        const cedulasResumen = new Set(resumen.map(t => String(t.cedula || "").trim()).filter(Boolean));
+        const docsAEliminar = [];
+        todosSnap.docs.forEach(d => {
+          const ced  = String(d.data().cedula || "").trim();
+          const tk   = d.id;
+          // Eliminar si pertenece a un trabajador del resumen Y no es el nuevo token consolidado
+          if (cedulasResumen.has(ced)) {
+            const nuevoToken = generarToken(ced);
+            if (tk !== nuevoToken) docsAEliminar.push(tk);
+          }
+        });
+        // Borrar en lotes de 490
+        for (let i = 0; i < docsAEliminar.length; i += 490) {
+          const batch = writeBatch(db);
+          docsAEliminar.slice(i, i+490).forEach(tk => batch.delete(doc(db,"nomina_desprendibles",tk)));
+          await batch.commit();
+        }
       } catch (_) {}
 
       await Promise.all(resumen.map(t => {
