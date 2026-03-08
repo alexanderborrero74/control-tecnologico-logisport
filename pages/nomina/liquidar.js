@@ -128,7 +128,7 @@ export default function NominaLiquidar() {
   const [fechaInicio,    setFechaInicio]    = useState(def.fechaInicio);
   const [fechaFin,       setFechaFin]       = useState(def.fechaFin);
   const [filas,          setFilas]          = useState([]);
-  const [produccion,     setProduccion]     = useState({});
+  const [produccion,     setProduccion]     = useState({});  // { cedula: { total, ops:[{fecha,servicio,valor,modoHE,horasExtras}] } }
   const [listaCargos,    setListaCargos]    = useState([]);
   const [listaTrabaj,    setListaTrabaj]    = useState([]);
   const [loading,        setLoading]        = useState(true);
@@ -220,7 +220,7 @@ export default function NominaLiquidar() {
         orderBy("fecha"),
       ));
 
-      const prod = {};
+      const prod = {};  // { cedula: { total: number, ops: [...] } }
       let opsCount = 0;
       const trabajadoresSet = new Set();
 
@@ -234,15 +234,31 @@ export default function NominaLiquidar() {
         const op = d.data();
         opsCount++;
         const asisten = op.trabajadoresAsisten || [];
+        // Datos del concepto para el tooltip
+        const fechaStr  = op.fecha?.toDate ? op.fecha.toDate().toISOString().split("T")[0] : "";
+        const servNom   = op.servicioNombre || op.servicio || "";
+        const modoHE    = op.modoHorasExtras || false;
+        const hExtras   = op.horasExtras ?? null;
+        const cantOp    = op.cantidad ?? null;
+
         if (asisten.length > 0) {
           const netoPorPersona = op.netoAPagar || 0;
           asisten.forEach(w => {
             const cc = String(w.cedula || w.id || "").trim();
-            if (cc) { prod[cc] = (prod[cc] || 0) + netoPorPersona; trabajadoresSet.add(cc); }
+            if (!cc) return;
+            if (!prod[cc]) prod[cc] = { total: 0, ops: [] };
+            prod[cc].total += netoPorPersona;
+            prod[cc].ops.push({ fecha: fechaStr, servicio: servNom, valor: netoPorPersona, modoHE, horasExtras: hExtras, cantidad: cantOp });
+            trabajadoresSet.add(cc);
           });
         } else {
           const cc = String(op.trabajadorCedula || op.cedula || "").trim();
-          if (cc) { prod[cc] = (prod[cc] || 0) + (op.netoAPagar || 0); trabajadoresSet.add(cc); }
+          if (!cc) return;
+          if (!prod[cc]) prod[cc] = { total: 0, ops: [] };
+          const v = op.netoAPagar || 0;
+          prod[cc].total += v;
+          prod[cc].ops.push({ fecha: fechaStr, servicio: servNom, valor: v, modoHE, horasExtras: hExtras, cantidad: cantOp });
+          trabajadoresSet.add(cc);
         }
       });
 
@@ -347,15 +363,25 @@ export default function NominaLiquidar() {
   }, [listaTrabaj, listaCargos]);
 
   const cargarTodosTrabajadores = () => {
-    if (filas.length > 0 && !confirm("¿Reemplazar filas actuales con la lista completa?")) return;
-    setFilas(listaTrabaj.map(t => {
+    // Deduplicar: cédulas ya presentes en la tabla
+    const cedulasExistentes = new Set(filas.map(f => String(f.cedula || "").trim()).filter(Boolean));
+    const trabajadoresNuevos = listaTrabaj.filter(t => !cedulasExistentes.has(String(t.cedula || "").trim()));
+    if (filas.length === 0) {
+      // tabla vacía → cargar todos
+    } else if (trabajadoresNuevos.length === 0) {
+      alert("Todos los trabajadores ya están en la tabla."); return;
+    } else if (!confirm(`¿Agregar ${trabajadoresNuevos.length} trabajadores faltantes? (${cedulasExistentes.size} ya están)`)) {
+      return;
+    }
+    const fuente = filas.length === 0 ? listaTrabaj : trabajadoresNuevos;
+    setFilas(prev => [...prev, ...fuente.map(t => {
       const c = listaCargos.find(c => c.nombre === t.cargo);
       return {
         _key: ++_rowCounter, nombre: t.nombre || "", cedula: String(t.cedula || ""),
         cargo: t.cargo || "", basicoMensual: c?.basicoMensual || t.basicoMensual || 0,
         dias: diasDef, retroactivo: 0, horasExtras: HORAS_VACIAS(), firma: "", observacion: "",
       };
-    }));
+    })]);
   };
 
   const importarExcel = async (e) => {
@@ -406,7 +432,8 @@ export default function NominaLiquidar() {
   };
 
   const filasCalculadas = filas.map((f, i) => {
-    const totalProduccion = produccion[String(f.cedula).trim()] || 0;
+    const prodData       = produccion[String(f.cedula).trim()] || { total: 0, ops: [] };
+    const totalProduccion = prodData.total;
     const { total: totalExtras, desglose: desgloseExtras } = calcularHorasExtras(
       f.basicoMensual || 0,
       f.horasExtras || {}
@@ -428,7 +455,7 @@ export default function NominaLiquidar() {
         return cnt > 1 ? `${label} ×${cnt}` : label;
       })
       .join(", ");
-    return { ...f, idx: i + 1, totalProduccion, totalExtras, desgloseExtras, ...calc, motivoResumen };
+    return { ...f, idx: i + 1, totalProduccion, detalleOps: prodData.ops, totalExtras, desgloseExtras, ...calc, motivoResumen };
   });
 
   // ── Mapa cédula → centroCostos del trabajador (para filtro subgrupo)
@@ -1374,11 +1401,34 @@ function FilaNomina({ fila, listaCargos, onCambio, onBlurCedula, onHoraExtra, on
           placeholder="0" style={{ ...iS("95px", { textAlign: "right", fontFamily: "monospace" }), background: "#fefce8" }} />
       </td>
 
-      {/* Col 6: TOTAL PRODUCCIÓN */}
-      <td style={{ ...tdCalc, textAlign: "right" }}>
-        <span style={{ fontFamily: "monospace", color: e.totalProduccion > 0 ? "#059669" : "#94a3b8", fontWeight: "700", fontSize: "0.82rem" }}>
+      {/* Col 6: TOTAL PRODUCCIÓN — tooltip con detalle de conceptos */}
+      <td style={{ ...tdCalc, textAlign: "right", position: "relative" }}>
+        <span
+          title={e.detalleOps && e.detalleOps.length > 0
+            ? e.detalleOps.map(op =>
+                op.modoHE
+                  ? `${op.fecha || "Sin fecha"} | ${op.servicio || "Servicio"} | ⏰ ${op.horasExtras ?? 1}h → ${formatCOP(op.valor)}`
+                  : op.cantidad != null
+                    ? `${op.fecha || "Sin fecha"} | ${op.servicio || "Servicio"} | Cant: ${op.cantidad} → ${formatCOP(op.valor)}`
+                    : `${op.fecha || "Sin fecha"} | ${op.servicio || "Servicio"} → ${formatCOP(op.valor)}`
+              ).join("\n") + `\n──────────\nTOTAL: ${formatCOP(e.totalProduccion)}`
+            : "Sin operaciones en Matriz para este período"
+          }
+          style={{
+            fontFamily: "monospace",
+            color: e.totalProduccion > 0 ? "#059669" : "#94a3b8",
+            fontWeight: "700", fontSize: "0.82rem",
+            cursor: e.totalProduccion > 0 ? "help" : "default",
+            borderBottom: e.totalProduccion > 0 ? "1.5px dashed #6ee7b7" : "none",
+          }}
+        >
           {e.totalProduccion > 0 ? formatCOP(e.totalProduccion) : "—"}
         </span>
+        {e.detalleOps && e.detalleOps.length > 1 && (
+          <div style={{ fontSize: "0.6rem", color: "#6b7280", marginTop: "1px" }}>
+            {e.detalleOps.length} conceptos
+          </div>
+        )}
       </td>
 
       {/* Col 7: COMPLEMENTO SMMLV */}
