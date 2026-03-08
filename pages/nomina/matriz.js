@@ -54,6 +54,9 @@ const FORM_INIT = {
   cantidad:1, personas:1, netoCalculado:0,
   tipoSeleccion:"",
   motivo:"",
+  // Campos para modo trabajador individual con horas extras
+  horasExtras: 1,   // horas extras trabajadas (permite decimales: 1.5, 2, etc.)
+  novedad: "",      // novedad del trabajador individual ese día
 };
 
 // ── Formulario Cliente 2 (por días trabajados) ──
@@ -513,14 +516,23 @@ export default function NominaMatriz() {
   };
 
   /* ── SPIA: cálculo neto ── */
-  const recalcular = (f) => ({
-    ...f,
-    netoCalculado: Math.round(calcularNetoOperacion(parseFloat(f.servicioValor)||0, parseInt(f.personas)||1, parseInt(f.cantidad)||1)*100)/100,
-  });
+  const recalcular = (f) => {
+    let neto = 0;
+    if (f.tipoSeleccion === "trabajador") {
+      // Modo individual: Neto = tarifa_hora × horas_extras
+      const tarifa = parseFloat(f.servicioValor) || 0;
+      const horas  = parseFloat(f.horasExtras)   || 0;
+      neto = Math.round(tarifa * horas * 100) / 100;
+    } else {
+      // Modo cuadrilla: (valor_unitario × cantidad) ÷ personas
+      neto = Math.round(calcularNetoOperacion(parseFloat(f.servicioValor)||0, parseInt(f.personas)||1, parseInt(f.cantidad)||1)*100)/100;
+    }
+    return { ...f, netoCalculado: neto };
+  };
 
   const setField = (key,value) => setForm(prev => {
     const next = {...prev,[key]:value};
-    return ["servicioValor","personas","cantidad"].includes(key) ? recalcular(next) : next;
+    return ["servicioValor","personas","cantidad","horasExtras","tipoSeleccion"].includes(key) ? recalcular(next) : next;
   });
 
   const seleccionarCuadrilla = (val) => {
@@ -555,7 +567,12 @@ export default function NominaMatriz() {
     const valorUnitario = parseFloat(form.servicioValor)||0;
     const cantidad      = parseInt(form.cantidad)||1;
     const personas      = parseInt(form.personas)||1;
-    const netoFinal     = Math.round(calcularNetoOperacion(valorUnitario,personas,cantidad)*100)/100;
+    const esTrabajadorIndividual = form.tipoSeleccion === "trabajador";
+    const horasExtras   = esTrabajadorIndividual ? (parseFloat(form.horasExtras) || 1) : null;
+    // Fórmula diferente según modo
+    const netoFinal = esTrabajadorIndividual
+      ? Math.round(valorUnitario * (horasExtras||1) * 100) / 100
+      : Math.round(calcularNetoOperacion(valorUnitario, personas, cantidad)*100)/100;
     const data = {
       periodoDesde, periodoHasta,
       clienteId: clienteActivo,
@@ -570,8 +587,11 @@ export default function NominaMatriz() {
       fechaStr:          form.fecha,
       servicioNombre:    form.servicioNombre.trim().toUpperCase(),
       servicioValorUnitario: valorUnitario,
-      servicioValor:     valorUnitario * cantidad,
-      cantidad, personas,
+      servicioValor:     esTrabajadorIndividual ? netoFinal : valorUnitario * cantidad,
+      cantidad,
+      personas,
+      horasExtras,       // null para cuadrillas, número para individuales
+      modoHorasExtras:   esTrabajadorIndividual, // flag para identificar este modo
       netoAPagar:        netoFinal,
       trabajadoresAsisten: asistentesForm.map(a=>({id:a.id,nombre:a.nombre,cedula:a.cedula||""})),
       trabajadoresAusentes: ausentesForm.map(a=>({id:a.id,nombre:a.nombre,novedad:a.novedad})),
@@ -584,13 +604,15 @@ export default function NominaMatriz() {
       } else {
         await addDoc(collection(db,"nomina_operaciones"),{...data,creadoEn:new Date()});
       }
-      if (form.motivo && form.cuadrillaId && form.fecha) {
-        // Para cuadrilla: guardar motivo de los trabajadores ausentes que no tienen motivo asignado todavía
-        // El motivo del form aplica al trabajador individual si tipoSeleccion=="trabajador"
-        if (form.tipoSeleccion==="trabajador") {
-          const trabId = form.cuadrillaId.replace("trab_","");
-          await guardarMotivoEnRegistro(trabId, form.fecha, form.motivo);
-        }
+      // Guardar novedad del trabajador individual (campo novedad)
+      if (form.tipoSeleccion==="trabajador" && form.novedad && form.fecha) {
+        const trabId = form.cuadrillaId.replace("trab_","");
+        await guardarMotivoEnRegistro(trabId, form.fecha, form.novedad);
+      }
+      // Guardar motivo legacy
+      if (form.motivo && form.tipoSeleccion==="trabajador" && form.cuadrillaId && form.fecha) {
+        const trabId = form.cuadrillaId.replace("trab_","");
+        await guardarMotivoEnRegistro(trabId, form.fecha, form.motivo);
       }
       await cargarOperaciones();
       setForm({...FORM_INIT,cuadrillaId:form.cuadrillaId,cuadrillaNombre:form.cuadrillaNombre,cuadrillaPersonas:form.cuadrillaPersonas,personas:form.cuadrillaPersonas||1,fecha:form.fecha});
@@ -1245,15 +1267,18 @@ export default function NominaMatriz() {
                   <input type="date" value={form.fecha} onChange={e=>setField("fecha",e.target.value)} style={inputSt}/>
                 </div>
 
-                <div>
-                  <label style={labelSt}>🧑‍🤝‍🧑 Trabajadores activos</label>
-                  <div style={{position:"relative"}}>
-                    <input type="number" min="1" value={form.personas} onChange={e=>setField("personas",e.target.value)} style={inputSt}/>
-                    {cargandoAsist&&<span style={{position:"absolute",right:"0.65rem",top:"50%",transform:"translateY(-50%)"}}>
-                      <RefreshCw size={13} color="#94a3b8" style={{animation:"spin 1s linear infinite"}}/>
-                    </span>}
+                {/* Solo mostrar contador de personas en modo cuadrilla */}
+                {form.tipoSeleccion !== "trabajador" && (
+                  <div>
+                    <label style={labelSt}>🧑‍🤝‍🧑 Trabajadores activos</label>
+                    <div style={{position:"relative"}}>
+                      <input type="number" min="1" value={form.personas} onChange={e=>setField("personas",e.target.value)} style={inputSt}/>
+                      {cargandoAsist&&<span style={{position:"absolute",right:"0.65rem",top:"50%",transform:"translateY(-50%)"}}>
+                        <RefreshCw size={13} color="#94a3b8" style={{animation:"spin 1s linear infinite"}}/>
+                      </span>}
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
 
               {/* Panel asistencia */}
@@ -1336,37 +1361,97 @@ export default function NominaMatriz() {
               )}
 
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:"1rem",marginTop:"0.5rem"}}>
+
+                {/* Servicio: muestra tarifa/hora si hay servicio */}
                 <div style={{gridColumn:"span 2"}}>
                   <label style={labelSt}>🔧 Servicio *</label>
                   <div style={{position:"relative"}}>
                     <select value={form.servicioId} onChange={e=>seleccionarServicio(e.target.value)} style={selectSt}>
                       <option value="">— Seleccionar servicio —</option>
-                      {servicios.map(s=><option key={s.id} value={s.id}>{s.nombre}</option>)}
+                      {servicios.map(s=>(
+                        <option key={s.id} value={s.id}>
+                          {s.nombre}{(s.valor||s.tarifa)>0?` · ${formatCOP(s.valor||s.tarifa||0)}${form.tipoSeleccion==="trabajador"?"/hr":""}`:""}
+                        </option>
+                      ))}
                     </select>
                     <ChevronDown size={15} style={{position:"absolute",right:"0.75rem",top:"50%",transform:"translateY(-50%)",color:"#94a3b8",pointerEvents:"none"}}/>
                   </div>
                 </div>
-                <div>
-                  <label style={labelSt}>📦 Cantidad</label>
-                  <input type="number" min="1" value={form.cantidad} onChange={e=>setField("cantidad",e.target.value)} style={inputSt}/>
-                </div>
-                <div>
-                  <label style={labelSt}>💲 Valor del servicio</label>
-                  <div style={{...readonlySt,color:form.servicioValor>0?"#059669":"#94a3b8",fontWeight:form.servicioValor>0?"700":"400"}}>
-                    {form.servicioValor>0
-                      ? <>{formatCOP(form.servicioValor*(parseInt(form.cantidad)||1))}{parseInt(form.cantidad)>1&&<span style={{fontSize:"0.72rem",color:"#94a3b8",marginLeft:"0.4rem"}}> ({formatCOP(form.servicioValor)} × {form.cantidad})</span>}</>
-                      : <span style={{color:"#cbd5e1"}}>Automático</span>}
+
+                {/* MODO CUADRILLA: campo Cantidad normal */}
+                {form.tipoSeleccion !== "trabajador" && (
+                  <div>
+                    <label style={labelSt}>📦 Cantidad</label>
+                    <input type="number" min="1" value={form.cantidad} onChange={e=>setField("cantidad",e.target.value)} style={inputSt}/>
                   </div>
-                </div>
+                )}
+
+                {/* MODO INDIVIDUAL: Horas Extras + Novedad */}
+                {form.tipoSeleccion === "trabajador" && (<>
+                  {/* Panel de horas extras con selector visual */}
+                  <div style={{gridColumn:"span 2",background:"#fffbeb",border:"1.5px solid #fcd34d",borderRadius:"12px",padding:"1rem"}}>
+                    <div style={{fontSize:"0.75rem",fontWeight:"800",color:"#92400e",textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:"0.75rem"}}>
+                      ⏰ Horas Extras Trabajadas · Neto = Tarifa/hora × Horas
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"1rem",alignItems:"end"}}>
+                      <div>
+                        <label style={labelSt}>⏰ Cantidad de horas extras *</label>
+                        <input
+                          type="number" step="0.5" min="0.5"
+                          value={form.horasExtras}
+                          onChange={e=>setField("horasExtras",e.target.value)}
+                          placeholder="Ej: 2 ó 1.5"
+                          style={{...inputSt,border:"1.5px solid #f59e0b",fontWeight:"700",fontSize:"1.1rem",color:"#92400e"}}
+                        />
+                        <div style={{display:"flex",gap:"0.35rem",marginTop:"0.4rem",flexWrap:"wrap"}}>
+                          {[0.5,1,1.5,2,2.5,3,4].map(h=>(
+                            <button key={h} type="button"
+                              onClick={()=>setField("horasExtras",h)}
+                              style={{padding:"0.25rem 0.6rem",borderRadius:"6px",border:`1.5px solid ${Number(form.horasExtras)===h?"#f59e0b":"#e2e8f0"}`,
+                                background:Number(form.horasExtras)===h?"#fef3c7":"#fff",
+                                color:Number(form.horasExtras)===h?"#92400e":"#64748b",
+                                fontWeight:Number(form.horasExtras)===h?"800":"500",
+                                fontSize:"0.78rem",cursor:"pointer"}}>
+                              {h}h
+                            </button>
+                          ))}
+                        </div>
+                        <div style={{fontSize:"0.68rem",color:"#94a3b8",marginTop:"0.2rem"}}>Acepta medias horas: 0.5, 1, 1.5, 2…</div>
+                      </div>
+                      <div>
+                        <label style={labelSt}>💲 Tarifa por hora</label>
+                        <div style={{...readonlySt,background:"#fffbeb",border:"1.5px solid #fcd34d",color:form.servicioValor>0?"#92400e":"#94a3b8",fontWeight:"700",fontFamily:"monospace",fontSize:"1.1rem"}}>
+                          {form.servicioValor>0 ? <>{formatCOP(form.servicioValor)}<span style={{fontSize:"0.72rem",marginLeft:"4px",opacity:0.7}}>/ hr</span></> : <span style={{color:"#cbd5e1"}}>Del servicio</span>}
+                        </div>
+                        <div style={{fontSize:"0.68rem",color:"#94a3b8",marginTop:"0.2rem"}}>Valor unitario del servicio seleccionado</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Novedad del trabajador individual */}
+                  <div style={{gridColumn:"span 2"}}>
+                    <label style={labelSt}>📋 Novedad del trabajador <span style={{fontWeight:"400",color:"#94a3b8"}}>(opcional)</span></label>
+                    <SelectMotivo
+                      value={form.novedad}
+                      onChange={v => setForm(prev=>({...prev, novedad:v}))}
+                      novedades={novedades}
+                      color={PRIMARY}
+                    />
+                  </div>
+                </>)}
+
+                {/* Neto calculado */}
                 <div style={{gridColumn:"span 2"}}>
-                  <label style={labelSt}>💰 Neto a Pagar (÷ personas activas)</label>
+                  <label style={labelSt}>💰 Neto a Pagar</label>
                   <div style={{padding:"0.85rem 1.1rem",background:form.netoCalculado>0?"#f0fdf4":"#f8fafc",border:`2px solid ${form.netoCalculado>0?SUCCESS:"#e2e8f0"}`,borderRadius:"10px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                     <span style={{fontWeight:"800",color:"#065f46",fontSize:"1.3rem",fontFamily:"monospace"}}>
                       {form.netoCalculado>0?formatCOP(form.netoCalculado):"—"}
                     </span>
                     {form.netoCalculado>0&&(
-                      <span style={{fontSize:"0.75rem",color:"#4ade80",background:"#dcfce7",padding:"0.2rem 0.7rem",borderRadius:"20px",fontWeight:"600"}}>
-                        = ({formatCOP(form.servicioValor)} × {form.cantidad}) ÷ {form.personas} pers.
+                      <span style={{fontSize:"0.75rem",color:"#4ade80",background:"#dcfce7",padding:"0.2rem 0.7rem",borderRadius:"20px",fontWeight:"600",fontFamily:"monospace"}}>
+                        {form.tipoSeleccion==="trabajador"
+                          ? `= ${formatCOP(form.servicioValor)} × ${form.horasExtras}h`
+                          : `= (${formatCOP(form.servicioValor)} × ${form.cantidad}) ÷ ${form.personas} pers.`}
                       </span>
                     )}
                   </div>
@@ -1559,7 +1644,13 @@ export default function NominaMatriz() {
                               <td style={{...tdSt,maxWidth:"180px"}}>
                                 <div style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:"0.85rem",color:"#374151"}}>{op.servicioNombre}</div>
                               </td>
-                              <td style={{...tdSt,textAlign:"center",fontWeight:"700",color:"#374151"}}>{op.cantidad}</td>
+                              <td style={{...tdSt,textAlign:"center",fontWeight:"700",color:op.modoHorasExtras?"#92400e":"#374151"}}>
+                                {op.modoHorasExtras
+                                  ? <span title="Horas extras" style={{background:"#fef3c7",color:"#92400e",borderRadius:"6px",padding:"2px 7px",fontSize:"0.8rem",fontWeight:"800",fontFamily:"monospace"}}>
+                                      ⏰ {op.horasExtras}h
+                                    </span>
+                                  : op.cantidad}
+                              </td>
                               <td style={{...tdSt,fontWeight:"800",color:SUCCESS,fontFamily:"monospace",fontSize:"0.9rem",whiteSpace:"nowrap"}}>{formatCOP(op.netoAPagar)}</td>
                               <td style={{...tdSt,fontFamily:"monospace",fontSize:"0.82rem",color:"#475569"}}>{xPersona>0?formatCOP(xPersona):"—"}</td>
                               <td style={tdSt}>
