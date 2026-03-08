@@ -125,7 +125,19 @@ export default function Desprendibles() {
     const mapa = {};
 
     operaciones.forEach(op => {
-      const asisten = op.trabajadoresAsisten || [];
+      // Construir lista de asistentes — para operaciones individuales puede estar
+      // en trabajadoresAsisten O solo en los campos trabajadorId/trabajadorNombre/trabajadorCedula
+      let asisten = op.trabajadoresAsisten || [];
+
+      // Fallback: si no hay trabajadoresAsisten pero sí trabajadorId (CIAMSA/horas extras antiguas)
+      if (!asisten.length && op.trabajadorId) {
+        asisten = [{
+          id:     op.trabajadorId,
+          nombre: op.trabajadorNombre || op.cuadrillaNombre || "",
+          cedula: String(op.trabajadorCedula || ""),
+        }];
+      }
+
       if (!asisten.length) return;
 
       const esIndividual = op.modoCiamsa || op.modoHorasExtras || op.modoCliente2;
@@ -137,11 +149,15 @@ export default function Desprendibles() {
         || op.clienteId || "SPIA";
 
       asisten.forEach(w => {
-        if (!mapa[w.id]) {
-          mapa[w.id] = {
+        // Usar cédula como clave única (más confiable que el doc ID en operaciones individuales)
+        const cedula = String(w.cedula || trabajadoresMap[w.id]?.cedula || "").trim();
+        const key    = cedula || w.id;  // fallback a doc ID si no hay cédula
+
+        if (!mapa[key]) {
+          mapa[key] = {
             id: w.id,
             nombre: w.nombre,
-            cedula: w.cedula || "",
+            cedula,
             cargo: trabajadoresMap[w.id]?.cargo || "",
             cuadrillaNombre: op.cuadrillaNombre || op.cuadrilla || "",
             cuadrillaId: op.cuadrillaId || "",
@@ -153,9 +169,9 @@ export default function Desprendibles() {
           };
         }
 
-        mapa[w.id].clientes.add(nomCliente);
+        mapa[key].clientes.add(nomCliente);
 
-        mapa[w.id].dias.push({
+        mapa[key].dias.push({
           fecha:              op.fechaStr,
           servicio:           op.servicioNombre,
           clienteId:          op.clienteId || "spia",
@@ -176,7 +192,7 @@ export default function Desprendibles() {
           cantidadDias:       op.cantidadDias  ?? null,
           netoPersona:        parte,
         });
-        mapa[w.id].totalDevengado += parte;
+        mapa[key].totalDevengado += parte;
       });
     });
 
