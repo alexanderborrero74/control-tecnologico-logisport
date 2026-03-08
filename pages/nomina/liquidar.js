@@ -109,6 +109,18 @@ function getMonthsInPeriod(fi, ff) {
 let _rowCounter = 0;
 const HORAS_VACIAS = () => Object.fromEntries(HORAS_EXTRAS_2026.map(t => [t.codigo, 0]));
 
+// Elimina filas con cédula duplicada — conserva la primera ocurrencia
+function deduplicar(arr) {
+  const vistas = new Set();
+  return arr.filter(f => {
+    const cc = String(f.cedula || "").trim();
+    if (!cc) return true;
+    if (vistas.has(cc)) return false;
+    vistas.add(cc);
+    return true;
+  });
+}
+
 function filaVacia(diasDefault = 15) {
   return {
     _key: ++_rowCounter, nombre: "", cedula: "", cargo: "",
@@ -301,7 +313,7 @@ export default function NominaLiquidar() {
       if (nomDoc.exists()) {
         const data = nomDoc.data();
         setNominaGuardada(data);
-        setFilas((data.empleados || []).map(e => ({
+        setFilas(deduplicar((data.empleados || []).map(e => ({
           _key:          ++_rowCounter,
           nombre:        e.nombre        || "",
           cedula:        String(e.cedula || ""),
@@ -312,7 +324,7 @@ export default function NominaLiquidar() {
           horasExtras:   e.horasExtras   || HORAS_VACIAS(),
           firma:         e.firma         || "",
           observacion:   e.observacion   || "",
-        })));
+        }))));
       } else {
         setNominaGuardada(null);
         setFilas([]);
@@ -325,22 +337,6 @@ export default function NominaLiquidar() {
 
   const agregarFila = () => setFilas(p => [...p, filaVacia(diasDef)]);
   const eliminarFila = key => setFilas(p => p.filter(f => f._key !== key));
-
-  // Eliminar cédulas duplicadas — conserva la primera ocurrencia de cada cédula
-  const deduplicarFilas = () => {
-    const vistas = new Set();
-    const unicas = filas.filter(f => {
-      const cc = String(f.cedula || "").trim();
-      if (!cc) return true; // sin cédula: conservar siempre
-      if (vistas.has(cc)) return false;
-      vistas.add(cc);
-      return true;
-    });
-    const eliminadas = filas.length - unicas.length;
-    if (eliminadas === 0) { alert("No hay cédulas duplicadas."); return; }
-    if (!confirm(`Se eliminarán ${eliminadas} fila(s) duplicada(s). ¿Continuar?`)) return;
-    setFilas(unicas);
-  };
 
   const actualizarFila = useCallback((key, campo, valor) => {
     setFilas(prev => prev.map(f => {
@@ -390,14 +386,14 @@ export default function NominaLiquidar() {
       return;
     }
     const fuente = filas.length === 0 ? listaTrabaj : trabajadoresNuevos;
-    setFilas(prev => [...prev, ...fuente.map(t => {
+    setFilas(prev => deduplicar([...prev, ...fuente.map(t => {
       const c = listaCargos.find(c => c.nombre === t.cargo);
       return {
         _key: ++_rowCounter, nombre: t.nombre || "", cedula: String(t.cedula || ""),
         cargo: t.cargo || "", basicoMensual: c?.basicoMensual || t.basicoMensual || 0,
         dias: diasDef, retroactivo: 0, horasExtras: HORAS_VACIAS(), firma: "", observacion: "",
       };
-    })]);
+    })]));
   };
 
   const importarExcel = async (e) => {
@@ -440,7 +436,7 @@ export default function NominaLiquidar() {
       }
       if (nuevas.length === 0) { alert("No se encontraron trabajadores."); setImportando(false); return; }
       if (filas.length > 0 && !confirm(`¿Reemplazar ${filas.length} filas con ${nuevas.length} del Excel?`)) { setImportando(false); return; }
-      setFilas(nuevas);
+      setFilas(deduplicar(nuevas));
       alert(`✅ ${nuevas.length} trabajadores importados desde "${sheetName}"`);
     } catch (err) { alert("Error importando Excel: " + err.message); }
     setImportando(false);
@@ -1148,13 +1144,6 @@ export default function NominaLiquidar() {
               <button onClick={cargarTodosTrabajadores} style={btnStyle("#8b5cf6", false, "sm")}>
                 <UserPlus size={14} /> Cargar trabajadores BD
               </button>
-              {filas.length > 0 && (
-                <button onClick={deduplicarFilas}
-                  title="Elimina filas con cédula repetida, conserva la primera"
-                  style={btnStyle("#0891b2", false, "sm")}>
-                  🗹 Sin duplicados
-                </button>
-              )}
               {filas.length > 0 && (
                 <button onClick={() => { if (confirm("¿Limpiar todas las filas?")) setFilas([]); }}
                   style={btnStyle(DANGER, false, "sm")}>
