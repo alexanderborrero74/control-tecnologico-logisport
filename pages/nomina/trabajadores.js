@@ -976,13 +976,22 @@ export default function NominaTrabajadores() {
                         : <span style={{ color:"#cbd5e1" }}>—</span>}
                     </td>
                     <td style={{ padding:"0.85rem 1rem", fontWeight:"700" }}>
-                      {(() => {
-                        const cargoKey = String(t.cargo || "").trim().toUpperCase();
-                        const basico   = cargosMap[cargoKey] || t.basicoMensual || 0;
-                        const desdeCatalogo = !!cargosMap[cargoKey];
-                        return basico
-                          ? <span style={{ color: desdeCatalogo ? SUCCESS : "#f59e0b" }} title={desdeCatalogo ? "Valor del catálogo de cargos" : "Valor guardado en el trabajador (cargo no en catálogo)"}>  
-                              {desdeCatalogo ? null : <span style={{ fontSize:"0.72rem", marginRight:"3px" }}>⚠️</span>}
+                    {(() => {
+                    const cargoKey       = String(t.cargo || "").trim().toUpperCase();
+                    const basicoCatalogo = cargosMap[cargoKey];
+                    const basicoPropio   = t.basicoMensual ? Number(t.basicoMensual) : null;
+                    // Editado manualmente = tiene valor propio distinto al catálogo (o no hay catálogo)
+                    const editado = basicoPropio && (basicoCatalogo
+                    ? basicoPropio !== Number(basicoCatalogo)
+                    : true);
+                    const basico  = basicoCatalogo || basicoPropio || 0;
+                    return basico
+                        ? <span
+                              style={{ color: editado ? "#f59e0b" : SUCCESS }}
+                              title={editado
+                                ? `Editado manualmente: $${Number(basicoPropio).toLocaleString("es-CO")}${basicoCatalogo ? ` (catálogo: $${Number(basicoCatalogo).toLocaleString("es-CO")})` : " (cargo sin tarifa en catálogo)"}`
+                                : "Valor del catálogo de cargos"}>
+                              {editado && <span style={{ fontSize:"0.72rem", marginRight:"3px" }}>⚠️</span>}
                               ${Number(basico).toLocaleString("es-CO")}
                             </span>
                           : <span style={{ color:"#94a3b8" }}>—</span>;
