@@ -833,23 +833,6 @@ export default function NominaLiquidar() {
 
   const periodoValido = fechaInicio && fechaFin && fechaFin >= fechaInicio;
 
-  // Detectar sidebar colapsado para ajustar barra fija
-  useEffect(() => {
-    const ajustar = () => {
-      const sidebar = document.querySelector(".sidebar-desktop");
-      const barra = document.getElementById("barra-filtros-nomina");
-      if (!barra) return;
-      const w = sidebar ? sidebar.getBoundingClientRect().width : 280;
-      barra.style.left = window.innerWidth <= 768 ? "0px" : `${Math.round(w)}px`;
-    };
-    ajustar();
-    const obs = new ResizeObserver(ajustar);
-    const sidebar = document.querySelector(".sidebar-desktop");
-    if (sidebar) obs.observe(sidebar);
-    window.addEventListener("resize", ajustar);
-    return () => { obs.disconnect(); window.removeEventListener("resize", ajustar); };
-  }, []);
-
   return (
     <LayoutWithSidebar>
       <div style={{ width: "100%" }}>
@@ -990,8 +973,8 @@ export default function NominaLiquidar() {
           </div>
         )}
 
-        {/* Título + toolbar + leyenda: FIXED al viewport, independiente del scroll horizontal */}
-        <div id="barra-filtros-nomina" style={{ background: "#fff", borderRadius: "12px 12px 0 0", boxShadow: "0 4px 16px rgba(11,61,145,0.12)", position: "fixed", top: 0, left: "280px", right: 0, zIndex: 200, boxSizing: "border-box" }}>
+        {/* Barra filtros: sticky vertical, sin verse afectada por scroll horizontal */}
+        <div style={{ background: "#fff", borderRadius: "12px 12px 0 0", boxShadow: "0 4px 16px rgba(11,61,145,0.12)", position: "sticky", top: 0, zIndex: 50, boxSizing: "border-box" }}>
 
           {/* ── Tabla principal ── */}
           {/* El div id=nomina-print ahora solo contiene la tabla */}
@@ -1149,9 +1132,6 @@ export default function NominaLiquidar() {
               ))}
             </div>
           </div>{/* fin sticky header */}
-
-        {/* Espaciador para compensar la barra fixed (~165px de alto) */}
-        <div style={{ height: "165px" }} />
 
         {/* ── Tabla principal — solo la tabla dentro de nomina-print ── */}
         <div id="nomina-print">
@@ -1328,23 +1308,12 @@ export default function NominaLiquidar() {
       <style jsx global>{`
         @keyframes spin { to { transform: rotate(360deg); } }
         input[type="date"]::-webkit-calendar-picker-indicator { cursor: pointer; }
-
-        /* Barra filtros nómina fija: ajusta left según estado del sidebar */
-        #barra-filtros-nomina { left: 280px; transition: left 0.3s ease; }
-
-        /* Sidebar colapsado (80px) */
-        .sidebar-collapsed #barra-filtros-nomina { left: 80px; }
-
-        /* Mobile: sidebar oculto */
-        @media (max-width: 768px) {
-          #barra-filtros-nomina { left: 0 !important; }
-        }
-
+        /* Evitar scroll horizontal del body — la tabla scrollea dentro de su propio div */
+        .main-content { overflow-x: clip; }
         @media print {
           .sidebar-desktop, .mobile-menu-btn, button { display: none !important; }
-          .main-content { margin-left: 0 !important; }
+          .main-content { margin-left: 0 !important; overflow-x: visible !important; }
           #nomina-print { box-shadow: none !important; }
-          #barra-filtros-nomina { position: static !important; }
         }
       `}</style>
     </LayoutWithSidebar>
