@@ -684,6 +684,44 @@ export default function NominaTrabajadores() {
     setSalNombreArchivo("");
   };
 
+  /* ── Limpiar duplicados en Firestore ── */
+  const limpiarDuplicados = async () => {
+    const snap = await getDocs(collection(db, "nomina_trabajadores"));
+    const docs = snap.docs;
+    // Agrupar por cédula
+    const porCedula = {};
+    docs.forEach(d => {
+      const cc = String(d.data().cedula || "").trim();
+      if (!cc) return;
+      if (!porCedula[cc]) porCedula[cc] = [];
+      porCedula[cc].push(d);
+    });
+    const duplicados = Object.values(porCedula).filter(arr => arr.length > 1);
+    if (duplicados.length === 0) { alert("✅ No hay cédulas duplicadas en la base de datos."); return; }
+    const totalEliminar = duplicados.reduce((s, arr) => s + arr.length - 1, 0);
+    if (!confirm(`Se encontraron ${duplicados.length} cédulas duplicadas.\nSe eliminarán ${totalEliminar} documentos sobrantes (se conserva uno por cédula).\n\n¿Continuar?`)) return;
+    setLoading(true);
+    try {
+      let batch = writeBatch(db); let count = 0;
+      for (const grupo of duplicados) {
+        // Conservar el primero, eliminar el resto
+        // Primero unir todos los clienteIds en el que se conserva
+        const todos = grupo.flatMap(d => d.data().clienteIds || ["spia"]);
+        const clientesMerged = Array.from(new Set(todos));
+        batch.update(grupo[0].ref, { clienteIds: clientesMerged, actualizadoEn: new Date() });
+        for (let i = 1; i < grupo.length; i++) {
+          batch.delete(grupo[i].ref);
+          count++;
+          if (count === 390) { await batch.commit(); batch = writeBatch(db); count = 0; }
+        }
+      }
+      if (count > 0) await batch.commit();
+      await cargar();
+      alert(`✅ Listo. Se eliminaron ${totalEliminar} documentos duplicados de Firestore.`);
+    } catch (e) { alert("Error: " + e.message); }
+    setLoading(false);
+  };
+
   /* ── Eliminar TODOS los trabajadores + limpiar cuadrillas ── */
   const eliminarTodosTrabajadores = async () => {
     if (trabajadores.length === 0) { alert("No hay trabajadores para eliminar."); return; }
@@ -874,7 +912,12 @@ export default function NominaTrabajadores() {
             </button>
           {puedeEditar && (
             <>
-                {/* Botón eliminar todos */}
+                {/* Botón limpiar duplicados */}
+              <button onClick={limpiarDuplicados}
+                style={{ background:"#fff7ed", border:"1.5px solid #f97316", borderRadius:"10px", padding:"0.7rem 1.1rem", color:"#c2410c", cursor:"pointer", fontWeight:"700", fontSize:"0.9rem", display:"flex", alignItems:"center", gap:"0.5rem" }}>
+                🧹 Limpiar duplicados
+              </button>
+              {/* Botón eliminar todos */}
               <button onClick={eliminarTodosTrabajadores}
                 style={{ background:"#fff1f2", border:`1.5px solid ${DANGER}`, borderRadius:"10px", padding:"0.7rem 1.1rem", color:DANGER, cursor:"pointer", fontWeight:"700", fontSize:"0.9rem", display:"flex", alignItems:"center", gap:"0.5rem" }}>
                 <Trash2 size={18}/> Eliminar todos
