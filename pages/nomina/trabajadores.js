@@ -228,7 +228,7 @@ export default function NominaTrabajadores() {
             seenNombres.add(key);
             return true;
           });
-        setClientes(merged.length > 0 ? merged : CLIENTES_BASE);
+        setClientes(merged.filter(c => c.id !== "admon").length > 0 ? merged.filter(c => c.id !== "admon") : CLIENTES_BASE);
       }
     } catch {}
   };
