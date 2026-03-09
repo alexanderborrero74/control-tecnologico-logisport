@@ -84,6 +84,192 @@ const CIAMSA_FORM_INIT = {
   motivo: "",    // novedad del trabajador ese día (opcional)
 };
 
+// ── Selector con búsqueda para Cuadrilla / Trabajador Individual ──
+function SearchableCuadrillaSelect({ cuadrillas, trabajadores, value, onChange, color }) {
+  const [query, setQuery]   = useState("");
+  const [open,  setOpen]    = useState(false);
+  const wrapRef             = useRef(null);
+
+  // Cerrar al click fuera
+  useEffect(() => {
+    const handler = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  // Etiqueta del valor seleccionado
+  const etiqueta = () => {
+    if (!value) return null;
+    if (value.startsWith("trab_")) {
+      const t = trabajadores.find(x => x.id === value.replace("trab_",""));
+      return t ? `👤 ${t.nombre}${t.cedula ? ` · ${t.cedula}` : ""}` : value;
+    }
+    const c = cuadrillas.find(x => x.id === value);
+    return c ? `👥 Cuadrilla ${c.nombre} · ${c.miembros?.length||0} miembros` : value;
+  };
+
+  const q = query.toLowerCase().trim();
+  const trabFiltrados = q
+    ? trabajadores.filter(t =>
+        t.nombre?.toLowerCase().includes(q) ||
+        String(t.cedula||""  ).includes(q)   ||
+        (t.cargo||""         ).toLowerCase().includes(q)
+      )
+    : trabajadores;
+
+  const cuadFiltradas = q
+    ? cuadrillas.filter(c => c.nombre?.toLowerCase().includes(q))
+    : cuadrillas;
+
+  const select = (val) => { onChange(val); setOpen(false); setQuery(""); };
+
+  return (
+    <div ref={wrapRef} style={{position:"relative"}}>
+      {/* Trigger */}
+      <div
+        onClick={() => setOpen(p => !p)}
+        style={{
+          display:"flex", alignItems:"center", justifyContent:"space-between",
+          padding:"0.7rem 0.9rem",
+          border:`1.5px solid ${value ? (color||"#0B3D91") : "#e2e8f0"}`,
+          borderRadius:"10px", background:"#fff", cursor:"pointer",
+          fontSize:"0.9rem", color: value ? "#1e293b" : "#94a3b8",
+          fontWeight: value ? "700" : "400",
+          boxSizing:"border-box", userSelect:"none",
+          transition:"border-color 0.15s",
+        }}
+      >
+        <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>
+          {value ? etiqueta() : "— Seleccionar cuadrilla o trabajador —"}
+        </span>
+        <ChevronDown size={15} style={{marginLeft:"0.5rem",color:"#94a3b8",flexShrink:0,
+          transition:"transform 0.2s",transform:open?"rotate(180deg)":"rotate(0deg)"}} />
+      </div>
+
+      {/* Dropdown */}
+      {open && (
+        <div style={{
+          position:"absolute",top:"calc(100% + 4px)",left:0,right:0,
+          background:"#fff",borderRadius:"12px",
+          border:"1.5px solid #e2e8f0",
+          boxShadow:"0 8px 28px rgba(0,0,0,0.13)",
+          zIndex:999,overflow:"hidden",
+        }}>
+          {/* Buscador */}
+          <div style={{padding:"0.6rem 0.75rem",borderBottom:"1px solid #f1f5f9",background:"#f8fafc"}}>
+            <div style={{position:"relative"}}>
+              <Search size={14} style={{position:"absolute",left:"0.6rem",top:"50%",transform:"translateY(-50%)",color:"#94a3b8",pointerEvents:"none"}} />
+              <input
+                autoFocus
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder="Buscar por nombre o cédula..."
+                style={{
+                  width:"100%",padding:"0.55rem 0.7rem 0.55rem 2rem",
+                  border:"1.5px solid #e2e8f0",borderRadius:"8px",
+                  fontSize:"0.88rem",outline:"none",boxSizing:"border-box",
+                  background:"#fff",
+                }}
+                onClick={e => e.stopPropagation()}
+              />
+            </div>
+          </div>
+
+          {/* Lista */}
+          <div style={{maxHeight:"280px",overflowY:"auto"}}>
+            {/* Opción vacía */}
+            {!q && (
+              <div
+                onClick={() => select("")}
+                style={{padding:"0.55rem 0.9rem",fontSize:"0.85rem",color:"#94a3b8",cursor:"pointer",
+                  background:value===""?"#eff6ff":"transparent",
+                  borderBottom:"1px solid #f8fafc"}}
+              >
+                — Ninguna —
+              </div>
+            )}
+
+            {/* Cuadrillas */}
+            {cuadFiltradas.length > 0 && (
+              <>
+                <div style={{padding:"0.35rem 0.75rem",fontSize:"0.68rem",fontWeight:"800",
+                  color:"#94a3b8",textTransform:"uppercase",letterSpacing:"0.07em",
+                  background:"#f8fafc",borderBottom:"1px solid #f1f5f9",
+                  position:"sticky",top:0}}>
+                  👥 CUADRILLAS
+                </div>
+                {cuadFiltradas.map(c => (
+                  <div key={c.id} onClick={() => select(c.id)}
+                    style={{
+                      padding:"0.55rem 0.9rem",fontSize:"0.88rem",cursor:"pointer",
+                      background:value===c.id?"#eff6ff":"transparent",
+                      color:value===c.id?"#0B3D91":"#1e293b",
+                      fontWeight:value===c.id?"700":"500",
+                      borderBottom:"1px solid #f8fafc",
+                      transition:"background 0.1s",
+                    }}
+                    onMouseEnter={e => { if(value!==c.id) e.currentTarget.style.background="#f0f9ff"; }}
+                    onMouseLeave={e => { if(value!==c.id) e.currentTarget.style.background="transparent"; }}
+                  >
+                    Cuadrilla {c.nombre}
+                    <span style={{marginLeft:"0.4rem",fontSize:"0.72rem",color:"#94a3b8",fontWeight:"400"}}>
+                      · {c.miembros?.length||0} miembros
+                    </span>
+                  </div>
+                ))}
+              </>
+            )}
+
+            {/* Trabajadores individuales */}
+            {trabFiltrados.length > 0 && (
+              <>
+                <div style={{padding:"0.35rem 0.75rem",fontSize:"0.68rem",fontWeight:"800",
+                  color:"#94a3b8",textTransform:"uppercase",letterSpacing:"0.07em",
+                  background:"#f8fafc",borderBottom:"1px solid #f1f5f9",
+                  position:"sticky",top:0}}>
+                  👤 TRABAJADORES INDIVIDUALES{q ? ` — ${trabFiltrados.length} resultado${trabFiltrados.length!==1?"s":""}` : ` (${trabFiltrados.length})`}
+                </div>
+                {trabFiltrados.map(t => {
+                  const val = `trab_${t.id}`;
+                  return (
+                    <div key={t.id} onClick={() => select(val)}
+                      style={{
+                        padding:"0.55rem 0.9rem",fontSize:"0.85rem",cursor:"pointer",
+                        background:value===val?"#eff6ff":"transparent",
+                        color:value===val?"#0B3D91":"#1e293b",
+                        fontWeight:value===val?"700":"400",
+                        borderBottom:"1px solid #f8fafc",
+                        transition:"background 0.1s",
+                        display:"flex",alignItems:"center",justifyContent:"space-between",gap:"0.5rem",
+                      }}
+                      onMouseEnter={e => { if(value!==val) e.currentTarget.style.background="#f0f9ff"; }}
+                      onMouseLeave={e => { if(value!==val) e.currentTarget.style.background="transparent"; }}
+                    >
+                      <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                        {t.nombre}
+                      </span>
+                      <span style={{fontFamily:"monospace",fontSize:"0.75rem",color:"#64748b",flexShrink:0}}>
+                        {t.cedula||""}
+                      </span>
+                    </div>
+                  );
+                })}
+              </>
+            )}
+
+            {/* Sin resultados */}
+            {q && trabFiltrados.length === 0 && cuadFiltradas.length === 0 && (
+              <div style={{padding:"1.5rem",textAlign:"center",color:"#94a3b8",fontSize:"0.85rem"}}>
+                😕 Sin resultados para «{query}»
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Selector de motivo/novedad — dropdown reutilizable ──
 function SelectMotivo({ value, onChange, novedades, color }) {
   const novSelec = novedades.find(n => n.codigo === value);
@@ -1242,26 +1428,13 @@ export default function NominaMatriz() {
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:"1rem"}}>
                 <div style={{gridColumn:"span 2"}}>
                   <label style={labelSt}>👥 Cuadrilla / Trabajador *</label>
-                  <div style={{position:"relative"}}>
-                    <select value={form.cuadrillaId} onChange={e=>seleccionarCuadrilla(e.target.value)} style={selectSt}>
-                      <option value="">— Seleccionar —</option>
-                      {cuadrillasAsistencia.length > 0 && (
-                        <optgroup label="── CUADRILLAS ──">
-                          {cuadrillasAsistencia.map(c=>(
-                            <option key={c.id} value={c.id}>Cuadrilla {c.nombre} · {c.miembros?.length||0} miembros</option>
-                          ))}
-                        </optgroup>
-                      )}
-                      {listaTrabajadores.length > 0 && (
-                        <optgroup label="── TRABAJADORES INDIVIDUALES ──">
-                          {listaTrabajadores.map(t=>(
-                            <option key={t.id} value={`trab_${t.id}`}>{t.nombre}{t.cedula?` · ${t.cedula}`:""}</option>
-                          ))}
-                        </optgroup>
-                      )}
-                    </select>
-                    <ChevronDown size={15} style={{position:"absolute",right:"0.75rem",top:"50%",transform:"translateY(-50%)",color:"#94a3b8",pointerEvents:"none"}}/>
-                  </div>
+                  <SearchableCuadrillaSelect
+                    cuadrillas={cuadrillasAsistencia}
+                    trabajadores={listaTrabajadores}
+                    value={form.cuadrillaId}
+                    onChange={seleccionarCuadrilla}
+                    color={PRIMARY}
+                  />
                 </div>
                 <div>
                   <label style={labelSt}>📅 Fecha *</label>
