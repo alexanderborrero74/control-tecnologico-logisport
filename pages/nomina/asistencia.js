@@ -5,7 +5,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/router";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import {
-  collection, getDocs, doc, setDoc, deleteDoc, getDoc,
+  collection, getDocs, doc, setDoc, deleteDoc, getDoc, addDoc,
   query, orderBy, writeBatch
 } from "firebase/firestore";
 import { db } from "@/firebase/firebaseConfig";
@@ -105,6 +105,27 @@ export default function AsistenciaPage() {
   const [popover, setPopover] = useState(null); // { workerId, x, y, abrirArriba }
   const popRef = useRef(null);
 
+  // ── Clientes ──────────────────────────────────────────────────────────────
+  const [clientes, setClientes] = useState([
+    { id:"spia",     nombre:"SPIA",      color:"#0B3D91", emoji:"🏭" },
+    { id:"cliente1", nombre:"Cliente 1", color:"#10b981", emoji:"🏢" },
+    { id:"cliente2", nombre:"Cliente 2", color:"#8b5cf6", emoji:"🏗️" },
+    { id:"cliente3", nombre:"Cliente 3", color:"#f59e0b", emoji:"🏭" },
+  ]);
+
+  // ── Llamado a Lista ───────────────────────────────────────────────────────
+  const hoyStr = new Date().toISOString().split("T")[0];
+  const [llamadoFecha,         setLlamadoFecha]         = useState(hoyStr);
+  const [llamadoClienteId,     setLlamadoClienteId]     = useState("spia");
+  const [llamadoNovedades,     setLlamadoNovedades]     = useState({}); // { workerId: cod | null }
+  const [guardandoLlamado,     setGuardandoLlamado]     = useState(false);
+  const [llamadoPopover,       setLlamadoPopover]       = useState(null);
+  const llamadoPopRef = useRef(null);
+  const [modalNuevaLlamadoNov, setModalNuevaLlamadoNov] = useState(false);
+  const [formNuevaNov,         setFormNuevaNov]         = useState({ label:"", emoji:"", codigo:"" });
+  const [errNuevaNov,          setErrNuevaNov]          = useState("");
+  const [creandoNov,           setCreandoNov]           = useState(false);
+
   // ── Auth ──────────────────────────────────────────────────────────────────
   useEffect(()=>{
     const auth = getAuth();
@@ -113,14 +134,17 @@ export default function AsistenciaPage() {
       const r = await getUserRoleByUid(user.uid);
       setRol(r);
       if(!["admin","admin_nomina","nomina"].includes(r)){router.push("/nomina");return;}
-      await Promise.all([cargarTrabajadores(), cargarCuadrillas(), cargarNovedades()]);
+      await Promise.all([cargarTrabajadores(), cargarCuadrillas(), cargarNovedades(), cargarClientes()]);
       setLoading(false);
     });
     return ()=>unsub();
   },[]);
 
   useEffect(()=>{
-    const h=(e)=>{if(popRef.current&&!popRef.current.contains(e.target))setPopover(null);};
+    const h=(e)=>{
+      if(popRef.current&&!popRef.current.contains(e.target))setPopover(null);
+      if(llamadoPopRef.current&&!llamadoPopRef.current.contains(e.target))setLlamadoPopover(null);
+    };
     document.addEventListener("mousedown",h);
     return ()=>document.removeEventListener("mousedown",h);
   },[]);
@@ -147,6 +171,23 @@ export default function AsistenciaPage() {
   // Novedades: fuente única = Firestore (administrar.js)
   // ⚠️ NO usar orderBy en Firestore: excluye docs sin campo "orden".
   //    Se ordena en cliente para incluir todas las novedades del catálogo.
+  const cargarClientes = async () => {
+    const BASE = [
+      { id:"spia",     nombre:"SPIA",      color:"#0B3D91", emoji:"🏭" },
+      { id:"cliente1", nombre:"Cliente 1", color:"#10b981", emoji:"🏢" },
+      { id:"cliente2", nombre:"Cliente 2", color:"#8b5cf6", emoji:"🏗️" },
+      { id:"cliente3", nombre:"Cliente 3", color:"#f59e0b", emoji:"🏭" },
+    ];
+    try {
+      const snap = await getDocs(collection(db,"nomina_clientes"));
+      if(snap.empty){setClientes(BASE);return;}
+      setClientes(BASE.map(b=>{
+        const d=snap.docs.find(x=>x.id===b.id);
+        return d?{...b,nombre:d.data().nombre||b.nombre}:b;
+      }));
+    }catch{setClientes(BASE);}
+  };
+
   const cargarNovedades = async () => {
     try {
       const snap = await getDocs(collection(db, "nomina_novedades"));
@@ -300,6 +341,99 @@ export default function AsistenciaPage() {
     }
   };
 
+  // ── Guardar Llamado a Lista → nomina_asistencia_registro ────────────────
+  const guardarLlamadoLista = async () => {
+    const novCount = Object.values(llamadoNovedades).filter(v => v !== null && v !== undefined && v !== "").length;
+    if(!confirm(`¿Guardar llamado a lista del ${llamadoFecha}?\n${novCount} novedad(es) marcada(s). Los trabajadores sin marcar quedan sin cambios.`))return;
+    setGuardandoLlamado(true);
+    try{
+      const [yStr,mStr,dStr] = llamadoFecha.split("-");
+      const year  = parseInt(yStr);
+      const month = parseInt(mStr);
+      const dia   = String(parseInt(dStr));
+
+      // Mapa workerId → [cuadrillaId]
+      const workerCuadMap = {};
+      cuadrillas.forEach(c=>{
+        (c.miembros||[]).forEach(m=>{
+          if(!workerCuadMap[m.id])workerCuadMap[m.id]=[];
+          workerCuadMap[m.id].push(c.id);
+        });
+      });
+
+      // Trabajadores del cliente seleccionado en el llamado
+      const wDelLlamado = trabajadores.filter(t=>(t.clienteIds||["spia"]).includes(llamadoClienteId));
+      const wIds = new Set(wDelLlamado.map(t=>t.id));
+
+      // Cuadrillas afectadas
+      const cuadIdsNeeded = new Set();
+      wDelLlamado.forEach(t=>{
+        (workerCuadMap[t.id]||[]).forEach(cId=>cuadIdsNeeded.add(cId));
+      });
+
+      if(cuadIdsNeeded.size===0){
+        alert("⚠️ Los trabajadores seleccionados no pertenecen a ninguna cuadrilla.\nAgrega los trabajadores a una cuadrilla primero.");
+        setGuardandoLlamado(false); return;
+      }
+
+      for(const cId of cuadIdsNeeded){
+        const regId = docId(cId,year,month);
+        const snap  = await getDoc(doc(db,"nomina_asistencia_registro",regId));
+        const regExiste = snap.exists()?(snap.data().registro||{}):{};
+        const diaData   = {...(regExiste[dia]||{})};
+
+        const cuadrilla = cuadrillas.find(c=>c.id===cId);
+        (cuadrilla?.miembros||[]).forEach(m=>{
+          if(!wIds.has(m.id))return; // no es del cliente seleccionado
+          const cod = llamadoNovedades[m.id];
+          if(cod===null){
+            delete diaData[m.id]; // asistió → quitar novedad
+          }else if(cod){
+            diaData[m.id]=cod;    // novedad marcada
+          }
+          // undefined → sin marcar → no tocar
+        });
+
+        await setDoc(doc(db,"nomina_asistencia_registro",regId),{
+          cuadrillaId:cId,
+          cuadrillaNombre:cuadrilla?.nombre||cId,
+          anio:year, mes:month,
+          registro:{...regExiste,[dia]:diaData},
+          actualizadoEn:new Date(),
+        });
+      }
+
+      alert(`✅ Llamado a lista guardado — ${novCount} novedad(es) registrada(s)`);
+      setLlamadoNovedades({});
+    }catch(e){alert("Error al guardar: "+e.message);}
+    setGuardandoLlamado(false);
+  };
+
+  // ── Crear nueva novedad desde el llamado a lista ───────────────────────
+  const crearNovedadDesdeCallada = async () => {
+    const label  = formNuevaNov.label.trim();
+    if(!label){setErrNuevaNov("El nombre es requerido.");return;}
+    const codigo = (formNuevaNov.codigo.trim()||label).toUpperCase().replace(/[^A-Z0-9-]/g,"").substring(0,8);
+    if(novedades.find(n=>n.codigo===codigo)){setErrNuevaNov(`El código "${codigo}" ya existe.`);return;}
+    setCreandoNov(true);
+    try{
+      await addDoc(collection(db,"nomina_novedades"),{
+        codigo,
+        label,
+        emoji: formNuevaNov.emoji.trim()||"📋",
+        color:"#6366f1", bg:"#eef2ff",
+        orden: novedades.length+1,
+        paga:"SÍ", porcentaje:"0%", info:"",
+        creadoEn:new Date(),
+      });
+      await cargarNovedades();
+      setModalNuevaLlamadoNov(false);
+      setFormNuevaNov({label:"",emoji:"",codigo:""});
+      setErrNuevaNov("");
+    }catch(e){setErrNuevaNov("Error: "+e.message);}
+    setCreandoNov(false);
+  };
+
   const exportarCSV=()=>{
     const td=diasEnMes(anio,mes);
     const miembros=cuadrillaActiva?.miembros||[];
@@ -393,10 +527,17 @@ export default function AsistenciaPage() {
               <p style={{margin:0,color:"#64748b",fontSize:"0.85rem",maxWidth:"560px"}}>
                 Crea las cuadrillas con sus miembros permanentes. Luego en <strong>Registro diario</strong> indica día a día quién tuvo novedad.
               </p>
-              <button onClick={()=>{setModalNueva(true);setNombreNueva("");setErrNombre("");}}
-                style={sty.btnPrimary}>
-                <Plus size={15}/> Nueva cuadrilla
-              </button>
+              <div style={{display:"flex",gap:"0.6rem",flexWrap:"wrap"}}>
+                <button
+                  onClick={()=>setVista("llamado")}
+                  style={{...sty.btnPrimary,background:"#f59e0b",boxShadow:"0 4px 12px rgba(245,158,11,0.3)"}}>
+                  📣 Llamado a lista
+                </button>
+                <button onClick={()=>{setModalNueva(true);setNombreNueva("");setErrNombre("");}}
+                  style={sty.btnPrimary}>
+                  <Plus size={15}/> Nueva cuadrilla
+                </button>
+              </div>
             </div>
 
             {cuadrillas.length===0 ? (
@@ -479,6 +620,253 @@ export default function AsistenciaPage() {
             })}
           </>
         )}
+
+        {/* ══════════════════════════════════════════════════════════
+            VISTA LLAMADO A LISTA
+        ══════════════════════════════════════════════════════════ */}
+        {vista==="llamado" && (()=>{
+          const clienteActivo = clientes.find(c=>c.id===llamadoClienteId)||clientes[0];
+          const workersDelCliente = trabajadores
+            .filter(t=>(t.clienteIds||["spia"]).includes(llamadoClienteId))
+            .sort((a,b)=>{
+              const ca=(a.cargo||"").toLowerCase();
+              const cb=(b.cargo||"").toLowerCase();
+              if(ca!==cb)return ca.localeCompare(cb);
+              return (a.nombre||"").localeCompare(b.nombre||"");
+            });
+          const gruposPorCargo={};
+          workersDelCliente.forEach(t=>{
+            const c=t.cargo||("(Sin cargo)");
+            if(!gruposPorCargo[c])gruposPorCargo[c]=[];
+            gruposPorCargo[c].push(t);
+          });
+          const cargosOrdenados=Object.keys(gruposPorCargo).sort((a,b)=>a.localeCompare(b));
+          const totalConNovedad = Object.values(llamadoNovedades).filter(v=>v!==null&&v!==undefined&&v!=="").length;
+          const totalAsistio    = Object.values(llamadoNovedades).filter(v=>v===null).length;
+          const totalSinMarcar  = workersDelCliente.length - totalConNovedad - totalAsistio;
+          return (
+          <>
+            {/* Header llamado */}
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",
+              marginBottom:"1.25rem",flexWrap:"wrap",gap:"0.75rem"}}>
+              <div>
+                <h2 style={{margin:0,color:PRIMARY,fontSize:"1.2rem",fontWeight:"800"}}>📣 Llamado a Lista</h2>
+                <p style={{margin:0,color:"#64748b",fontSize:"0.83rem"}}>
+                  Marca novedad por trabajador para el día seleccionado. Se guarda en Asistencia automáticamente.
+                </p>
+              </div>
+              <div style={{display:"flex",gap:"0.5rem",flexWrap:"wrap"}}>
+                <button
+                  onClick={()=>setModalNuevaLlamadoNov(true)}
+                  style={{...sty.btnSec,color:"#7c3aed",background:"#ede9fe",border:"1.5px solid #c4b5fd",padding:"0.55rem 0.9rem"}}>
+                  <Plus size={13}/> Nueva novedad
+                </button>
+                <button
+                  onClick={guardarLlamadoLista}
+                  disabled={guardandoLlamado||totalConNovedad+totalAsistio===0}
+                  style={{...sty.btnPrimary,background:totalConNovedad+totalAsistio>0?"#059669":"#e2e8f0",
+                    color:totalConNovedad+totalAsistio>0?"#fff":"#94a3b8",
+                    cursor:totalConNovedad+totalAsistio>0?"pointer":"not-allowed"}}>
+                  {guardandoLlamado?<RefreshCw size={15} style={{animation:"spin 1s linear infinite"}}/>:<Save size={15}/>}
+                  {guardandoLlamado?"Guardando...":"Guardar llamado"}
+                </button>
+                <button onClick={()=>{setVista("cuadrillas");setLlamadoNovedades({});}} style={{...sty.btnSec,color:"#64748b"}}>
+                  <X size={14}/> Cerrar
+                </button>
+              </div>
+            </div>
+
+            {/* Barra: fecha + cliente + contadores */}
+            <div style={{display:"flex",gap:"1rem",marginBottom:"1.25rem",flexWrap:"wrap",alignItems:"flex-end"}}>
+              {/* Fecha */}
+              <div>
+                <div style={{fontSize:"0.72rem",color:"#94a3b8",fontWeight:"700",marginBottom:"0.3rem"}}>📅 FECHA</div>
+                <input type="date" value={llamadoFecha}
+                  onChange={e=>{setLlamadoFecha(e.target.value);setLlamadoNovedades({});}}
+                  style={{border:`1.5px solid ${PRIMARY}40`,borderRadius:"10px",padding:"0.5rem 0.8rem",
+                    fontSize:"0.92rem",color:PRIMARY,fontWeight:"700",outline:"none",background:"#eff6ff",cursor:"pointer"}}/>
+              </div>
+              {/* Selector de cliente */}
+              <div style={{flex:1}}>
+                <div style={{fontSize:"0.72rem",color:"#94a3b8",fontWeight:"700",marginBottom:"0.3rem"}}>🏢 CLIENTE</div>
+                <div style={{display:"flex",gap:"0.4rem",flexWrap:"wrap"}}>
+                  {clientes.map(c=>(
+                    <button key={c.id}
+                      onClick={()=>{setLlamadoClienteId(c.id);setLlamadoNovedades({});}}
+                      style={{padding:"0.45rem 1rem",borderRadius:"20px",fontWeight:"700",fontSize:"0.83rem",
+                        cursor:"pointer",border:`2px solid ${llamadoClienteId===c.id?c.color:"#e2e8f0"}`,
+                        background:llamadoClienteId===c.id?`${c.color}15`:"#f8fafc",
+                        color:llamadoClienteId===c.id?c.color:"#64748b",
+                        boxShadow:llamadoClienteId===c.id?`0 3px 10px ${c.color}30`:"none"}}>
+                      {c.emoji} {c.nombre} ({trabajadores.filter(t=>(t.clienteIds||["spia"]).includes(c.id)).length})
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {/* Contadores */}
+              <div style={{display:"flex",gap:"0.6rem"}}>
+                <div style={{background:"#d1fae5",borderRadius:"10px",padding:"0.5rem 0.9rem",textAlign:"center"}}>
+                  <div style={{fontWeight:"900",color:"#059669",fontSize:"1.1rem"}}>{totalAsistio}</div>
+                  <div style={{fontSize:"0.65rem",color:"#059669",fontWeight:"700"}}>Asistió ✅</div>
+                </div>
+                <div style={{background:"#fee2e2",borderRadius:"10px",padding:"0.5rem 0.9rem",textAlign:"center"}}>
+                  <div style={{fontWeight:"900",color:"#dc2626",fontSize:"1.1rem"}}>{totalConNovedad}</div>
+                  <div style={{fontSize:"0.65rem",color:"#dc2626",fontWeight:"700"}}>Con novedad ❌</div>
+                </div>
+                <div style={{background:"#f8fafc",borderRadius:"10px",padding:"0.5rem 0.9rem",textAlign:"center"}}>
+                  <div style={{fontWeight:"900",color:"#94a3b8",fontSize:"1.1rem"}}>{totalSinMarcar}</div>
+                  <div style={{fontSize:"0.65rem",color:"#94a3b8",fontWeight:"700"}}>Sin marcar</div>
+                </div>
+              </div>
+            </div>
+
+            {workersDelCliente.length===0?(
+              <EmptyState icon="👷" title="Sin trabajadores" desc={`No hay trabajadores activos para ${clienteActivo.nombre}.`}/>
+            ):(
+              <div style={{display:"flex",flexDirection:"column",gap:"1.25rem"}}>
+                {cargosOrdenados.map(cargo=>{
+                  const workers = gruposPorCargo[cargo];
+                  return(
+                    <div key={cargo} style={{background:"#fff",borderRadius:"14px",overflow:"hidden",
+                      boxShadow:"0 2px 10px rgba(0,0,0,0.06)",
+                      border:`2px solid ${clienteActivo.color}20`}}>
+                      {/* Encabezado cargo */}
+                      <div style={{padding:"0.65rem 1rem",background:`${clienteActivo.color}10`,
+                        borderBottom:`1px solid ${clienteActivo.color}25`,
+                        display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:"0.5rem"}}>
+                          <span style={{background:clienteActivo.color,color:"#fff",
+                            borderRadius:"6px",padding:"2px 10px",fontSize:"0.75rem",fontWeight:"800"}}>
+                            👷 {cargo}
+                          </span>
+                          <span style={{fontSize:"0.73rem",color:"#64748b"}}>{workers.length} trabajador(es)</span>
+                        </div>
+                        <button
+                          onClick={()=>{
+                            const allAsistio = workers.every(w=>llamadoNovedades[w.id]===null);
+                            setLlamadoNovedades(prev=>{
+                              const next={...prev};
+                              workers.forEach(w=>{
+                                if(allAsistio)delete next[w.id];
+                                else next[w.id]=null;
+                              });
+                              return next;
+                            });
+                          }}
+                          style={{...sty.btnSec,color:"#059669",background:"#d1fae5",fontSize:"0.73rem",padding:"0.3rem 0.7rem"}}>
+                          ✅ Todos asistieron
+                        </button>
+                      </div>
+                      {/* Trabajadores del cargo */}
+                      <div style={{padding:"0.5rem"}}>
+                        {workers.map((w,idx)=>{
+                          const cod     = llamadoNovedades[w.id];
+                          const novInfo = (cod && cod !== null) ? novMap[cod] : null;
+                          const asistio = cod === null;
+                          const sinMark = cod === undefined;
+                          return(
+                            <div key={w.id}
+                              style={{display:"flex",alignItems:"center",gap:"0.75rem",
+                                padding:"0.6rem 0.75rem",borderRadius:"10px",
+                                background:asistio?"#f0fdf4":novInfo?`${novInfo.color}08`:sinMark?"#fafafa":"transparent",
+                                border:`1.5px solid ${asistio?"#86efac":novInfo?novInfo.color+"30":"transparent"}`,
+                                marginBottom:idx<workers.length-1?"0.35rem":0,
+                                transition:"all 0.12s"}}>
+
+                              {/* Número */}
+                              <span style={{color:"#cbd5e1",fontSize:"0.72rem",fontWeight:"700",width:"20px",flexShrink:0}}>
+                                {idx+1}
+                              </span>
+
+                              {/* Estado icono */}
+                              <div style={{width:"36px",height:"36px",borderRadius:"9px",flexShrink:0,
+                                background:asistio?"#d1fae5":novInfo?.bg||"#f1f5f9",
+                                display:"flex",alignItems:"center",justifyContent:"center",fontSize:"1.1rem"}}>
+                                {asistio?"✅":novInfo?novInfo.emoji:"⬜"}
+                              </div>
+
+                              {/* Info trabajador */}
+                              <div style={{flex:1,minWidth:0}}>
+                                <div style={{fontWeight:"700",color:"#1e293b",fontSize:"0.9rem",
+                                  overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                                  {w.nombre}
+                                </div>
+                                <div style={{fontSize:"0.71rem",fontFamily:"monospace",color:"#94a3b8"}}>
+                                  {w.cedula}
+                                </div>
+                                {novInfo&&(
+                                  <div style={{fontSize:"0.72rem",color:novInfo.color,fontWeight:"700",marginTop:"1px"}}>
+                                    {novInfo.emoji} {novInfo.label}
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Botones de acción */}
+                              <div style={{display:"flex",gap:"0.35rem",flexShrink:0}}>
+                                {!asistio&&(
+                                  <button
+                                    onClick={()=>setLlamadoNovedades(p=>({...p,[w.id]:null}))}
+                                    style={{padding:"0.38rem 0.65rem",borderRadius:"8px",
+                                      border:"2px solid #86efac",background:"#d1fae5",cursor:"pointer",
+                                      fontSize:"0.75rem",fontWeight:"700",color:"#059669"}}>
+                                    ✓ Asistió
+                                  </button>
+                                )}
+                                <button
+                                  onClick={e=>{
+                                    const r=e.currentTarget.getBoundingClientRect();
+                                    const alturaPopover=Math.min(novedades.length*46+90,480);
+                                    const abrirArriba=r.bottom+alturaPopover>window.innerHeight-20;
+                                    setLlamadoPopover({workerId:w.id,x:r.right,y:r.bottom,yTop:r.top,abrirArriba});
+                                  }}
+                                  style={{padding:"0.38rem 0.65rem",borderRadius:"8px",
+                                    border:`2px solid ${novInfo?novInfo.color+"40":"#e2e8f0"}`,
+                                    background:novInfo?novInfo.bg:"#f8fafc",cursor:"pointer",
+                                    fontSize:"0.75rem",fontWeight:"700",
+                                    color:novInfo?novInfo.color:"#64748b",
+                                    display:"flex",alignItems:"center",gap:"0.3rem"}}>
+                                  {novInfo?<Edit2 size={12}/>:<AlertCircle size={12}/>}
+                                  {novInfo?"Cambiar":"Novedad"}
+                                </button>
+                                {(asistio||novInfo)&&(
+                                  <button
+                                    onClick={()=>setLlamadoNovedades(p=>{const n={...p};delete n[w.id];return n;})}
+                                    title="Quitar marca"
+                                    style={{padding:"0.38rem 0.5rem",borderRadius:"8px",
+                                      border:"1.5px solid #e2e8f0",background:"#fff",cursor:"pointer",
+                                      color:"#94a3b8",display:"flex"}}>
+                                    <X size={12}/>
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+                {/* Botón guardar al final */}
+                <div style={{display:"flex",justifyContent:"flex-end",gap:"0.75rem",paddingTop:"0.5rem"}}>
+                  <button onClick={()=>{setVista("cuadrillas");setLlamadoNovedades({});}} style={{...sty.btnSec,color:"#64748b",padding:"0.65rem 1.25rem"}}>
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={guardarLlamadoLista}
+                    disabled={guardandoLlamado||totalConNovedad+totalAsistio===0}
+                    style={{...sty.btnPrimary,background:totalConNovedad+totalAsistio>0?"#059669":"#e2e8f0",
+                      color:totalConNovedad+totalAsistio>0?"#fff":"#94a3b8",
+                      cursor:totalConNovedad+totalAsistio>0?"pointer":"not-allowed",
+                      padding:"0.65rem 1.5rem",fontSize:"0.92rem"}}>
+                    {guardandoLlamado?<RefreshCw size={16} style={{animation:"spin 1s linear infinite"}}/>:<Save size={16}/>}
+                    {guardandoLlamado?"Guardando...":`Guardar llamado (${totalConNovedad+totalAsistio} marcados)`}
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
+          );
+        })()}
 
         {/* ══════════════════════════════════════════════════════════
             VISTA 2: REGISTRO DIARIO
@@ -965,6 +1353,87 @@ export default function AsistenciaPage() {
           </>
         )}
       </div>
+
+      {/* ══ POPOVER LLAMADO A LISTA ══ */}
+      {llamadoPopover&&(
+        <div ref={llamadoPopRef} style={{
+          position:"fixed",
+          right:typeof window!=="undefined"?Math.max(8,window.innerWidth-llamadoPopover.x):0,
+          ...(llamadoPopover.abrirArriba
+            ?{bottom:typeof window!=="undefined"?window.innerHeight-llamadoPopover.yTop+8:0}
+            :{top:llamadoPopover.y+8}),
+          zIndex:99999,
+          background:"#fff",borderRadius:"16px",
+          boxShadow:"0 12px 40px rgba(0,0,0,0.18),0 0 0 1px rgba(0,0,0,0.05)",
+          padding:"0.75rem",minWidth:"260px",maxWidth:"300px",
+          maxHeight:"480px",overflowY:"auto",
+          animation:"popIn 0.13s ease",
+        }}>
+          <div style={{fontWeight:"800",color:PRIMARY,fontSize:"0.82rem",marginBottom:"0.3rem",padding:"0 0.25rem"}}>Registrar novedad</div>
+          <div style={{height:"1px",background:"#f1f5f9",marginBottom:"0.45rem"}}/>
+          {novedades.map(n=>(
+            <button key={n.codigo}
+              onClick={()=>{
+                setLlamadoNovedades(p=>({...p,[llamadoPopover.workerId]:n.codigo}));
+                setLlamadoPopover(null);
+              }}
+              style={{display:"flex",alignItems:"center",gap:"0.6rem",
+                width:"100%",padding:"0.48rem 0.55rem",
+                background:"transparent",border:"1.5px solid transparent",
+                borderRadius:"9px",cursor:"pointer",marginBottom:"2px",textAlign:"left"}}
+              onMouseEnter={e=>{e.currentTarget.style.background=n.bg;e.currentTarget.style.borderColor=n.color+"50";}}
+              onMouseLeave={e=>{e.currentTarget.style.background="transparent";e.currentTarget.style.borderColor="transparent";}}>
+              <span style={{fontSize:"1rem",lineHeight:1,flexShrink:0}}>{n.emoji}</span>
+              <span style={{flex:1,fontSize:"0.8rem",fontWeight:"600",color:"#374151"}}>{n.label}</span>
+              {n.porcentaje&&(
+                <span style={{fontSize:"0.65rem",fontFamily:"monospace",fontWeight:"900",
+                  background:n.porcentaje.startsWith("-")?"#fee2e2":n.bg,
+                  color:n.porcentaje.startsWith("-")?"#dc2626":n.color,
+                  borderRadius:"4px",padding:"0px 5px",border:`1px solid ${n.color}30`}}>
+                  {n.porcentaje}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* ══ MODAL NUEVA NOVEDAD DESDE LLAMADO ══ */}
+      {modalNuevaLlamadoNov&&(
+        <Modal onClose={()=>{setModalNuevaLlamadoNov(false);setErrNuevaNov("");setFormNuevaNov({label:"",emoji:"",codigo:""})}}
+          title="➕ Nueva Novedad">
+          <div style={{marginBottom:"1rem"}}>
+            <label style={sty.label}>Emoji (opcional)</label>
+            <input value={formNuevaNov.emoji} onChange={e=>setFormNuevaNov(p=>({...p,emoji:e.target.value}))}
+              placeholder="📋" maxLength={2} style={{...sty.inputM,width:"64px",textAlign:"center",fontSize:"1.4rem",marginBottom:0}}/>
+          </div>
+          <div style={{marginBottom:"1rem"}}>
+            <label style={sty.label}>Nombre de la novedad *</label>
+            <input autoFocus value={formNuevaNov.label}
+              onChange={e=>{setFormNuevaNov(p=>({...p,label:e.target.value}));setErrNuevaNov("");}}
+              placeholder="Ej: Licencia de estudio..."
+              style={{...sty.inputM,marginBottom:0,borderColor:errNuevaNov?"#ef4444":"#e2e8f0"}}/>
+          </div>
+          <div style={{marginBottom:"1rem"}}>
+            <label style={sty.label}>Código (auto si vacío)</label>
+            <input value={formNuevaNov.codigo}
+              onChange={e=>{setFormNuevaNov(p=>({...p,codigo:e.target.value.toUpperCase()}));setErrNuevaNov("");}}
+              placeholder="Ej: LE (máx 8 chars)" maxLength={8}
+              style={{...sty.inputM,fontFamily:"monospace",marginBottom:0}}/>
+          </div>
+          {errNuevaNov&&<p style={{color:"#ef4444",fontSize:"0.8rem",margin:"0 0 0.75rem"}}>{errNuevaNov}</p>}
+          <p style={{color:"#94a3b8",fontSize:"0.77rem",margin:"0 0 1.25rem"}}>
+            La novedad se agrega al catálogo de Administrar y estará disponible inmediatamente.
+          </p>
+          <button onClick={crearNovedadDesdeCallada} disabled={creandoNov||!formNuevaNov.label.trim()}
+            style={{...sty.btnPrimary,width:"100%",justifyContent:"center",
+              background:formNuevaNov.label.trim()?"#7c3aed":"#94a3b8",
+              cursor:formNuevaNov.label.trim()?"pointer":"not-allowed"}}>
+            {creandoNov?<RefreshCw size={15} style={{animation:"spin 1s linear infinite"}}/>:<Plus size={15}/>}
+            {creandoNov?"Creando...":"Crear novedad"}
+          </button>
+        </Modal>
+      )}
 
       {/* ══ POPOVER DE NOVEDAD ══ */}
       {popover&&(

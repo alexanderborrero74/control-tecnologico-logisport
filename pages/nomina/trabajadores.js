@@ -1072,30 +1072,7 @@ export default function NominaTrabajadores() {
           </div>
         </div>
 
-        {/* ── TABS SECCIÓN: Trabajadores | Novedades ── */}
-        <div style={{ display:"flex", gap:"0.25rem", marginBottom:"1.25rem", background:"#f1f5f9", borderRadius:"12px", padding:"0.3rem", width:"fit-content" }}>
-          {[
-            { id:"trabajadores", label:"👷 Trabajadores", count: trabajadores.filter(t=>t.activo!==false).length },
-            { id:"novedades",    label:"📅 Novedades",    count: novedadesWorker.length },
-          ].map(tab => (
-            <button key={tab.id} onClick={() => setSeccionActiva(tab.id)}
-              style={{ padding:"0.5rem 1.25rem", borderRadius:"9px", border:"none", cursor:"pointer",
-                background: seccionActiva===tab.id ? "#fff" : "transparent",
-                color:      seccionActiva===tab.id ? PRIMARY : "#64748b",
-                fontWeight: seccionActiva===tab.id ? "700" : "500",
-                boxShadow:  seccionActiva===tab.id ? "0 1px 4px rgba(0,0,0,0.1)" : "none",
-                fontSize:"0.9rem", transition:"all 0.15s",
-                display:"flex", alignItems:"center", gap:"0.4rem",
-              }}>
-              {tab.label}
-              <span style={{ background: seccionActiva===tab.id ? `${PRIMARY}18` : "#e2e8f0",
-                color: seccionActiva===tab.id ? PRIMARY : "#64748b",
-                borderRadius:"99px", padding:"1px 7px", fontSize:"0.72rem", fontWeight:"800" }}>
-                {tab.count}
-              </span>
-            </button>
-          ))}
-        </div>
+        {/* ── TABS SECCIÓN: solo Trabajadores (Novedades movido a Asistencia → Llamado a Lista) ── */}
 
         {/* ── SECCIÓN NOVEDADES ── */}
         {seccionActiva === "novedades" && (
@@ -1375,6 +1352,7 @@ export default function NominaTrabajadores() {
 
         {/* ── SECCIÓN TRABAJADORES (solo visible cuando seccionActiva === "trabajadores") ── */}
         {seccionActiva === "novedades" ? null : (
+        <>
         <div>
 
         {/* Selector de cliente */}
@@ -1956,8 +1934,10 @@ export default function NominaTrabajadores() {
         </div>
       )}
 
+      </>
+      )}
+
       </div>
-      )} {/* end seccionActiva !== "novedades" */}
 
       <style jsx global>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </LayoutWithSidebar>
