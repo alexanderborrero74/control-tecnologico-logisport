@@ -118,10 +118,18 @@ export default function NominaIndex() {
     },
     {
       titulo: "Liquidar Nómina",
-      descripcion: "Generar nómina por período",
+      descripcion: "Generar nómina por período · un cliente a la vez",
       icon: DollarSign,
       color: "#f59e0b",
       path: "/nomina/liquidar",
+      roles: ["admin", "admin_nomina", "nomina"],
+    },
+    {
+      titulo: "Liquidación Unificada 🆕",
+      descripcion: "Todos los clientes en una sola nómina · detalle producción por operación",
+      icon: FileText,
+      color: "#0B3D91",
+      path: "/nomina/liquidar_unificada",
       roles: ["admin", "admin_nomina", "nomina"],
     },
     {
