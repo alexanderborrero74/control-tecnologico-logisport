@@ -45,6 +45,7 @@ export default function NominaAdelantos() {
   const [filtroComida,   setFiltroComida]   = useState("");
   const [modalComida,    setModalComida]    = useState(false);
   const [formCom,        setFormCom]        = useState({ trabajadorNombre:"", cedula:"", clienteId:"spia", cargo:"", tipoComida:"almuerzo", descripcionVarios:"", cantidad:"", valor:"", fecha: new Date().toISOString().split("T")[0] });
+  const [modoRegistro,   setModoRegistro]   = useState("trabajador"); // "trabajador" | "cargo"
   const [guardandoCom,   setGuardandoCom]   = useState(false);
   const [busqTrabCom,    setBusqTrabCom]    = useState("");
 
@@ -199,8 +200,15 @@ export default function NominaAdelantos() {
   };
 
   const guardarComida = async () => {
-    if (!formCom.cedula || !formCom.valor || parseFloat(formCom.valor) <= 0) {
-      alert("Seleccione trabajador y valor válido"); return;
+    // Validar según modo: por trabajador necesita cédula, por cargo necesita cargo
+    if (modoRegistro === "trabajador" && !formCom.cedula) {
+      alert("Seleccione un trabajador"); return;
+    }
+    if (modoRegistro === "cargo" && !formCom.cargo) {
+      alert("Seleccione un cargo"); return;
+    }
+    if (!formCom.valor || parseFloat(formCom.valor) <= 0) {
+      alert("Ingrese un valor válido"); return;
     }
     if (formCom.tipoComida === "varios" && !formCom.descripcionVarios.trim()) {
       alert("Describe qué se compró en \"Varios\""); return;
@@ -211,8 +219,9 @@ export default function NominaAdelantos() {
         ? formCom.descripcionVarios.trim()
         : TIPO_COMIDA_LABELS[formCom.tipoComida] || formCom.tipoComida;
       await addDoc(collection(db,"nomina_comida"), {
-        trabajadorNombre: formCom.trabajadorNombre.trim().toUpperCase(),
-        cedula:    formCom.cedula.trim(),
+        trabajadorNombre: formCom.trabajadorNombre?.trim().toUpperCase() || "",
+        cedula:    formCom.cedula?.trim() || "",
+        modoRegistro,                             // "trabajador" | "cargo"
         clienteId: formCom.clienteId,
         clienteNombre: clientes.find(c => c.id === formCom.clienteId)?.nombre || formCom.clienteId,
         cargo:     formCom.cargo?.trim() || "",
@@ -229,6 +238,7 @@ export default function NominaAdelantos() {
       setModalComida(false);
       setBusqTrabCom("");
       setFormCom({ trabajadorNombre:"", cedula:"", clienteId:"spia", cargo:"", tipoComida:"almuerzo", descripcionVarios:"", cantidad:"", valor:"", fecha: new Date().toISOString().split("T")[0] });
+      // Mantener el modo elegido por el usuario para el próximo registro
     } catch (e) { alert("Error: " + e.message); }
     setGuardandoCom(false);
   };
@@ -590,27 +600,82 @@ export default function NominaAdelantos() {
             </div>
 
             <div style={{ padding:"1.5rem" }}>
-              {/* Trabajador */}
-              <ModalTrabajadorSelector
-                trabajadores={trabajadores}
-                busqueda={busqTrabCom}
-                setBusqueda={setBusqTrabCom}
-                cedulaSeleccionada={formCom.cedula}
-                onSeleccionar={t => setFormCom(p => ({ ...p, trabajadorNombre:t.nombre, cedula:t.cedula, cargo:t.cargo||"" }))}
-                label="Trabajador *"
-              />
 
-              {/* Cargo */}
+              {/* Toggle modo de registro */}
+              <div style={{ marginBottom:"1.25rem" }}>
+                <label style={{ display:"block", fontWeight:"700", color:"#374151", marginBottom:"0.5rem", fontSize:"0.88rem" }}>
+                  📝 Registrar por
+                </label>
+                <div style={{ display:"flex", gap:"0", borderRadius:"10px", overflow:"hidden", border:"2px solid #e2e8f0" }}>
+                  {[
+                    { key:"trabajador", label:"👷 Trabajador", desc:"Selecciona un trabajador" },
+                    { key:"cargo",     label:"🪪 Cargo",      desc:"Solo por cargo sin trabajador" },
+                  ].map((m, idx) => (
+                    <button
+                      key={m.key} type="button"
+                      onClick={() => {
+                        setModoRegistro(m.key);
+                        // Si cambia a cargo, limpiar datos de trabajador
+                        if (m.key === "cargo") {
+                          setFormCom(p => ({ ...p, trabajadorNombre:"", cedula:"" }));
+                          setBusqTrabCom("");
+                        }
+                        // Si cambia a trabajador, limpiar cargo solo si fue forzado por modo cargo
+                        if (m.key === "trabajador") {
+                          setFormCom(p => ({ ...p, cargo:"" }));
+                        }
+                      }}
+                      style={{
+                        flex:1, padding:"0.65rem 0.5rem",
+                        border:"none",
+                        borderRight: idx === 0 ? "1px solid #e2e8f0" : "none",
+                        background: modoRegistro === m.key ? "#ef4444" : "#f8fafc",
+                        color: modoRegistro === m.key ? "#fff" : "#64748b",
+                        fontWeight: modoRegistro === m.key ? "800" : "500",
+                        fontSize:"0.88rem", cursor:"pointer",
+                        transition:"all 0.15s",
+                        display:"flex", flexDirection:"column", alignItems:"center", gap:"2px",
+                      }}>
+                      <span>{m.label}</span>
+                      <span style={{ fontSize:"0.7rem", opacity:0.8 }}>{m.desc}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* MODO TRABAJADOR: selector de trabajador */}
+              {modoRegistro === "trabajador" && (
+                <ModalTrabajadorSelector
+                  trabajadores={trabajadores}
+                  busqueda={busqTrabCom}
+                  setBusqueda={setBusqTrabCom}
+                  cedulaSeleccionada={formCom.cedula}
+                  onSeleccionar={t => setFormCom(p => ({ ...p, trabajadorNombre:t.nombre, cedula:t.cedula, cargo:t.cargo||"" }))}
+                  label="Trabajador *"
+                />
+              )}
+
+              {/* Cargo — obligatorio en modo cargo, opcional en modo trabajador */}
               <div style={{ marginBottom:"1rem" }}>
                 <label style={{ display:"block", fontWeight:"700", color:"#374151", marginBottom:"0.35rem", fontSize:"0.88rem" }}>
-                  🪪 Cargo *
-                  <span style={{ fontWeight:"400", color:"#94a3b8", marginLeft:"0.4rem", fontSize:"0.78rem" }}>¿Para qué cargo es la comida?</span>
+                  🪪 {modoRegistro === "cargo" ? "Cargo *" : "Cargo"}
+                  <span style={{ fontWeight:"400", color:"#94a3b8", marginLeft:"0.4rem", fontSize:"0.78rem" }}>
+                    {modoRegistro === "cargo" ? "¿Para qué cargo es la comida?" : "Autorrellena al seleccionar trabajador"}
+                  </span>
                 </label>
                 <select value={formCom.cargo} onChange={e => setFormCom(p => ({ ...p, cargo:e.target.value }))}
-                  style={{ ...inputModalStyle, background:"#eff6ff", cursor:"pointer", fontWeight: formCom.cargo?"700":"400" }}>
+                  style={{ ...inputModalStyle,
+                    background: modoRegistro === "cargo" ? "#fef2f2" : "#eff6ff",
+                    border: modoRegistro === "cargo" ? "1.5px solid #fca5a5" : "1.5px solid #e2e8f0",
+                    cursor:"pointer", fontWeight: formCom.cargo?"700":"400" }}>
                   <option value="">— Seleccionar cargo —</option>
                   {listaCargos.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
+                {modoRegistro === "cargo" && formCom.cargo && (
+                  <div style={{ marginTop:"0.3rem", fontSize:"0.8rem", color:"#dc2626", fontWeight:"600" }}>
+                    ✅ Cargo seleccionado: {formCom.cargo}
+                  </div>
+                )}
               </div>
 
               {/* Tipo de comida */}
