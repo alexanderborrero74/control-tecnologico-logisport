@@ -9,6 +9,7 @@ import { getUserRoleByUid } from "@/utils/getUserRole";
 import LayoutWithSidebar from "@/components/LayoutWithSidebar";
 import { formatCOP } from "@/utils/nominaCalculos";
 import { ClipboardList, Plus, Edit2, Trash2, Search, ArrowLeft, X, Save, Upload, RefreshCw, CheckCircle, AlertCircle } from "lucide-react";
+import * as XLSX from "xlsx";
 
 const PRIMARY = "#0B3D91";
 
@@ -121,9 +122,8 @@ export default function NominaServicios() {
     setImportError("");
     setImportParsed(null);
     try {
-      const XLSX = await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");
       const buf  = await file.arrayBuffer();
-      const wb   = XLSX.read(buf, { type: "array" });
+      const wb   = XLSX.read(new Uint8Array(buf), { type: "array" });
       const ws   = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
 
