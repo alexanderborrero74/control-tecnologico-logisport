@@ -403,6 +403,8 @@ export default function AsistenciaPage() {
         });
       }
 
+      // Forzar recarga del registro diario/mensual al volver a esa vista
+      registroCargadoRef.current = { cuadrillaId: null, anio: null, mes: null };
       alert(`✅ Llamado a lista guardado — ${novCount} novedad(es) registrada(s)`);
       setLlamadoNovedades({});
     }catch(e){alert("Error al guardar: "+e.message);}
