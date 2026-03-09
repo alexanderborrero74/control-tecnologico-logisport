@@ -3,12 +3,12 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/router";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import {
-  collection, getDocs, addDoc, updateDoc, deleteDoc, doc, orderBy, query, writeBatch
+  collection, getDocs, addDoc, updateDoc, deleteDoc, doc, orderBy, query, writeBatch, setDoc
 } from "firebase/firestore";
 import { db } from "@/firebase/firebaseConfig";
 import { getUserRoleByUid } from "@/utils/getUserRole";
 import LayoutWithSidebar from "@/components/LayoutWithSidebar";
-import { Users, Plus, Edit2, Trash2, Search, ArrowLeft, X, Save, Upload, FileSpreadsheet, AlertTriangle, CheckCircle, RefreshCw, Download } from "lucide-react";
+import { Users, Plus, Edit2, Trash2, Search, ArrowLeft, X, Save, Upload, FileSpreadsheet, AlertTriangle, CheckCircle, RefreshCw, Download, Calendar, Smile } from "lucide-react";
 
 const PRIMARY = "#0B3D91";
 const ACCENT  = "#00AEEF";
@@ -187,6 +187,20 @@ export default function NominaTrabajadores() {
   const [salNombreArchivo, setSalNombreArchivo]  = useState("");
   const fileRefSal = useRef(null);
 
+  /* ── Sección activa: "trabajadores" | "novedades" ── */
+  const [seccionActiva, setSeccionActiva] = useState("trabajadores");
+
+  /* ── Novedades por trabajador ── */
+  const [novedadesWorker,    setNovedadesWorker]    = useState([]);   // nomina_novedades_trabajador
+  const [novedadesCatalogo,  setNovedadesCatalogo]  = useState([]);   // nomina_novedades (catálogo)
+  const [modalNovAbierto,    setModalNovAbierto]    = useState(false);
+  const [editandoNov,        setEditandoNov]        = useState(null);
+  const [guardandoNov,       setGuardandoNov]       = useState(false);
+  const NOV_FORM_INIT = { trabajadorId:"", nombre:"", cedula:"", novedad:"", fechaInicio:"", fechaFin:"", diasExcluidos:[], observacion:"" };
+  const [formNov, setFormNov] = useState(NOV_FORM_INIT);
+  const [novBusqueda, setNovBusqueda] = useState("");
+  const [novFiltroActivo, setNovFiltroActivo] = useState("todos"); // "todos" | "activos" | "codigo"
+
   /* ── Auth ── */
   useEffect(() => {
     const auth = getAuth();
@@ -195,7 +209,7 @@ export default function NominaTrabajadores() {
       const r = await getUserRoleByUid(user.uid);
       setRol(r);
       if (!["admin","admin_nomina","rrhh","nomina"].includes(r)) { router.push("/"); return; }
-      await Promise.all([cargar(), cargarCatalogos(), cargarClientes(), cargarAsistenciaCuadrillas()]);
+      await Promise.all([cargar(), cargarCatalogos(), cargarClientes(), cargarAsistenciaCuadrillas(), cargarNovedadesWorker(), cargarNovedadesCatalogo()]);
       setLoading(false);
     });
     return () => unsub();
@@ -686,6 +700,113 @@ export default function NominaTrabajadores() {
     setSalNombreArchivo("");
   };
 
+  /* ── Novedades por trabajador (nomina_novedades_trabajador) ── */
+  const cargarNovedadesWorker = async () => {
+    try {
+      const snap = await getDocs(collection(db, "nomina_novedades_trabajador"));
+      const lista = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      lista.sort((a, b) => (b.fechaInicio || "").localeCompare(a.fechaInicio || ""));
+      setNovedadesWorker(lista);
+    } catch (e) { console.error(e); }
+  };
+
+  const cargarNovedadesCatalogo = async () => {
+    try {
+      const snap = await getDocs(query(collection(db, "nomina_novedades"), orderBy("orden")));
+      if (!snap.empty) setNovedadesCatalogo(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    } catch {}
+  };
+
+  /* Verifica si una fecha YYYY-MM-DD está cubierta por una novedad del trabajador */
+  const novTieneFechaActiva = (nov, fecha) => {
+    if (!fecha || !nov.fechaInicio || !nov.fechaFin) return false;
+    if (fecha < nov.fechaInicio || fecha > nov.fechaFin) return false;
+    const excluidos = nov.diasExcluidos || [];
+    return !excluidos.includes(fecha);
+  };
+
+  /* Retorna las novedades activas de un trabajador para una fecha dada */
+  const getNovedadesActivasWorker = (trabajadorId, fecha) => {
+    return novedadesWorker.filter(n => n.trabajadorId === trabajadorId && novTieneFechaActiva(n, fecha));
+  };
+
+  const abrirNuevaNovedadWorker = () => {
+    setEditandoNov(null);
+    setFormNov({ ...NOV_FORM_INIT });
+    setModalNovAbierto(true);
+  };
+
+  const abrirEditarNovedadWorker = (nov) => {
+    setEditandoNov(nov);
+    setFormNov({
+      trabajadorId: nov.trabajadorId || "",
+      nombre:       nov.nombre       || "",
+      cedula:       nov.cedula       || "",
+      novedad:      nov.novedad      || "",
+      fechaInicio:  nov.fechaInicio  || "",
+      fechaFin:     nov.fechaFin     || "",
+      diasExcluidos: nov.diasExcluidos || [],
+      observacion:  nov.observacion  || "",
+    });
+    setModalNovAbierto(true);
+  };
+
+  const guardarNovedadWorker = async () => {
+    if (!formNov.trabajadorId || !formNov.novedad || !formNov.fechaInicio || !formNov.fechaFin) return;
+    if (formNov.fechaFin < formNov.fechaInicio) { alert("La fecha fin debe ser posterior a la fecha inicio."); return; }
+    setGuardandoNov(true);
+    const data = {
+      trabajadorId:  formNov.trabajadorId,
+      nombre:        formNov.nombre,
+      cedula:        formNov.cedula,
+      novedad:       formNov.novedad,
+      fechaInicio:   formNov.fechaInicio,
+      fechaFin:      formNov.fechaFin,
+      diasExcluidos: formNov.diasExcluidos || [],
+      observacion:   formNov.observacion || "",
+      actualizadoEn: new Date(),
+    };
+    try {
+      if (editandoNov) {
+        await updateDoc(doc(db, "nomina_novedades_trabajador", editandoNov.id), data);
+      } else {
+        await addDoc(collection(db, "nomina_novedades_trabajador"), { ...data, creadoEn: new Date() });
+      }
+      await cargarNovedadesWorker();
+      setModalNovAbierto(false);
+    } catch (e) { alert("Error: " + e.message); }
+    setGuardandoNov(false);
+  };
+
+  const eliminarNovedadWorker = async (nov) => {
+    const nombreNov = novedadesCatalogo.find(n => n.codigo === nov.novedad)?.label || nov.novedad;
+    if (!confirm(`¿Eliminar la novedad ${nombreNov} de ${nov.nombre}?`)) return;
+    await deleteDoc(doc(db, "nomina_novedades_trabajador", nov.id));
+    await cargarNovedadesWorker();
+  };
+
+  /* Genera todos los días YYYY-MM-DD entre dos fechas */
+  const getDiasRango = (fi, ff) => {
+    if (!fi || !ff || ff < fi) return [];
+    const dias = [];
+    const d = new Date(fi + "T12:00:00");
+    const fin = new Date(ff + "T12:00:00");
+    while (d <= fin) {
+      dias.push(d.toISOString().split("T")[0]);
+      d.setDate(d.getDate() + 1);
+    }
+    return dias;
+  };
+
+  const toggleDiaExcluido = (fecha) => {
+    const exc = formNov.diasExcluidos || [];
+    if (exc.includes(fecha)) {
+      setFormNov(p => ({ ...p, diasExcluidos: exc.filter(d => d !== fecha) }));
+    } else {
+      setFormNov(p => ({ ...p, diasExcluidos: [...exc, fecha] }));
+    }
+  };
+
   /* ── Limpiar duplicados en Firestore ── */
   const limpiarDuplicados = async () => {
     const snap = await getDocs(collection(db, "nomina_trabajadores"));
@@ -950,6 +1071,311 @@ export default function NominaTrabajadores() {
           )}
           </div>
         </div>
+
+        {/* ── TABS SECCIÓN: Trabajadores | Novedades ── */}
+        <div style={{ display:"flex", gap:"0.25rem", marginBottom:"1.25rem", background:"#f1f5f9", borderRadius:"12px", padding:"0.3rem", width:"fit-content" }}>
+          {[
+            { id:"trabajadores", label:"👷 Trabajadores", count: trabajadores.filter(t=>t.activo!==false).length },
+            { id:"novedades",    label:"📅 Novedades",    count: novedadesWorker.length },
+          ].map(tab => (
+            <button key={tab.id} onClick={() => setSeccionActiva(tab.id)}
+              style={{ padding:"0.5rem 1.25rem", borderRadius:"9px", border:"none", cursor:"pointer",
+                background: seccionActiva===tab.id ? "#fff" : "transparent",
+                color:      seccionActiva===tab.id ? PRIMARY : "#64748b",
+                fontWeight: seccionActiva===tab.id ? "700" : "500",
+                boxShadow:  seccionActiva===tab.id ? "0 1px 4px rgba(0,0,0,0.1)" : "none",
+                fontSize:"0.9rem", transition:"all 0.15s",
+                display:"flex", alignItems:"center", gap:"0.4rem",
+              }}>
+              {tab.label}
+              <span style={{ background: seccionActiva===tab.id ? `${PRIMARY}18` : "#e2e8f0",
+                color: seccionActiva===tab.id ? PRIMARY : "#64748b",
+                borderRadius:"99px", padding:"1px 7px", fontSize:"0.72rem", fontWeight:"800" }}>
+                {tab.count}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {/* ── SECCIÓN NOVEDADES ── */}
+        {seccionActiva === "novedades" && (
+          <div>
+            {/* Header novedades */}
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:"1rem", flexWrap:"wrap", gap:"0.75rem" }}>
+              <div>
+                <div style={{ fontWeight:"800", color:PRIMARY, fontSize:"1.1rem" }}>📅 Novedades por Trabajador</div>
+                <div style={{ color:"#64748b", fontSize:"0.83rem" }}>Vacaciones, permisos, incapacidades y más. El trabajador no generará producción en los días con novedad activa.</div>
+              </div>
+              {puedeEditar && (
+                <button onClick={abrirNuevaNovedadWorker}
+                  style={{ background:PRIMARY, border:"none", borderRadius:"10px", padding:"0.7rem 1.25rem", color:"#fff", cursor:"pointer", fontWeight:"700", display:"flex", alignItems:"center", gap:"0.5rem" }}>
+                  <Plus size={18}/> Nueva Novedad
+                </button>
+              )}
+            </div>
+
+            {/* Buscador novedades */}
+            <div style={{ background:"#fff", borderRadius:"12px", padding:"0.8rem 1rem", marginBottom:"1rem", boxShadow:"0 2px 8px rgba(0,0,0,0.06)", display:"flex", alignItems:"center", gap:"0.75rem" }}>
+              <Search size={16} color="#94a3b8"/>
+              <input value={novBusqueda} onChange={e => setNovBusqueda(e.target.value)}
+                placeholder="Buscar por nombre, cédula o tipo de novedad..."
+                style={{ flex:1, border:"none", outline:"none", fontSize:"0.9rem", color:"#1e293b", background:"transparent" }}/>
+              {novBusqueda && <button onClick={() => setNovBusqueda("")} style={{ background:"none", border:"none", cursor:"pointer" }}><X size={15} color="#94a3b8"/></button>}
+            </div>
+
+            {/* Lista novedades */}
+            {(() => {
+              const q = novBusqueda.toLowerCase().trim();
+              const novsFiltradas = novedadesWorker.filter(n => {
+                if (!q) return true;
+                const novCat = novedadesCatalogo.find(c => c.codigo === n.novedad);
+                return n.nombre?.toLowerCase().includes(q)
+                  || (n.cedula||'').includes(q)
+                  || (n.novedad||'').toLowerCase().includes(q)
+                  || novCat?.label?.toLowerCase().includes(q);
+              });
+
+              if (novsFiltradas.length === 0) return (
+                <div style={{ background:"#fff", borderRadius:"12px", padding:"3rem", textAlign:"center", color:"#94a3b8", boxShadow:"0 2px 8px rgba(0,0,0,0.06)" }}>
+                  <div style={{ fontSize:"2.5rem", marginBottom:"0.5rem" }}>📭</div>
+                  <div style={{ fontWeight:"700" }}>Sin novedades registradas</div>
+                  <div style={{ fontSize:"0.83rem", marginTop:"0.25rem" }}>Haz clic en "Nueva Novedad" para registrar vacaciones, permisos o incapacidades</div>
+                </div>
+              );
+
+              return (
+                <div style={{ display:"flex", flexDirection:"column", gap:"0.75rem" }}>
+                  {novsFiltradas.map(nov => {
+                    const novCat = novedadesCatalogo.find(c => c.codigo === nov.novedad);
+                    const totalDias = getDiasRango(nov.fechaInicio, nov.fechaFin).length;
+                    const excDias   = (nov.diasExcluidos||[]).length;
+                    const diasActivos = totalDias - excDias;
+                    const hoy = new Date().toISOString().split("T")[0];
+                    const activa = hoy >= nov.fechaInicio && hoy <= nov.fechaFin;
+                    const pasada = nov.fechaFin < hoy;
+                    const futura = nov.fechaInicio > hoy;
+                    return (
+                      <div key={nov.id} style={{ background:"#fff", borderRadius:"12px", padding:"1rem 1.25rem", boxShadow:"0 2px 8px rgba(0,0,0,0.06)", border:`1.5px solid ${activa ? (novCat?.color||"#0B3D91")+"40" : "#f1f5f9"}`, display:"flex", alignItems:"center", gap:"1rem", flexWrap:"wrap" }}>
+                        {/* Badge tipo novedad */}
+                        <div style={{ background: novCat?.bg||"#f1f5f9", color: novCat?.color||"#64748b", borderRadius:"10px", padding:"0.5rem 0.85rem", fontWeight:"800", fontSize:"0.9rem", flexShrink:0, border:`1.5px solid ${novCat?.color||"#cbd5e1"}30` }}>
+                          {novCat?.emoji||"📋"} {novCat?.label||nov.novedad}
+                        </div>
+
+                        {/* Datos trabajador */}
+                        <div style={{ flex:1, minWidth:"180px" }}>
+                          <div style={{ fontWeight:"700", color:"#1e293b", fontSize:"0.95rem" }}>{nov.nombre}</div>
+                          <div style={{ color:"#64748b", fontSize:"0.78rem", fontFamily:"monospace" }}>{nov.cedula}</div>
+                        </div>
+
+                        {/* Rango fechas */}
+                        <div style={{ textAlign:"center", minWidth:"160px" }}>
+                          <div style={{ fontWeight:"700", color:"#1e293b", fontSize:"0.88rem" }}>
+                            {nov.fechaInicio} → {nov.fechaFin}
+                          </div>
+                          <div style={{ fontSize:"0.75rem", color:"#64748b" }}>
+                            {diasActivos} día{diasActivos!==1?"s":""} activo{diasActivos!==1?"s":""}{excDias>0?` · ${excDias} excluido${excDias!==1?"s":""}`:""}  
+                          </div>
+                        </div>
+
+                        {/* Estado */}
+                        <div style={{ background: activa?"#dcfce7": pasada?"#f1f5f9":"#eff6ff", color: activa?"#065f46": pasada?"#64748b":"#1e40af", borderRadius:"99px", padding:"3px 10px", fontSize:"0.73rem", fontWeight:"800", flexShrink:0 }}>
+                          {activa?"🟢 ACTIVA": pasada?"⬜ TERMINADA":"🔵 FUTURA"}
+                        </div>
+
+                        {/* Observación */}
+                        {nov.observacion && (
+                          <div style={{ color:"#64748b", fontSize:"0.78rem", fontStyle:"italic", maxWidth:"200px", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }} title={nov.observacion}>
+                            "{nov.observacion}"
+                          </div>
+                        )}
+
+                        {/* Acciones */}
+                        {puedeEditar && (
+                          <div style={{ display:"flex", gap:"0.5rem", flexShrink:0 }}>
+                            <button onClick={() => abrirEditarNovedadWorker(nov)}
+                              style={{ background:"#eff6ff", border:"1.5px solid #93c5fd", borderRadius:"8px", padding:"0.4rem 0.75rem", color:PRIMARY, cursor:"pointer", fontWeight:"700", fontSize:"0.8rem", display:"flex", alignItems:"center", gap:"0.3rem" }}>
+                              <Edit2 size={13}/> Editar
+                            </button>
+                            <button onClick={() => eliminarNovedadWorker(nov)}
+                              style={{ background:"#fff1f2", border:`1.5px solid ${DANGER}40`, borderRadius:"8px", padding:"0.4rem 0.75rem", color:DANGER, cursor:"pointer", fontWeight:"700", fontSize:"0.8rem", display:"flex", alignItems:"center", gap:"0.3rem" }}>
+                              <Trash2 size={13}/> Eliminar
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* ── MODAL NUEVA/EDITAR NOVEDAD TRABAJADOR ── */}
+        {modalNovAbierto && (
+          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.55)", zIndex:9999, display:"flex", alignItems:"center", justifyContent:"center", padding:"1rem" }}
+            onClick={e => { if (e.target===e.currentTarget && !guardandoNov) setModalNovAbierto(false); }}>
+            <div style={{ background:"#fff", borderRadius:"16px", width:"100%", maxWidth:"620px", boxShadow:"0 20px 60px rgba(0,0,0,0.25)", maxHeight:"90vh", overflowY:"auto" }}>
+
+              {/* Header */}
+              <div style={{ padding:"1.25rem 1.5rem", borderBottom:"1px solid #f1f5f9", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                <div>
+                  <h2 style={{ margin:0, color:PRIMARY, fontWeight:"800", fontSize:"1.1rem" }}>
+                    📅 {editandoNov ? "Editar" : "Nueva"} Novedad por Trabajador
+                  </h2>
+                  <div style={{ color:"#64748b", fontSize:"0.8rem", marginTop:"0.15rem" }}>La novedad bloquea la producción para los días activos en la matriz</div>
+                </div>
+                {!guardandoNov && <button onClick={() => setModalNovAbierto(false)} style={{ background:"none", border:"none", cursor:"pointer" }}><X size={20} color="#94a3b8"/></button>}
+              </div>
+
+              {/* Body */}
+              <div style={{ padding:"1.25rem 1.5rem", display:"flex", flexDirection:"column", gap:"1rem" }}>
+
+                {/* Selector de trabajador */}
+                <div>
+                  <label style={{ display:"block", fontWeight:"700", color:"#475569", fontSize:"0.83rem", marginBottom:"0.4rem" }}>👷 Trabajador *</label>
+                  <select
+                    value={formNov.trabajadorId}
+                    onChange={e => {
+                      const t = trabajadores.find(x => x.id === e.target.value);
+                      setFormNov(p => ({ ...p, trabajadorId: e.target.value, nombre: t?.nombre||'', cedula: t?.cedula||'' }));
+                    }}
+                    style={{ width:"100%", padding:"0.65rem 0.9rem", border:`1.5px solid ${formNov.trabajadorId?PRIMARY:"#e2e8f0"}`, borderRadius:"10px", fontSize:"0.9rem", outline:"none", fontWeight: formNov.trabajadorId?"700":"400", boxSizing:"border-box" }}>
+                    <option value="">— Seleccionar trabajador —</option>
+                    {trabajadores.filter(t => t.activo !== false).sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||'')).map(t => (
+                      <option key={t.id} value={t.id}>{t.nombre} · {t.cedula}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Tipo de novedad */}
+                <div>
+                  <label style={{ display:"block", fontWeight:"700", color:"#475569", fontSize:"0.83rem", marginBottom:"0.4rem" }}>📋 Tipo de Novedad *</label>
+                  <select
+                    value={formNov.novedad}
+                    onChange={e => setFormNov(p => ({ ...p, novedad: e.target.value }))}
+                    style={{ width:"100%", padding:"0.65rem 0.9rem", border:`1.5px solid ${formNov.novedad?"#8b5cf6":"#e2e8f0"}`, borderRadius:"10px", fontSize:"0.9rem", outline:"none", fontWeight: formNov.novedad?"700":"400", boxSizing:"border-box",
+                      background: formNov.novedad ? (novedadesCatalogo.find(n=>n.codigo===formNov.novedad)?.bg||"#faf5ff") : "#fff",
+                      color: formNov.novedad ? (novedadesCatalogo.find(n=>n.codigo===formNov.novedad)?.color||"#7c3aed") : "#374151",
+                    }}>
+                    <option value="">— Seleccionar novedad —</option>
+                    {/* Mostrar primero las 3 solicitadas */}
+                    {["VAC","PR","PNR"].map(cod => {
+                      const n = novedadesCatalogo.find(x => x.codigo===cod);
+                      if (!n) return null;
+                      return <option key={n.codigo} value={n.codigo}>{n.emoji} {n.label} ({n.codigo})</option>;
+                    })}
+                    <option disabled>────────────────</option>
+                    {novedadesCatalogo.filter(n => !["VAC","PR","PNR"].includes(n.codigo)).map(n => (
+                      <option key={n.codigo} value={n.codigo}>{n.emoji} {n.label} ({n.codigo})</option>
+                    ))}
+                  </select>
+                  {/* Ficha informativa */}
+                  {formNov.novedad && (() => {
+                    const n = novedadesCatalogo.find(x => x.codigo===formNov.novedad);
+                    if (!n) return null;
+                    return (
+                      <div style={{ marginTop:"0.5rem", borderRadius:"8px", overflow:"hidden", border:`1px solid ${n.color}30`, background:n.bg }}>
+                        <div style={{ background:n.color, padding:"0.35rem 0.75rem", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                          <span style={{ color:"#fff", fontWeight:"800", fontSize:"0.8rem" }}>{n.emoji} {n.label}</span>
+                          <span style={{ color:"#fff", fontSize:"0.72rem", fontWeight:"700", background:"rgba(255,255,255,0.25)", borderRadius:"6px", padding:"1px 7px" }}>Paga: {n.paga} · {n.porcentaje}</span>
+                        </div>
+                        {n.info && <div style={{ padding:"0.3rem 0.75rem", fontSize:"0.71rem", color:n.color, fontWeight:"600" }}>ℹ️ {n.info}</div>}
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* Rango de fechas */}
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.75rem" }}>
+                  <div>
+                    <label style={{ display:"block", fontWeight:"700", color:"#475569", fontSize:"0.83rem", marginBottom:"0.4rem" }}>🗓️ Fecha Inicio *</label>
+                    <input type="date" value={formNov.fechaInicio}
+                      onChange={e => setFormNov(p => ({ ...p, fechaInicio: e.target.value, diasExcluidos: [] }))}
+                      style={{ width:"100%", padding:"0.65rem 0.9rem", border:`1.5px solid ${formNov.fechaInicio?PRIMARY:"#e2e8f0"}`, borderRadius:"10px", fontSize:"0.9rem", outline:"none", boxSizing:"border-box" }}/>
+                  </div>
+                  <div>
+                    <label style={{ display:"block", fontWeight:"700", color:"#475569", fontSize:"0.83rem", marginBottom:"0.4rem" }}>🗓️ Fecha Fin *</label>
+                    <input type="date" value={formNov.fechaFin}
+                      min={formNov.fechaInicio||undefined}
+                      onChange={e => setFormNov(p => ({ ...p, fechaFin: e.target.value, diasExcluidos: [] }))}
+                      style={{ width:"100%", padding:"0.65rem 0.9rem", border:`1.5px solid ${formNov.fechaFin?PRIMARY:"#e2e8f0"}`, borderRadius:"10px", fontSize:"0.9rem", outline:"none", boxSizing:"border-box" }}/>
+                  </div>
+                </div>
+
+                {/* Calendario editable */}
+                {formNov.fechaInicio && formNov.fechaFin && formNov.fechaFin >= formNov.fechaInicio && (() => {
+                  const dias = getDiasRango(formNov.fechaInicio, formNov.fechaFin);
+                  const novCat = novedadesCatalogo.find(n => n.codigo === formNov.novedad);
+                  const excluidos = formNov.diasExcluidos || [];
+                  const activos = dias.length - excluidos.length;
+                  return (
+                    <div style={{ background:"#f8fafc", borderRadius:"12px", padding:"1rem", border:"1.5px solid #e2e8f0" }}>
+                      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:"0.75rem" }}>
+                        <span style={{ fontWeight:"700", color:PRIMARY, fontSize:"0.88rem" }}>
+                          📅 Calendario de días ({activos} de {dias.length} activos)
+                        </span>
+                        <span style={{ fontSize:"0.72rem", color:"#64748b" }}>Haz clic en un día para excluirlo</span>
+                      </div>
+                      <div style={{ display:"flex", flexWrap:"wrap", gap:"0.4rem" }}>
+                        {dias.map(fecha => {
+                          const excluido = excluidos.includes(fecha);
+                          const [anio, mes, dia] = fecha.split("-");
+                          const nomDia = ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"][new Date(fecha+"T12:00:00").getDay()];
+                          return (
+                            <button key={fecha} onClick={() => toggleDiaExcluido(fecha)}
+                              title={excluido ? `${fecha} — EXCLUIDO (trabajará normal)` : `${fecha} — NOVEDAD ACTIVA (clic para excluir)`}
+                              style={{ borderRadius:"8px", border:`2px solid ${excluido?"#e2e8f0":novCat?.color||"#7c3aed"}`, padding:"0.35rem 0.45rem", cursor:"pointer", minWidth:"48px", textAlign:"center",
+                                background: excluido ? "#fff" : (novCat?.bg||"#faf5ff"),
+                                color:      excluido ? "#94a3b8" : (novCat?.color||"#7c3aed"),
+                                fontWeight:"700", fontSize:"0.75rem", lineHeight:1.3,
+                                textDecoration: excluido ? "line-through" : "none",
+                                opacity: excluido ? 0.55 : 1,
+                                transition:"all 0.12s",
+                              }}>
+                              <div style={{ fontSize:"0.65rem" }}>{nomDia}</div>
+                              <div>{dia}/{mes}</div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {excluidos.length > 0 && (
+                        <div style={{ marginTop:"0.75rem", fontSize:"0.78rem", color:"#64748b", background:"#fff", borderRadius:"8px", padding:"0.5rem 0.75rem", border:"1px solid #e2e8f0" }}>
+                          ⚠️ <strong>{excluidos.length} día{excluidos.length!==1?"s":""} excluido{excluidos.length!==1?"s":""}</strong> — el trabajador asistirá normal esos días y podrá generar producción.
+                          <button onClick={() => setFormNov(p => ({...p, diasExcluidos:[]}))} style={{ marginLeft:"0.5rem", background:"none", border:"none", cursor:"pointer", color:DANGER, fontWeight:"700", fontSize:"0.78rem" }}>Incluir todos</button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* Observación */}
+                <div>
+                  <label style={{ display:"block", fontWeight:"700", color:"#475569", fontSize:"0.83rem", marginBottom:"0.4rem" }}>💬 Observación (opcional)</label>
+                  <textarea value={formNov.observacion} onChange={e => setFormNov(p => ({...p, observacion: e.target.value}))}
+                    placeholder="Notas adicionales..."
+                    rows={2}
+                    style={{ width:"100%", padding:"0.65rem 0.9rem", border:"1.5px solid #e2e8f0", borderRadius:"10px", fontSize:"0.88rem", outline:"none", resize:"vertical", boxSizing:"border-box", fontFamily:"inherit" }}/>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div style={{ padding:"1rem 1.5rem", borderTop:"1px solid #f1f5f9", display:"flex", gap:"0.75rem" }}>
+                <button onClick={() => setModalNovAbierto(false)} disabled={guardandoNov}
+                  style={{ flex:1, padding:"0.75rem", background:"#f1f5f9", border:"none", borderRadius:"10px", color:"#475569", fontWeight:"700", cursor:"pointer" }}>Cancelar</button>
+                <button onClick={guardarNovedadWorker}
+                  disabled={guardandoNov || !formNov.trabajadorId || !formNov.novedad || !formNov.fechaInicio || !formNov.fechaFin}
+                  style={{ flex:2, padding:"0.75rem", background: (formNov.trabajadorId && formNov.novedad && formNov.fechaInicio && formNov.fechaFin) ? PRIMARY : "#94a3b8", border:"none", borderRadius:"10px", color:"#fff", fontWeight:"700", cursor:(formNov.trabajadorId && formNov.novedad && formNov.fechaInicio && formNov.fechaFin)?"pointer":"not-allowed", display:"flex", alignItems:"center", justifyContent:"center", gap:"0.5rem", opacity: guardandoNov?0.7:1 }}>
+                  {guardandoNov ? <><RefreshCw size={16} style={{animation:"spin 1s linear infinite"}}/> Guardando...</> : <><Save size={16}/> {editandoNov ? "Actualizar" : "Guardar"} Novedad</>}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── SECCIÓN TRABAJADORES (solo visible cuando seccionActiva === "trabajadores") ── */}
+        {seccionActiva === "novedades" ? null : (
+        <div>
 
         {/* Selector de cliente */}
         <div style={{ display:"flex", gap:"0.5rem", marginBottom:"1rem", flexWrap:"wrap" }}>
@@ -1529,6 +1955,9 @@ export default function NominaTrabajadores() {
           </div>
         </div>
       )}
+
+      </div>
+      )} {/* end seccionActiva !== "novedades" */}
 
       <style jsx global>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </LayoutWithSidebar>
