@@ -431,7 +431,8 @@ export default function NominaMatriz() {
     try {
       const snap = await getDocs(collection(db,"nomina_clientes"));
       if (!snap.empty) {
-        const data = snap.docs.map(d=>({id:d.id,...d.data()}));
+        const data = snap.docs.map(d=>({id:d.id,...d.data()}))
+          .filter(c => c.id !== "admon"); // admon excluido de la matriz
         const orden = ["spia","cliente1","cliente2","cliente3"];
         data.sort((a,b)=>orden.indexOf(a.id)-orden.indexOf(b.id));
         const merged = data.map(c=>{const base=CLIENTES_BASE.find(b=>b.id===c.id);return{...base,...c};});
