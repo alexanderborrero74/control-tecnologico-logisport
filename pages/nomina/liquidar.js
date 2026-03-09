@@ -53,6 +53,8 @@ const NOV_MAP = {
   "CAL":    { emoji:"🏠", label:"Calamidad doméstica" },
   "ADV":    { emoji:"⛪", label:"Adventista" },
   "L":      { emoji:"🖤", label:"Luto" },
+  "VAC":    { emoji:"🏖️", label:"Vacaciones" },
+  "PR":     { emoji:"📝", label:"Permiso Remunerado" },
 };
 
 const PRIMARY = "#0B3D91";
