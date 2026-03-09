@@ -21,7 +21,7 @@ const PRIMARY = "#0B3D91";
 const DANGER  = "#ef4444";
 const SUCCESS = "#10b981";
 const COLORES = ["#3b82f6","#10b981","#f59e0b","#8b5cf6","#ef4444","#06b6d4"];
-const MAX_CUADRILLAS = 6;
+// Sin límite de cuadrillas
 
 // ── Novedades (fallback si Firestore está vacío) ─────────────────────────────
 const NOVEDADES_DEFAULT = [
@@ -185,7 +185,7 @@ export default function AsistenciaPage() {
     const nombre=nombreNueva.trim().toUpperCase();
     if(!nombre){setErrNombre("Ingresa un nombre.");return;}
     if(cuadrillas.find(c=>c.nombre===nombre)){setErrNombre("Ya existe esa cuadrilla.");return;}
-    if(cuadrillas.length>=MAX_CUADRILLAS){setErrNombre(`Máximo ${MAX_CUADRILLAS} cuadrillas.`);return;}
+
     setGuardando(true);
     const id=`cuadrilla_${nombre.toLowerCase().replace(/\s+/g,"_")}`;
     await setDoc(doc(db,"nomina_asistencia",id),{
@@ -393,12 +393,10 @@ export default function AsistenciaPage() {
               <p style={{margin:0,color:"#64748b",fontSize:"0.85rem",maxWidth:"560px"}}>
                 Crea las cuadrillas con sus miembros permanentes. Luego en <strong>Registro diario</strong> indica día a día quién tuvo novedad.
               </p>
-              {cuadrillas.length<MAX_CUADRILLAS&&(
-                <button onClick={()=>{setModalNueva(true);setNombreNueva("");setErrNombre("");}}
-                  style={sty.btnPrimary}>
-                  <Plus size={15}/> Nueva cuadrilla
-                </button>
-              )}
+              <button onClick={()=>{setModalNueva(true);setNombreNueva("");setErrNombre("");}}
+                style={sty.btnPrimary}>
+                <Plus size={15}/> Nueva cuadrilla
+              </button>
             </div>
 
             {cuadrillas.length===0 ? (
@@ -1056,7 +1054,7 @@ export default function AsistenciaPage() {
             style={{...sty.inputM,borderColor:errNombre?"#ef4444":"#e2e8f0"}}/>
           {errNombre&&<p style={{color:"#ef4444",fontSize:"0.8rem",margin:"0.25rem 0 0"}}>{errNombre}</p>}
           <p style={{color:"#94a3b8",fontSize:"0.77rem",margin:"0.5rem 0 1.25rem"}}>
-            {cuadrillas.length}/{MAX_CUADRILLAS} cuadrillas
+            {cuadrillas.length} cuadrilla(s) creada(s)
           </p>
           <button onClick={crearCuadrilla} disabled={guardando}
             style={{...sty.btnPrimary,width:"100%",justifyContent:"center"}}>
