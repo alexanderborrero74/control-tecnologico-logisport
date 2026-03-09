@@ -44,9 +44,12 @@ export default function NominaAdelantos() {
   const [comidas,        setComidas]        = useState([]);
   const [filtroComida,   setFiltroComida]   = useState("");
   const [modalComida,    setModalComida]    = useState(false);
-  const [formCom,        setFormCom]        = useState({ trabajadorNombre:"", cedula:"", clienteId:"spia", cantidad:"", valor:"", fecha: new Date().toISOString().split("T")[0] });
+  const [formCom,        setFormCom]        = useState({ trabajadorNombre:"", cedula:"", clienteId:"spia", cargo:"", tipoComida:"almuerzo", descripcionVarios:"", cantidad:"", valor:"", fecha: new Date().toISOString().split("T")[0] });
   const [guardandoCom,   setGuardandoCom]   = useState(false);
   const [busqTrabCom,    setBusqTrabCom]    = useState("");
+
+  // ── Cargos ──
+  const [listaCargos,    setListaCargos]    = useState([]);
 
   // ── Trabajadores compartidos ──
   const [trabajadores,   setTrabajadores]   = useState([]);
@@ -65,6 +68,7 @@ export default function NominaAdelantos() {
         cargarComidas(),
         cargarTrabajadores(),
         cargarClientes(),
+        cargarCargos(),
       ]);
       setLoading(false);
     });
@@ -99,6 +103,13 @@ export default function NominaAdelantos() {
       const snap = await getDocs(query(collection(db,"nomina_trabajadores"), orderBy("nombre")));
       setTrabajadores(snap.docs.map(d => ({ id:d.id, ...d.data() })));
     } catch (e) { console.warn("cargarTrabajadores:", e.message); }
+  };
+
+  const cargarCargos = async () => {
+    try {
+      const snap = await getDocs(query(collection(db,"nomina_cargos"), orderBy("nombre")));
+      setListaCargos(snap.docs.map(d => d.data().nombre).filter(Boolean));
+    } catch (e) { console.warn("cargarCargos:", e.message); }
   };
 
   const cargarClientes = async () => {
@@ -180,17 +191,33 @@ export default function NominaAdelantos() {
     String(t.cedula).includes(busqTrabCom)
   );
 
+  const TIPO_COMIDA_LABELS = {
+    refrigerio: "☕ Refrigerio",
+    almuerzo:   "🍱 Almuerzo",
+    comida:     "🍽️ Comida",
+    varios:     "🛒 Varios",
+  };
+
   const guardarComida = async () => {
-    if (!formCom.cedula || !formCom.cantidad || !formCom.valor || parseFloat(formCom.valor) <= 0) {
-      alert("Seleccione trabajador, cantidad y valor válido"); return;
+    if (!formCom.cedula || !formCom.valor || parseFloat(formCom.valor) <= 0) {
+      alert("Seleccione trabajador y valor válido"); return;
+    }
+    if (formCom.tipoComida === "varios" && !formCom.descripcionVarios.trim()) {
+      alert("Describe qué se compró en \"Varios\""); return;
     }
     setGuardandoCom(true);
     try {
+      const descripcion = formCom.tipoComida === "varios"
+        ? formCom.descripcionVarios.trim()
+        : TIPO_COMIDA_LABELS[formCom.tipoComida] || formCom.tipoComida;
       await addDoc(collection(db,"nomina_comida"), {
         trabajadorNombre: formCom.trabajadorNombre.trim().toUpperCase(),
         cedula:    formCom.cedula.trim(),
         clienteId: formCom.clienteId,
         clienteNombre: clientes.find(c => c.id === formCom.clienteId)?.nombre || formCom.clienteId,
+        cargo:     formCom.cargo?.trim() || "",
+        tipoComida: formCom.tipoComida,
+        descripcion,
         cantidad:  parseInt(formCom.cantidad) || 1,
         valor:     parseFloat(formCom.valor),
         total:     (parseInt(formCom.cantidad)||1) * parseFloat(formCom.valor),
@@ -201,7 +228,7 @@ export default function NominaAdelantos() {
       await cargarComidas();
       setModalComida(false);
       setBusqTrabCom("");
-      setFormCom({ trabajadorNombre:"", cedula:"", clienteId:"spia", cantidad:"", valor:"", fecha: new Date().toISOString().split("T")[0] });
+      setFormCom({ trabajadorNombre:"", cedula:"", clienteId:"spia", cargo:"", tipoComida:"almuerzo", descripcionVarios:"", cantidad:"", valor:"", fecha: new Date().toISOString().split("T")[0] });
     } catch (e) { alert("Error: " + e.message); }
     setGuardandoCom(false);
   };
@@ -420,7 +447,7 @@ export default function NominaAdelantos() {
               <table style={{ width:"100%", borderCollapse:"collapse" }}>
                 <thead>
                   <tr style={{ background:"#ef4444", color:"#fff" }}>
-                    {["#","Trabajador","Cédula","Cliente","Cantidad","Valor unit.","Total","Fecha","Estado","Acciones"].map(h => (
+                    {["#","Trabajador","Cédula","Cargo","Tipo","Descripción","Cantidad","Valor unit.","Total","Fecha","Estado","Acciones"].map(h => (
                       <th key={h} style={{ padding:"0.85rem 1rem", textAlign:"left", fontSize:"0.82rem", fontWeight:"700" }}>{h}</th>
                     ))}
                   </tr>
@@ -437,9 +464,25 @@ export default function NominaAdelantos() {
                         <td style={{ padding:"0.8rem 1rem", color:"#94a3b8", fontSize:"0.82rem" }}>{i+1}</td>
                         <td style={{ padding:"0.8rem 1rem", fontWeight:"600", fontSize:"0.88rem" }}>{c.trabajadorNombre}</td>
                         <td style={{ padding:"0.8rem 1rem", fontFamily:"monospace", color:"#475569" }}>{c.cedula}</td>
-                        <td style={{ padding:"0.8rem 1rem", fontSize:"0.85rem" }}>
-                          <span style={{ background:"#eff6ff", color:PRIMARY, borderRadius:"6px", padding:"2px 8px", fontSize:"0.78rem", fontWeight:"700" }}>
-                            {c.clienteNombre || c.clienteId}
+                        <td style={{ padding:"0.8rem 1rem", fontSize:"0.82rem" }}>
+                          {c.cargo
+                            ? <span style={{ background:"#f0f9ff", color:"#0284c7", borderRadius:"6px", padding:"2px 8px", fontSize:"0.76rem", fontWeight:"700" }}>{c.cargo}</span>
+                            : <span style={{ color:"#cbd5e1" }}>—</span>}
+                        </td>
+                        <td style={{ padding:"0.8rem 1rem", fontSize:"0.82rem" }}>
+                          {c.tipoComida === "varios"
+                            ? <span style={{ background:"#f5f3ff", color:"#7c3aed", borderRadius:"6px", padding:"2px 8px", fontSize:"0.76rem", fontWeight:"700" }}>🛒 Varios</span>
+                            : c.tipoComida === "refrigerio"
+                              ? <span style={{ background:"#fef3c7", color:"#92400e", borderRadius:"6px", padding:"2px 8px", fontSize:"0.76rem", fontWeight:"700" }}>☕ Refrigerio</span>
+                            : c.tipoComida === "almuerzo"
+                              ? <span style={{ background:"#ecfdf5", color:"#065f46", borderRadius:"6px", padding:"2px 8px", fontSize:"0.76rem", fontWeight:"700" }}>🍱 Almuerzo</span>
+                            : c.tipoComida === "comida"
+                              ? <span style={{ background:"#fef2f2", color:"#991b1b", borderRadius:"6px", padding:"2px 8px", fontSize:"0.76rem", fontWeight:"700" }}>🍽️ Comida</span>
+                            : <span style={{ color:"#94a3b8", fontSize:"0.76rem" }}>{c.tipoComida||"—"}</span>}
+                        </td>
+                        <td style={{ padding:"0.8rem 1rem", color:"#64748b", fontSize:"0.82rem", maxWidth:"150px" }}>
+                          <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", display:"block" }} title={c.descripcion}>
+                            {c.descripcion || "—"}
                           </span>
                         </td>
                         <td style={{ padding:"0.8rem 1rem", textAlign:"center", fontWeight:"700" }}>{c.cantidad}</td>
@@ -527,78 +570,156 @@ export default function NominaAdelantos() {
       )}
 
       {/* ══════════════════════════════════════════════════════════════════
-          MODAL REGISTRAR COMIDA
+          MODAL REGISTRAR COMIDA / RESTAURANTE
       ══════════════════════════════════════════════════════════════════ */}
       {modalComida && (
-        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.5)", zIndex:9999, display:"flex", alignItems:"center", justifyContent:"center", padding:"1rem" }}
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.55)", zIndex:9999, display:"flex", alignItems:"center", justifyContent:"center", padding:"1rem" }}
           onClick={e => { if (e.target === e.currentTarget) setModalComida(false); }}>
-          <div style={{ background:"#fff", borderRadius:"16px", padding:"2rem", width:"100%", maxWidth:"520px", boxShadow:"0 20px 60px rgba(0,0,0,0.2)" }}>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"1.5rem" }}>
-              <h2 style={{ margin:0, color:"#ef4444", fontWeight:"800" }}>🍽️ Registrar Comida</h2>
-              <button onClick={() => setModalComida(false)} style={{ background:"none", border:"none", cursor:"pointer" }}><X size={22} color="#94a3b8" /></button>
-            </div>
+          <div style={{ background:"#fff", borderRadius:"16px", width:"100%", maxWidth:"560px", maxHeight:"92vh", overflowY:"auto", boxShadow:"0 20px 60px rgba(0,0,0,0.25)" }}>
 
-            <ModalTrabajadorSelector
-              trabajadores={trabajadores}
-              busqueda={busqTrabCom}
-              setBusqueda={setBusqTrabCom}
-              cedulaSeleccionada={formCom.cedula}
-              onSeleccionar={t => setFormCom(p => ({ ...p, trabajadorNombre:t.nombre, cedula:t.cedula }))}
-              label="Trabajador *"
-            />
-
-            {/* Cliente */}
-            <div style={{ marginBottom:"1rem" }}>
-              <label style={{ display:"block", fontWeight:"600", color:"#374151", marginBottom:"0.35rem", fontSize:"0.88rem" }}>Cliente *</label>
-              <select value={formCom.clienteId}
-                onChange={e => setFormCom(p => ({ ...p, clienteId:e.target.value }))}
-                style={{ ...inputModalStyle, background:"#fffbeb", cursor:"pointer" }}>
-                {clientes.map(c => (
-                  <option key={c.id} value={c.id}>{c.nombre}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Cantidad + Valor */}
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.75rem", marginBottom:"1rem" }}>
+            {/* Header */}
+            <div style={{ background:"linear-gradient(135deg,#ef4444,#dc2626)", padding:"1.25rem 1.5rem", borderRadius:"16px 16px 0 0",
+              display:"flex", justifyContent:"space-between", alignItems:"center" }}>
               <div>
-                <label style={{ display:"block", fontWeight:"600", color:"#374151", marginBottom:"0.35rem", fontSize:"0.88rem" }}>Cantidad *</label>
-                <input type="number" min="1" value={formCom.cantidad}
-                  onChange={e => setFormCom(p => ({ ...p, cantidad:e.target.value }))}
-                  placeholder="1"
+                <h2 style={{ margin:0, color:"#fff", fontWeight:"800", fontSize:"1.1rem" }}>🍽️ Registrar Restaurante</h2>
+                <div style={{ color:"rgba(255,255,255,0.8)", fontSize:"0.8rem", marginTop:"2px" }}>Comida / Almuerzo / Refrigerio / Varios</div>
+              </div>
+              <button onClick={() => setModalComida(false)} style={{ background:"rgba(255,255,255,0.2)", border:"none", borderRadius:"8px", padding:"0.45rem", cursor:"pointer", color:"#fff", display:"flex" }}>
+                <X size={18}/>
+              </button>
+            </div>
+
+            <div style={{ padding:"1.5rem" }}>
+              {/* Trabajador */}
+              <ModalTrabajadorSelector
+                trabajadores={trabajadores}
+                busqueda={busqTrabCom}
+                setBusqueda={setBusqTrabCom}
+                cedulaSeleccionada={formCom.cedula}
+                onSeleccionar={t => setFormCom(p => ({ ...p, trabajadorNombre:t.nombre, cedula:t.cedula, cargo:t.cargo||"" }))}
+                label="Trabajador *"
+              />
+
+              {/* Cargo */}
+              <div style={{ marginBottom:"1rem" }}>
+                <label style={{ display:"block", fontWeight:"700", color:"#374151", marginBottom:"0.35rem", fontSize:"0.88rem" }}>
+                  🪪 Cargo *
+                  <span style={{ fontWeight:"400", color:"#94a3b8", marginLeft:"0.4rem", fontSize:"0.78rem" }}>¿Para qué cargo es la comida?</span>
+                </label>
+                <select value={formCom.cargo} onChange={e => setFormCom(p => ({ ...p, cargo:e.target.value }))}
+                  style={{ ...inputModalStyle, background:"#eff6ff", cursor:"pointer", fontWeight: formCom.cargo?"700":"400" }}>
+                  <option value="">— Seleccionar cargo —</option>
+                  {listaCargos.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+
+              {/* Tipo de comida */}
+              <div style={{ marginBottom:"1rem" }}>
+                <label style={{ display:"block", fontWeight:"700", color:"#374151", marginBottom:"0.5rem", fontSize:"0.88rem" }}>🍴 Tipo de pedido *</label>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.5rem" }}>
+                  {[
+                    { key:"refrigerio", label:"☕ Refrigerio",  bg:"#fef3c7", color:"#92400e", border:"#fcd34d" },
+                    { key:"almuerzo",   label:"🍱 Almuerzo",    bg:"#ecfdf5", color:"#065f46", border:"#6ee7b7" },
+                    { key:"comida",     label:"🍽️ Comida",     bg:"#fef2f2", color:"#991b1b", border:"#fca5a5" },
+                    { key:"varios",     label:"🛒 Varios",      bg:"#f5f3ff", color:"#6d28d9", border:"#c4b5fd" },
+                  ].map(t => (
+                    <button
+                      key={t.key} type="button"
+                      onClick={() => setFormCom(p => ({ ...p, tipoComida:t.key, descripcionVarios:"" }))}
+                      style={{
+                        padding:"0.65rem 0.5rem",
+                        borderRadius:"10px",
+                        border:`2px solid ${formCom.tipoComida===t.key ? t.color : "#e2e8f0"}`,
+                        background: formCom.tipoComida===t.key ? t.bg : "#f8fafc",
+                        color: formCom.tipoComida===t.key ? t.color : "#64748b",
+                        fontWeight: formCom.tipoComida===t.key ? "800" : "500",
+                        fontSize:"0.88rem", cursor:"pointer",
+                        transition:"all 0.15s",
+                        display:"flex", alignItems:"center", justifyContent:"center",
+                      }}>
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Campo descripción si es VARIOS */}
+              {formCom.tipoComida === "varios" && (
+                <div style={{ marginBottom:"1rem", animation:"fadeIn 0.2s ease" }}>
+                  <label style={{ display:"block", fontWeight:"700", color:"#6d28d9", marginBottom:"0.35rem", fontSize:"0.88rem" }}>
+                    🛒 ¿Qué se compró? *
+                  </label>
+                  <input
+                    value={formCom.descripcionVarios}
+                    onChange={e => setFormCom(p => ({ ...p, descripcionVarios:e.target.value }))}
+                    placeholder="Ej: Gaseosas, mecato, insumos varios..."
+                    style={{ ...inputModalStyle, background:"#f5f3ff", borderColor:"#c4b5fd",
+                      border:"1.5px solid #c4b5fd", outline:"none" }}
+                  />
+                </div>
+              )}
+
+              {/* Cliente */}
+              <div style={{ marginBottom:"1rem" }}>
+                <label style={{ display:"block", fontWeight:"700", color:"#374151", marginBottom:"0.35rem", fontSize:"0.88rem" }}>🏢 Cliente</label>
+                <select value={formCom.clienteId} onChange={e => setFormCom(p => ({ ...p, clienteId:e.target.value }))}
+                  style={{ ...inputModalStyle, background:"#fffbeb", cursor:"pointer" }}>
+                  {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                </select>
+              </div>
+
+              {/* Cantidad + Valor */}
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.75rem", marginBottom:"1rem" }}>
+                <div>
+                  <label style={{ display:"block", fontWeight:"600", color:"#374151", marginBottom:"0.35rem", fontSize:"0.88rem" }}>Cantidad</label>
+                  <input type="number" min="1" value={formCom.cantidad}
+                    onChange={e => setFormCom(p => ({ ...p, cantidad:e.target.value }))}
+                    placeholder="1" style={inputModalStyle} />
+                </div>
+                <div>
+                  <label style={{ display:"block", fontWeight:"600", color:"#374151", marginBottom:"0.35rem", fontSize:"0.88rem" }}>Valor unitario *</label>
+                  <input type="number" min="0" value={formCom.valor}
+                    onChange={e => setFormCom(p => ({ ...p, valor:e.target.value }))}
+                    placeholder="5000" style={inputModalStyle} />
+                </div>
+              </div>
+
+              {/* Preview total */}
+              {formCom.valor && parseFloat(formCom.valor) > 0 && (
+                <div style={{ background:"#fef2f2", border:"1px solid #fca5a5", borderRadius:"8px",
+                  padding:"0.65rem 1rem", marginBottom:"1rem",
+                  display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                  <div style={{ fontSize:"0.85rem", color:"#b91c1c" }}>
+                    {formCom.tipoComida === "varios" ? (formCom.descripcionVarios||"Varios") : ({
+                      refrigerio:"☕ Refrigerio", almuerzo:"🍱 Almuerzo",
+                      comida:"🍽️ Comida",
+                    }[formCom.tipoComida]||formCom.tipoComida)}
+                    {formCom.cargo && <span style={{ marginLeft:"0.5rem", opacity:0.7 }}>• {formCom.cargo}</span>}
+                  </div>
+                  <div style={{ fontWeight:"800", color:"#b91c1c", fontFamily:"monospace" }}>
+                    Total: {formatCOP((parseInt(formCom.cantidad)||1) * parseFloat(formCom.valor||0))}
+                  </div>
+                </div>
+              )}
+
+              {/* Fecha */}
+              <div style={{ marginBottom:"1.5rem" }}>
+                <label style={{ display:"block", fontWeight:"600", color:"#374151", marginBottom:"0.35rem", fontSize:"0.88rem" }}>Fecha</label>
+                <input type="date" value={formCom.fecha}
+                  onChange={e => setFormCom(p => ({ ...p, fecha:e.target.value }))}
                   style={inputModalStyle} />
               </div>
-              <div>
-                <label style={{ display:"block", fontWeight:"600", color:"#374151", marginBottom:"0.35rem", fontSize:"0.88rem" }}>Valor unitario *</label>
-                <input type="number" min="0" value={formCom.valor}
-                  onChange={e => setFormCom(p => ({ ...p, valor:e.target.value }))}
-                  placeholder="5000"
-                  style={inputModalStyle} />
-              </div>
+
+              <button onClick={guardarComida} disabled={guardandoCom}
+                style={{ ...btnStyle("#ef4444", guardandoCom), width:"100%", justifyContent:"center", padding:"0.9rem" }}>
+                <Save size={18} /> {guardandoCom ? "Guardando..." : "Registrar"}
+              </button>
             </div>
-
-            {/* Preview total */}
-            {formCom.cantidad && formCom.valor && (
-              <div style={{ background:"#fef2f2", border:"1px solid #fca5a5", borderRadius:"8px", padding:"0.65rem 1rem", marginBottom:"1rem", fontSize:"0.88rem", color:"#b91c1c", fontWeight:"700" }}>
-                Total a descontar: {formatCOP((parseInt(formCom.cantidad)||1) * parseFloat(formCom.valor||0))}
-              </div>
-            )}
-
-            {/* Fecha */}
-            <div style={{ marginBottom:"1.25rem" }}>
-              <label style={{ display:"block", fontWeight:"600", color:"#374151", marginBottom:"0.35rem", fontSize:"0.88rem" }}>Fecha</label>
-              <input type="date" value={formCom.fecha}
-                onChange={e => setFormCom(p => ({ ...p, fecha:e.target.value }))}
-                style={inputModalStyle} />
-            </div>
-
-            <button onClick={guardarComida} disabled={guardandoCom}
-              style={{ ...btnStyle("#ef4444", guardandoCom), width:"100%", justifyContent:"center", padding:"0.9rem" }}>
-              <Save size={18} /> {guardandoCom ? "Guardando..." : "Registrar Comida"}
-            </button>
           </div>
         </div>
       )}
+
+      <style jsx global>{`@keyframes fadeIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}`}</style>
     </LayoutWithSidebar>
   );
 }

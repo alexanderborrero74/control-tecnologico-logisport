@@ -100,7 +100,7 @@ export default function LayoutWithSidebar({ children }) {
     { icon: TrendingUp,   label: "Matriz",                path: "/nomina/matriz",       roles: ["admin", "admin_nomina", "nomina"] },
     { icon: DollarSign,   label: "Liquidar Nómina",     path: "/nomina/liquidar",     roles: ["admin", "admin_nomina", "nomina"] },
     { icon: CalendarDays, label: "Historial Nóminas",   path: "/nomina/historial",    roles: ["admin", "admin_nomina", "rrhh", "usuario", "nomina"] },
-    { icon: CreditCard,   label: "Adelantos",            path: "/nomina/adelantos",   roles: ["admin", "admin_nomina", "rrhh", "nomina"] },
+    { icon: CreditCard,   label: "Adelantos y Restaurante", path: "/nomina/adelantos", roles: ["admin", "admin_nomina", "rrhh", "nomina"] },
     { icon: Printer,           label: "Desprendibles",  path: "/nomina/desprendibles",roles: ["admin", "admin_nomina", "rrhh", "usuario", "nomina"] },
     { icon: SlidersHorizontal, label: "Administrar",    path: "/nomina/administrar",  roles: ["admin", "admin_nomina", "nomina"] },
   ];

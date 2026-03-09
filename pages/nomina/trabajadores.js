@@ -271,7 +271,9 @@ export default function NominaTrabajadores() {
   /* ── CRUD individual ── */
   const abrirNuevo = () => {
     setEditando(null);
-    setForm({ nombre:"", cedula:"", cargo:"ESTIBADOR", cuadrilla:"1", basicoMensual:"1750905", clienteIds:["spia"], centroCostos:"" });
+    // Si hay un cliente activo en el filtro, preseleccionarlo; si no, dejar vacío para que el usuario elija
+    const preseleccion = clienteFiltro && clienteFiltro !== "todos" ? [clienteFiltro] : [];
+    setForm({ nombre:"", cedula:"", cargo:"ESTIBADOR", cuadrilla:"1", basicoMensual:"1750905", clienteIds: preseleccion, centroCostos:"" });
     setModalAbierto(true);
   };
   const abrirEditar = (t) => {
@@ -1044,9 +1046,9 @@ export default function NominaTrabajadores() {
                       <td style={{ padding:"0.85rem 1rem" }}>
                         <div style={{ display:"flex", gap:"0.5rem" }}>
                           <button onClick={() => abrirEditar(t)} style={{ background:"#f0f9ff", border:"none", borderRadius:"6px", padding:"0.35rem 0.5rem", cursor:"pointer", color:ACCENT }}><Edit2 size={14}/></button>
-                          <button onClick={() => toggleActivo(t)} title="Marcar inactivo"
-                            style={{ background:"#fff7ed", border:"1.5px solid #fdba74", borderRadius:"6px", padding:"0.35rem 0.5rem", cursor:"pointer", color:"#ea580c" }}>
-                            <RefreshCw size={13}/>
+                          <button onClick={() => toggleActivo(t)} title="Deshabilitar trabajador"
+                            style={{ background:"#fff7ed", border:"1.5px solid #fdba74", borderRadius:"6px", padding:"0.3rem 0.6rem", cursor:"pointer", color:"#ea580c", display:"flex", alignItems:"center", gap:"0.3rem", fontSize:"0.75rem", fontWeight:"700" }}>
+                            <RefreshCw size={12}/> Deshabilitar
                           </button>
                           <button onClick={() => eliminar(t)} style={{ background:"#fff1f2", border:"none", borderRadius:"6px", padding:"0.35rem 0.5rem", cursor:"pointer", color:DANGER }}><Trash2 size={14}/></button>
                         </div>
@@ -1137,6 +1139,52 @@ export default function NominaTrabajadores() {
               <h2 style={{ margin:0, color:PRIMARY, fontWeight:"800" }}>{editando?"✏️ Editar":"➕ Nuevo"} Trabajador</h2>
               <button onClick={() => setModalAbierto(false)} style={{ background:"none", border:"none", cursor:"pointer" }}><X size={22} color="#94a3b8"/></button>
             </div>
+            {/* ── Selector de clientes (multi) ── */}
+            <div style={{ marginBottom:"1.25rem" }}>
+              <label style={{ display:"block", fontWeight:"700", color:"#374151", marginBottom:"0.5rem", fontSize:"0.88rem" }}>
+                🏢 Cliente(s) *
+                <span style={{ fontWeight:"400", color:"#94a3b8", marginLeft:"0.4rem", fontSize:"0.78rem" }}>Selecciona uno o varios</span>
+              </label>
+              <div style={{ display:"flex", flexWrap:"wrap", gap:"0.5rem" }}>
+                {clientes.map(c => {
+                  const seleccionado = (form.clienteIds||[]).includes(c.id);
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => {
+                        const actuales = form.clienteIds || [];
+                        const nuevos = seleccionado
+                          ? actuales.filter(id => id !== c.id)
+                          : [...actuales, c.id];
+                        setForm({ ...form, clienteIds: nuevos });
+                      }}
+                      style={{
+                        padding:"0.45rem 1rem",
+                        borderRadius:"20px",
+                        border:`2px solid ${seleccionado ? (c.color||PRIMARY) : "#e2e8f0"}`,
+                        background: seleccionado ? (c.color||PRIMARY) : "#f8fafc",
+                        color: seleccionado ? "#fff" : "#64748b",
+                        fontWeight: seleccionado ? "700" : "500",
+                        cursor:"pointer",
+                        fontSize:"0.85rem",
+                        transition:"all 0.15s",
+                        display:"flex", alignItems:"center", gap:"0.3rem",
+                      }}
+                    >
+                      {c.emoji||"🏭"} {c.nombre}
+                      {seleccionado && <span style={{ fontSize:"0.72rem", opacity:0.85 }}>✓</span>}
+                    </button>
+                  );
+                })}
+              </div>
+              {(!form.clienteIds || form.clienteIds.length === 0) && (
+                <div style={{ marginTop:"0.4rem", fontSize:"0.78rem", color:DANGER, fontWeight:"600" }}>
+                  ⚠️ Debes seleccionar al menos un cliente
+                </div>
+              )}
+            </div>
+
             {[
               { label:"Nombre completo *", key:"nombre",        type:"text",   placeholder:"APELLIDO NOMBRE" },
               { label:"Cédula *",          key:"cedula",        type:"text",   placeholder:"1234567890" },
@@ -1184,8 +1232,12 @@ export default function NominaTrabajadores() {
                 </div>
               )}
             </div>
-            <button onClick={guardar} disabled={guardando}
-              style={{ width:"100%", padding:"0.9rem", background:PRIMARY, border:"none", borderRadius:"10px", color:"#fff", fontWeight:"700", fontSize:"1rem", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:"0.5rem", opacity: guardando?0.7:1 }}>
+            <button onClick={guardar} disabled={guardando || !form.nombre.trim() || !form.cedula.trim() || !form.clienteIds?.length}
+              style={{ width:"100%", padding:"0.9rem",
+                background: (guardando || !form.nombre.trim() || !form.cedula.trim() || !form.clienteIds?.length) ? "#94a3b8" : PRIMARY,
+                border:"none", borderRadius:"10px", color:"#fff", fontWeight:"700", fontSize:"1rem",
+                cursor: (guardando || !form.nombre.trim() || !form.cedula.trim() || !form.clienteIds?.length) ? "not-allowed" : "pointer",
+                display:"flex", alignItems:"center", justifyContent:"center", gap:"0.5rem", opacity: guardando?0.7:1 }}>
               <Save size={18}/> {guardando?"Guardando...":"Guardar"}
             </button>
           </div>
