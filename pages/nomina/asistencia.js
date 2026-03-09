@@ -415,9 +415,7 @@ export default function AsistenciaPage() {
 
       // Forzar recarga del registro diario/mensual al volver a esa vista
       registroCargadoRef.current = { cuadrillaId: null, anio: null, mes: null };
-      // Recargar el estado visual desde Firestore para mostrar lo guardado
-      const wDelClienteParaRecargar = trabajadores.filter(t=>(t.clienteIds||["spia"]).includes(llamadoClienteId));
-      await cargarEstadoLlamado(llamadoFecha, llamadoClienteId, wDelClienteParaRecargar, cuadrillas);
+      // NO limpiar llamadoNovedades — el usuario acaba de marcarlas, deben permanecer visibles
       setLlamadoGuardadoOk(true);
       setTimeout(()=>setLlamadoGuardadoOk(false), 5000);
     }catch(e){alert("Error al guardar: "+e.message);}
