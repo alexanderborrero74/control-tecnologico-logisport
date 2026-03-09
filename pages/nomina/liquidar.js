@@ -504,8 +504,8 @@ export default function NominaLiquidar() {
       })
       .join(", ");
     const adelantosDeducidos = adelantosMap[String(f.cedula).trim()] || 0;
-    const comidaDeducida     = comidaMap[String(f.cedula).trim()]    || 0;
-    const netoFinal = Math.max(0, calc.netoAPagar - adelantosDeducidos - comidaDeducida);
+    const comidaDeducida     = comidaMap[String(f.cedula).trim()]    || 0;  // solo informativo
+    const netoFinal = Math.max(0, calc.netoAPagar - adelantosDeducidos); // comida NO resta por ahora
     return { ...f, idx: i + 1, totalProduccion, detalleOps: prodData.ops, totalExtras, desgloseExtras, ...calc, motivoResumen, adelantosDeducidos, comidaDeducida, netoFinal };
   });
 
@@ -547,7 +547,7 @@ export default function NominaLiquidar() {
     netoAPagar:          filasCalculadas.reduce((s, e) => s + e.netoAPagar, 0),
     adelantosDeducidos:  filasCalculadas.reduce((s, e) => s + (e.adelantosDeducidos || 0), 0),
     comidaDeducida:      filasCalculadas.reduce((s, e) => s + (e.comidaDeducida     || 0), 0),
-    netoFinal:           filasCalculadas.reduce((s, e) => s + (e.netoFinal          || 0), 0),
+    netoFinal:           filasCalculadas.reduce((s, e) => s + (e.netoFinal || 0), 0), // solo resta adelantos
   };
   const conComplemento = filasCalculadas.filter(e => e.complementoSalario > 0).length;
 
@@ -1312,7 +1312,7 @@ export default function NominaLiquidar() {
                       { h: "NETO A PAGAR", w: "118px", a: "right", tip: "=Sal.Ded+Subsidio+IR+IR100" },
                       { h: "ADELANTOS ↓",  w: "108px", a: "right", tip: "Adelantos pendientes (se descuentan del neto)" },
                       { h: "COMIDA ↓",     w: "100px", a: "right", tip: "Comida pendiente (se descuenta del neto)" },
-                      { h: "NETO FINAL ✓", w: "120px", a: "right", tip: "= Neto a pagar − Adelantos − Comida" },
+                      { h: "NETO FINAL ✓", w: "120px", a: "right", tip: "= Neto a pagar − Adelantos (comida es solo informativa)" },
                       { h: "FIRMA",        w: "78px",  a: "left" },
                       { h: "",             w: "36px",  a: "center" },
                     ].map((col, ci) => (

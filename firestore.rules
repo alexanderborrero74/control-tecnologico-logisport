@@ -427,6 +427,14 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // Registro de comida (descuento informativo en nómina)
+    match /nomina_comida/{id} {
+      allow read: if isNominaRRHH();
+      allow create: if isNominaRRHH();
+      allow update: if isNominaAdmin();
+      allow delete: if isAdmin();
+    }
+
     // Clientes del módulo nómina
     match /nomina_clientes/{id} {
       allow read: if isNominaRRHH();

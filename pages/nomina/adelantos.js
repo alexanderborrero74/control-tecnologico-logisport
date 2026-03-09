@@ -59,28 +59,46 @@ export default function NominaAdelantos() {
       const r = await getUserRoleByUid(user.uid);
       setRol(r);
       if (!["admin","admin_nomina","rrhh","nomina"].includes(r)) { router.push("/nomina"); return; }
-      await Promise.all([
-        cargarAdelantos(), cargarComidas(), cargarTrabajadores(), cargarClientes()
+      // Cargar en paralelo — cada uno con su propio try/catch para no bloquearse
+      await Promise.allSettled([
+        cargarAdelantos(),
+        cargarComidas(),
+        cargarTrabajadores(),
+        cargarClientes(),
       ]);
       setLoading(false);
     });
     return () => unsub();
   }, []);
 
-  // ── Loaders ─────────────────────────────────────────────────────────────────
+  // ── Loaders — cada uno con su propio try/catch ────────────────────────────────
   const cargarAdelantos = async () => {
-    const snap = await getDocs(query(collection(db,"nomina_adelantos"), orderBy("fecha","desc")));
-    setAdelantos(snap.docs.map(d => ({ id:d.id, ...d.data() })));
+    try {
+      const snap = await getDocs(query(collection(db,"nomina_adelantos"), orderBy("fecha","desc")));
+      setAdelantos(snap.docs.map(d => ({ id:d.id, ...d.data() })));
+    } catch (e) { console.warn("cargarAdelantos:", e.message); }
   };
 
   const cargarComidas = async () => {
-    const snap = await getDocs(query(collection(db,"nomina_comida"), orderBy("fecha","desc")));
-    setComidas(snap.docs.map(d => ({ id:d.id, ...d.data() })));
+    try {
+      // orderBy opcional — si la colección no existe aún no lanza error
+      const snap = await getDocs(collection(db,"nomina_comida"));
+      const docs = snap.docs.map(d => ({ id:d.id, ...d.data() }));
+      // Ordenar en cliente por fecha descendente
+      docs.sort((a,b) => {
+        const fa = a.fecha?.toDate ? a.fecha.toDate() : new Date(a.fecha || 0);
+        const fb = b.fecha?.toDate ? b.fecha.toDate() : new Date(b.fecha || 0);
+        return fb - fa;
+      });
+      setComidas(docs);
+    } catch (e) { console.warn("cargarComidas:", e.message); }
   };
 
   const cargarTrabajadores = async () => {
-    const snap = await getDocs(query(collection(db,"nomina_trabajadores"), orderBy("nombre")));
-    setTrabajadores(snap.docs.map(d => ({ id:d.id, ...d.data() })));
+    try {
+      const snap = await getDocs(query(collection(db,"nomina_trabajadores"), orderBy("nombre")));
+      setTrabajadores(snap.docs.map(d => ({ id:d.id, ...d.data() })));
+    } catch (e) { console.warn("cargarTrabajadores:", e.message); }
   };
 
   const cargarClientes = async () => {
