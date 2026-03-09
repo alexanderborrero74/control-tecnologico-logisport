@@ -242,22 +242,11 @@ export default function Desprendibles() {
         });
       } catch (_) {}
 
-      // Eliminar documentos viejos (versiones anteriores por quincena) de cada trabajador
-      // para que no queden duplicados en Firestore
+      // Limpiar TODOS los desprendibles anteriores antes de regenerar
+      // Así solo quedan los trabajadores que tienen movimientos reales en las operaciones
       try {
         const todosSnap = await getDocs(collection(db, "nomina_desprendibles"));
-        const cedulasResumen = new Set(resumen.map(t => String(t.cedula || "").trim()).filter(Boolean));
-        const docsAEliminar = [];
-        todosSnap.docs.forEach(d => {
-          const ced  = String(d.data().cedula || "").trim();
-          const tk   = d.id;
-          // Eliminar si pertenece a un trabajador del resumen Y no es el nuevo token consolidado
-          if (cedulasResumen.has(ced)) {
-            const nuevoToken = generarToken(ced);
-            if (tk !== nuevoToken) docsAEliminar.push(tk);
-          }
-        });
-        // Borrar en lotes de 490
+        const docsAEliminar = todosSnap.docs.map(d => d.id);
         for (let i = 0; i < docsAEliminar.length; i += 490) {
           const batch = writeBatch(db);
           docsAEliminar.slice(i, i+490).forEach(tk => batch.delete(doc(db,"nomina_desprendibles",tk)));
