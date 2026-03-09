@@ -223,6 +223,25 @@ export default function Desprendibles() {
   // GENERAR / ACTUALIZAR DESPRENDIBLES EN FIRESTORE
   // Un único documento por trabajador (token basado en cédula)
   // ─────────────────────────────────────────────────────────────────────────
+  const borrarTodosLosDesprendibles = async () => {
+    if (!confirm(`⚠️ ¿Eliminar TODOS los desprendibles de Firestore?\n\nEsto borrará ${desprendibles.length} desprendible(s). Esta acción no se puede deshacer.`)) return;
+    setGenerando(true);
+    try {
+      const snap = await getDocs(collection(db, "nomina_desprendibles"));
+      if (snap.empty) { alert("No hay desprendibles que borrar."); setGenerando(false); return; }
+      for (let i = 0; i < snap.docs.length; i += 490) {
+        const batch = writeBatch(db);
+        snap.docs.slice(i, i + 490).forEach(d => batch.delete(doc(db, "nomina_desprendibles", d.id)));
+        await batch.commit();
+      }
+      setDesprendibles([]);
+      alert(`✅ ${snap.docs.length} desprendible(s) eliminados correctamente.`);
+    } catch (e) {
+      alert("Error al borrar: " + e.message);
+    }
+    setGenerando(false);
+  };
+
   const generarDesprendibles = async () => {
     const resumen = calcularResumen();
     if (!resumen.length) { alert("No hay operaciones con asistencia registradas."); return; }
@@ -399,14 +418,22 @@ export default function Desprendibles() {
               {desprendibles.length>0 && ` Ya existen ${desprendibles.length} desprendibles — al regenerar se actualizan.`}
             </div>
           </div>
-          <button onClick={generarDesprendibles} disabled={generando||resumen.length===0}
-            style={{background:resumen.length===0?"#94a3b8":generadoOk?SUCCESS:PRIMARY,border:"none",borderRadius:"10px",padding:"0.85rem 1.75rem",color:"#fff",fontWeight:"800",fontSize:"0.95rem",cursor:resumen.length===0?"not-allowed":"pointer",display:"flex",alignItems:"center",gap:"0.6rem",boxShadow:"0 4px 12px rgba(11,61,145,0.25)",transition:"background 0.2s"}}>
-            {generando
-              ? <><RefreshCw size={18} style={{animation:"spin 1s linear infinite"}}/> Generando...</>
-              : generadoOk
-              ? <><CheckCircle size={18}/> ¡Generados!</>
-              : <><FileText size={18}/> Generar desprendibles</>}
-          </button>
+          <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+            {desprendibles.length > 0 && (
+              <button onClick={borrarTodosLosDesprendibles} disabled={generando}
+                style={{background:"#fef2f2",border:"1.5px solid #fca5a5",borderRadius:"10px",padding:"0.85rem 1.25rem",color:"#dc2626",fontWeight:"700",fontSize:"0.88rem",cursor:generando?"not-allowed":"pointer",display:"flex",alignItems:"center",gap:"0.5rem",opacity:generando?0.6:1}}>
+                <Trash2 size={16}/> Borrar todo ({desprendibles.length})
+              </button>
+            )}
+            <button onClick={generarDesprendibles} disabled={generando||resumen.length===0}
+              style={{background:resumen.length===0?"#94a3b8":generadoOk?SUCCESS:PRIMARY,border:"none",borderRadius:"10px",padding:"0.85rem 1.75rem",color:"#fff",fontWeight:"800",fontSize:"0.95rem",cursor:resumen.length===0?"not-allowed":"pointer",display:"flex",alignItems:"center",gap:"0.6rem",boxShadow:"0 4px 12px rgba(11,61,145,0.25)",transition:"background 0.2s"}}>
+              {generando
+                ? <><RefreshCw size={18} style={{animation:"spin 1s linear infinite"}}/> Procesando...</>
+                : generadoOk
+                ? <><CheckCircle size={18}/> ¡Generados!</>
+                : <><FileText size={18}/> Generar desprendibles</>}
+            </button>
+          </div>
         </div>
 
         {/* LISTA DESPRENDIBLES */}
