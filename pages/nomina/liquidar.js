@@ -155,6 +155,8 @@ export default function NominaLiquidar() {
   const [infoMatriz,     setInfoMatriz]     = useState({ ops: 0, trabajadores: 0 });
   const [motivosMap,     setMotivosMap]     = useState({});
   const [diasIRMap,      setDiasIRMap]      = useState({});  // días IR por cédula
+  const [adelantosMap,   setAdelantosMap]   = useState({});  // { cedula: total adelantos pendientes }
+  const [comidaMap,      setComidaMap]      = useState({});  // { cedula: total comida pendiente }
   const [clienteActivo,  setClienteActivo]  = useState("spia");
   const [clientes,       setClientes]       = useState(CLIENTES_BASE);
 
@@ -308,6 +310,40 @@ export default function NominaLiquidar() {
         }
         setMotivosMap(motivosAcc);
       } catch (e) { console.warn("Error cargando motivos:", e); }
+
+      // Cargar adelantos pendientes
+      try {
+        const adSnap = await getDocs(query(
+          collection(db, "nomina_adelantos"),
+          where("estado", "==", "pendiente")
+        ));
+        const adMap = {};
+        adSnap.docs.forEach(d => {
+          const a = d.data();
+          const cc = String(a.cedula || "").trim();
+          if (!cc) return;
+          adMap[cc] = (adMap[cc] || 0) + (a.monto || 0);
+        });
+        setAdelantosMap(adMap);
+      } catch (e) { console.warn("Error cargando adelantos:", e); }
+
+      // Cargar comida pendiente — filtrar por clienteActivo
+      try {
+        const comSnap = await getDocs(query(
+          collection(db, "nomina_comida"),
+          where("estado", "==", "pendiente")
+        ));
+        const comMap = {};
+        comSnap.docs.forEach(d => {
+          const c = d.data();
+          // Solo incluir comida del cliente activo (o sin clienteId = todos)
+          if (c.clienteId && c.clienteId !== clienteActivo) return;
+          const cc = String(c.cedula || "").trim();
+          if (!cc) return;
+          comMap[cc] = (comMap[cc] || 0) + (c.total || (c.cantidad || 1) * (c.valor || 0));
+        });
+        setComidaMap(comMap);
+      } catch (e) { console.warn("Error cargando comida:", e); }
 
       const nomDoc = await getDoc(doc(db, "nomina_periodos", qId));
       if (nomDoc.exists()) {
@@ -467,7 +503,10 @@ export default function NominaLiquidar() {
         return cnt > 1 ? `${label} ×${cnt}` : label;
       })
       .join(", ");
-    return { ...f, idx: i + 1, totalProduccion, detalleOps: prodData.ops, totalExtras, desgloseExtras, ...calc, motivoResumen };
+    const adelantosDeducidos = adelantosMap[String(f.cedula).trim()] || 0;
+    const comidaDeducida     = comidaMap[String(f.cedula).trim()]    || 0;
+    const netoFinal = Math.max(0, calc.netoAPagar - adelantosDeducidos - comidaDeducida);
+    return { ...f, idx: i + 1, totalProduccion, detalleOps: prodData.ops, totalExtras, desgloseExtras, ...calc, motivoResumen, adelantosDeducidos, comidaDeducida, netoFinal };
   });
 
   // ── Mapa cédula → centroCostos del trabajador (para filtro subgrupo)
@@ -506,6 +545,9 @@ export default function NominaLiquidar() {
     valorIncapacidad:    filasCalculadas.reduce((s, e) => s + (e.valorIncapacidad    || 0), 0),
     valorIncapacidad100: filasCalculadas.reduce((s, e) => s + (e.valorIncapacidad100 || 0), 0),
     netoAPagar:          filasCalculadas.reduce((s, e) => s + e.netoAPagar, 0),
+    adelantosDeducidos:  filasCalculadas.reduce((s, e) => s + (e.adelantosDeducidos || 0), 0),
+    comidaDeducida:      filasCalculadas.reduce((s, e) => s + (e.comidaDeducida     || 0), 0),
+    netoFinal:           filasCalculadas.reduce((s, e) => s + (e.netoFinal          || 0), 0),
   };
   const conComplemento = filasCalculadas.filter(e => e.complementoSalario > 0).length;
 
@@ -1223,6 +1265,9 @@ export default function NominaLiquidar() {
                     <th style={thGrupo("#0891b2")}>INC. REM. 66%</th>
                     <th style={thGrupo("#047857")}>INC. REM. 100%</th>
                     <th style={thGrupo("#065f46")}>NETO</th>
+                    <th style={thGrupo("#ef4444")}>ADELANTOS</th>
+                    <th style={thGrupo("#f97316")}>COMIDA</th>
+                    <th style={{ ...thGrupo("#065f46"), background:"#bbf7d0", fontWeight:"900" }}>NETO FINAL</th>
                     <th style={thGrupo("#0ea5e9")}>FIRMA</th>
                     <th style={thGrupo("#94a3b8")} />
                   </tr>
@@ -1265,6 +1310,9 @@ export default function NominaLiquidar() {
                       { h: "INC.REM.💊 66%",  w: "100px", a: "right", tip: "Empleador paga 66.67% salario diario × días IR" },
                       { h: "INC.REM.🏥 100%", w: "105px", a: "right", tip: "Empleador paga 100% salario diario × días IR-100 (primeros 2 días EG)" },
                       { h: "NETO A PAGAR", w: "118px", a: "right", tip: "=Sal.Ded+Subsidio+IR+IR100" },
+                      { h: "ADELANTOS ↓",  w: "108px", a: "right", tip: "Adelantos pendientes (se descuentan del neto)" },
+                      { h: "COMIDA ↓",     w: "100px", a: "right", tip: "Comida pendiente (se descuenta del neto)" },
+                      { h: "NETO FINAL ✓", w: "120px", a: "right", tip: "= Neto a pagar − Adelantos − Comida" },
                       { h: "FIRMA",        w: "78px",  a: "left" },
                       { h: "",             w: "36px",  a: "center" },
                     ].map((col, ci) => (
@@ -1333,6 +1381,18 @@ export default function NominaLiquidar() {
                       </td>
                       <td style={{ padding: "0.85rem 0.5rem", textAlign: "right", fontWeight: "900", color: "#065f46", fontFamily: "monospace", fontSize: "0.92rem", background: "#dcfce7" }}>
                         {formatCOP(totales.netoAPagar)}
+                      </td>
+                      {/* ADELANTOS total */}
+                      <td style={{ padding: "0.85rem 0.5rem", textAlign: "right", fontFamily: "monospace", fontWeight: "800", color: "#b91c1c", background: totales.adelantosDeducidos > 0 ? "#fef2f2" : "#f8fafc" }}>
+                        {totales.adelantosDeducidos > 0 ? `−${formatCOP(totales.adelantosDeducidos)}` : "—"}
+                      </td>
+                      {/* COMIDA total */}
+                      <td style={{ padding: "0.85rem 0.5rem", textAlign: "right", fontFamily: "monospace", fontWeight: "800", color: "#c2410c", background: totales.comidaDeducida > 0 ? "#fff7ed" : "#f8fafc" }}>
+                        {totales.comidaDeducida > 0 ? `−${formatCOP(totales.comidaDeducida)}` : "—"}
+                      </td>
+                      {/* NETO FINAL total */}
+                      <td style={{ padding: "0.85rem 0.5rem", textAlign: "right", fontWeight: "900", color: "#064e3b", fontFamily: "monospace", fontSize: "0.95rem", background: "#bbf7d0", borderLeft: "2.5px solid #10b981" }}>
+                        {formatCOP(totales.netoFinal)}
                       </td>
                       <td colSpan={2} />{/* FIRMA + DELETE */}
                     </tr>
@@ -1589,12 +1649,38 @@ function FilaNomina({ fila, listaCargos, onCambio, onBlurCedula, onHoraExtra, on
         ) : <span style={{ color: "#cbd5e1", fontSize: "0.7rem" }}>—</span>}
       </td>
 
-      {/* Col 28: NETO A PAGAR */}
+      {/* NETO A PAGAR */}
       <td style={{ padding: "0.35rem 0.5rem", textAlign: "right", fontWeight: "900", color: "#065f46", fontFamily: "monospace", fontSize: "0.85rem", background: "#dcfce7", whiteSpace: "nowrap" }}>
         {formatCOP(e.netoAPagar)}
       </td>
 
-      {/* Col 28: FIRMA */}
+      {/* ADELANTOS */}
+      <td style={{ padding: "0.35rem 0.5rem", textAlign: "right", background: e.adelantosDeducidos > 0 ? "#fef2f2" : "#f8fafc" }}>
+        {e.adelantosDeducidos > 0 ? (
+          <span style={{ fontFamily:"monospace", fontWeight:"800", color:"#b91c1c", fontSize:"0.82rem" }}>
+            −{formatCOP(e.adelantosDeducidos)}
+          </span>
+        ) : <span style={{ color:"#cbd5e1", fontSize:"0.7rem" }}>—</span>}
+      </td>
+
+      {/* COMIDA */}
+      <td style={{ padding: "0.35rem 0.5rem", textAlign: "right", background: e.comidaDeducida > 0 ? "#fff7ed" : "#f8fafc" }}>
+        {e.comidaDeducida > 0 ? (
+          <span style={{ fontFamily:"monospace", fontWeight:"800", color:"#c2410c", fontSize:"0.82rem" }}>
+            −{formatCOP(e.comidaDeducida)}
+          </span>
+        ) : <span style={{ color:"#cbd5e1", fontSize:"0.7rem" }}>—</span>}
+      </td>
+
+      {/* NETO FINAL */}
+      <td style={{ padding: "0.35rem 0.5rem", textAlign: "right", fontWeight: "900", fontFamily: "monospace", fontSize: "0.88rem", background: (e.adelantosDeducidos > 0 || e.comidaDeducida > 0) ? "#bbf7d0" : "#f0fdf4", whiteSpace: "nowrap", color: "#064e3b", borderLeft: "2.5px solid #10b981" }}>
+        {(e.adelantosDeducidos > 0 || e.comidaDeducida > 0)
+          ? formatCOP(e.netoFinal)
+          : <span style={{ color:"#94a3b8", fontWeight:"400", fontSize:"0.7rem" }}>=Neto</span>
+        }
+      </td>
+
+      {/* FIRMA */}
       <td style={tdEdit}>
         <input value={e.firma || ""} onChange={ev => cc("firma", ev.target.value)}
           placeholder="Firma..." style={iS("72px")} />
