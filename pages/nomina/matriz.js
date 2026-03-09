@@ -474,9 +474,13 @@ export default function NominaMatriz() {
   // Modal eliminación
   const [modalElim, setModalElim] = useState(null);
 
-  // Novedades
+  // Novedades catálogo
   const [novedades, setNovedades] = useState(NOVEDADES_DEFAULT);
   const [novMapState, setNovMapState] = useState(Object.fromEntries(NOVEDADES_DEFAULT.map(n=>[n.codigo,n])));
+
+  // Novedades por trabajador (nomina_novedades_trabajador)
+  const [novedadesWorker, setNovedadesWorker] = useState([]);
+  const [novedadActivaWorker, setNovedadActivaWorker] = useState(null); // novedad activa del trabajador seleccionado para la fecha del form
 
   // Clientes
   const [clienteActivo, setClienteActivo] = useState("spia");
@@ -503,7 +507,7 @@ export default function NominaMatriz() {
       const r = await getUserRoleByUid(user.uid);
       setRol(r);
       if (!["admin","admin_nomina","nomina"].includes(r)) { router.push("/nomina"); return; }
-      await Promise.all([cargarCuadrillas(), cargarClientes(), cargarServicios("spia"), cargarCatalogos("spia"), cargarNovedades()]);
+      await Promise.all([cargarCuadrillas(), cargarClientes(), cargarServicios("spia"), cargarCatalogos("spia"), cargarNovedades(), cargarNovedadesWorker()]);
       setLoading(false);
     });
     return () => unsub();
@@ -539,7 +543,37 @@ export default function NominaMatriz() {
     }
   }, [form.cuadrillaId, form.fecha]);
 
-  /* ── Novedades — fuente: Firestore (administrar.js) ── */
+  /* ── Novedades por trabajador (nomina_novedades_trabajador) ── */
+  const cargarNovedadesWorker = async () => {
+    try {
+      const snap = await getDocs(query(collection(db,"nomina_novedades_trabajador"), orderBy("fechaInicio","desc")));
+      setNovedadesWorker(snap.docs.map(d=>({id:d.id,...d.data()})));
+    } catch(e) { console.error("Error cargando novedades trabajador:", e); }
+  };
+
+  const novTieneFechaActiva = (nov, fecha) => {
+    if (!nov.fechaInicio || !nov.fechaFin || !fecha) return false;
+    if (fecha < nov.fechaInicio || fecha > nov.fechaFin) return false;
+    return !(nov.diasExcluidos||[]).includes(fecha);
+  };
+
+  const getNovedadActivaTrabajador = (trabId, fecha) => {
+    if (!trabId || !fecha) return null;
+    return novedadesWorker.find(n => n.trabajadorId === trabId && novTieneFechaActiva(n, fecha)) || null;
+  };
+
+  // Recalcular novedad activa cuando cambia trabajador o fecha
+  useEffect(() => {
+    if (!isCiamsa && form.tipoSeleccion === "trabajador" && form.cuadrillaId) {
+      const trabId = form.cuadrillaId.replace("trab_","");
+      setNovedadActivaWorker(getNovedadActivaTrabajador(trabId, form.fecha));
+    } else {
+      setNovedadActivaWorker(null);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.cuadrillaId, form.fecha, form.tipoSeleccion, novedadesWorker]);
+
+  /* ── Novedades catálogo — fuente: Firestore (administrar.js) ── */
   const cargarNovedades = async () => {
     try {
       const snap = await getDocs(query(collection(db,"nomina_novedades"), orderBy("orden")));
@@ -1534,6 +1568,60 @@ export default function NominaMatriz() {
                 </div>
               )}
 
+              {/* ── Banner novedad activa — bloquea registro de producción ── */}
+              {form.tipoSeleccion === "trabajador" && novedadActivaWorker && (() => {
+                const ncat = novMapState[novedadActivaWorker.novedad] || { emoji:"📅", label: novedadActivaWorker.novedad, color:"#7c3aed", bg:"#ede9fe" };
+                return (
+                  <div style={{
+                    borderRadius:"12px", overflow:"hidden",
+                    border:`2px solid ${ncat.color}`,
+                    marginTop:"0.75rem", marginBottom:"0.5rem",
+                  }}>
+                    {/* Barra titular */}
+                    <div style={{
+                      background:ncat.color, padding:"0.75rem 1.1rem",
+                      display:"flex", alignItems:"center", justifyContent:"space-between",
+                    }}>
+                      <div style={{display:"flex",alignItems:"center",gap:"0.6rem"}}>
+                        <span style={{fontSize:"1.4rem"}}>{ncat.emoji}</span>
+                        <div>
+                          <div style={{fontWeight:"800",color:"#fff",fontSize:"0.95rem"}}>
+                            {ncat.label} — Novedad activa
+                          </div>
+                          <div style={{color:"rgba(255,255,255,0.85)",fontSize:"0.75rem"}}>
+                            {novedadActivaWorker.fechaInicio} → {novedadActivaWorker.fechaFin}
+                            {novedadActivaWorker.diasExcluidos?.length > 0 && (
+                              <span style={{marginLeft:"0.5rem",fontStyle:"italic"}}>
+                                · {novedadActivaWorker.diasExcluidos.length} días excluidos
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <span style={{background:"rgba(255,255,255,0.2)",color:"#fff",borderRadius:"8px",padding:"3px 10px",fontSize:"0.72rem",fontWeight:"800",fontFamily:"monospace"}}>
+                        {novedadActivaWorker.novedad}
+                      </span>
+                    </div>
+                    {/* Cuerpo */}
+                    <div style={{background:ncat.bg, padding:"0.85rem 1.1rem"}}>
+                      <div style={{fontWeight:"700",color:ncat.color,fontSize:"0.88rem",marginBottom:"0.4rem"}}>
+                        ⚠️ Este trabajador tiene novedad activa para el <strong>{form.fecha}</strong>.
+                      </div>
+                      <div style={{fontSize:"0.8rem",color:ncat.color,opacity:0.85,marginBottom:"0.5rem"}}>
+                        No genera producción este día. Cambia la fecha o selecciona otro trabajador para registrar horas.
+                      </div>
+                      {novedadActivaWorker.observacion && (
+                        <div style={{fontSize:"0.75rem",color:ncat.color,background:"rgba(255,255,255,0.5)",borderRadius:"6px",padding:"0.3rem 0.6rem",fontStyle:"italic"}}>
+                          💬 {novedadActivaWorker.observacion}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Service + horas extras: solo mostrar si NO hay novedad activa para este trabajador */}
+              {!(form.tipoSeleccion === "trabajador" && novedadActivaWorker) && (<>
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:"1rem",marginTop:"0.5rem"}}>
 
                 {/* Servicio: muestra tarifa/hora si hay servicio */}
@@ -1646,6 +1734,7 @@ export default function NominaMatriz() {
                   <span style={{color:DANGER,fontSize:"0.82rem",fontWeight:"600"}}>⚠️ Sin asistentes — registra asistencia primero</span>
                 )}
               </div>
+              </>)} {/* cierre: !(tipoSeleccion==trabajador && novedadActivaWorker) */}
             </div>
           </div>
         )}
