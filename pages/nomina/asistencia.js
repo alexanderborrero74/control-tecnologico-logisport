@@ -118,6 +118,8 @@ export default function AsistenciaPage() {
   const [llamadoFecha,         setLlamadoFecha]         = useState(hoyStr);
   const [llamadoClienteId,     setLlamadoClienteId]     = useState("spia");
   const [llamadoNovedades,     setLlamadoNovedades]     = useState({}); // { workerId: cod | null }
+  const [llamadoGuardadoOk,    setLlamadoGuardadoOk]    = useState(false); // banner éxito
+  const [cargandoLlamado,      setCargandoLlamado]      = useState(false); // cargando estado previo
   const [guardandoLlamado,     setGuardandoLlamado]     = useState(false);
   const [llamadoPopover,       setLlamadoPopover]       = useState(null);
   const llamadoPopRef = useRef(null);
@@ -153,6 +155,14 @@ export default function AsistenciaPage() {
   // Evita recargar desde Firestore cuando solo cambia la vista (diario ↔ mensual)
   // lo que borraba los cambios no guardados del usuario
   const registroCargadoRef = useRef({ cuadrillaId: null, anio: null, mes: null });
+
+  // Cargar estado del llamado a lista cuando cambia fecha, cliente o se entra a la vista
+  useEffect(()=>{
+    if(vista !== "llamado") return;
+    const wDelCliente = trabajadores.filter(t=>(t.clienteIds||["spia"]).includes(llamadoClienteId));
+    cargarEstadoLlamado(llamadoFecha, llamadoClienteId, wDelCliente, cuadrillas);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[vista, llamadoFecha, llamadoClienteId]);
 
   // Recargar registro SOLO cuando cambia cuadrilla, mes o año — nunca por cambio de vista
   useEffect(()=>{
@@ -405,13 +415,67 @@ export default function AsistenciaPage() {
 
       // Forzar recarga del registro diario/mensual al volver a esa vista
       registroCargadoRef.current = { cuadrillaId: null, anio: null, mes: null };
-      alert(`✅ Llamado a lista guardado — ${novCount} novedad(es) registrada(s)`);
-      setLlamadoNovedades({});
+      // Recargar el estado visual desde Firestore para mostrar lo guardado
+      const wDelClienteParaRecargar = trabajadores.filter(t=>(t.clienteIds||["spia"]).includes(llamadoClienteId));
+      await cargarEstadoLlamado(llamadoFecha, llamadoClienteId, wDelClienteParaRecargar, cuadrillas);
+      setLlamadoGuardadoOk(true);
+      setTimeout(()=>setLlamadoGuardadoOk(false), 5000);
     }catch(e){alert("Error al guardar: "+e.message);}
     setGuardandoLlamado(false);
   };
 
-  // ── Crear nueva novedad desde el llamado a lista ───────────────────────
+  // ── Cargar estado actual del llamado (desde Firestore) ─────────────────
+  const cargarEstadoLlamado = useCallback(async (fecha, clienteId, workersDelCliente, cuadrillasList) => {
+    if(!fecha || !clienteId || !workersDelCliente?.length) return;
+    setCargandoLlamado(true);
+    setLlamadoNovedades({});
+    try {
+      const [yStr,mStr,dStr] = fecha.split("-");
+      const year  = parseInt(yStr);
+      const month = parseInt(mStr);
+      const dia   = String(parseInt(dStr));
+
+      // Mapa workerId → [cuadrillaId]
+      const workerCuadMap = {};
+      (cuadrillasList||[]).forEach(c=>{
+        (c.miembros||[]).forEach(m=>{
+          if(!workerCuadMap[m.id])workerCuadMap[m.id]=[];
+          workerCuadMap[m.id].push(c.id);
+        });
+      });
+
+      // Cuadrillas afectadas por estos workers
+      const cuadIdsNeeded = new Set();
+      workersDelCliente.forEach(t=>{
+        (workerCuadMap[t.id]||[]).forEach(cId=>cuadIdsNeeded.add(cId));
+      });
+      // Agregar doc especial llamado_${clienteId}
+      cuadIdsNeeded.add(`llamado_${clienteId}`);
+
+      const estadoCargado = {};
+      for(const cId of cuadIdsNeeded){
+        const regId = cId.startsWith("llamado_")
+          ? `${cId}_${year}_${String(month).padStart(2,"0")}`
+          : docId(cId, year, month);
+        try {
+          const snap = await getDoc(doc(db,"nomina_asistencia_registro",regId));
+          if(!snap.exists()) continue;
+          const diaData = (snap.data().registro||{})[dia]||{};
+          workersDelCliente.forEach(t=>{
+            if(t.id in diaData){
+              estadoCargado[t.id] = diaData[t.id]; // código novedad
+            }
+          });
+        } catch{}
+      }
+      // Trabajadores no encontrados en ningún registro = asistió (null) si el doc existe
+      // Solo marcamos los que tienen novedad explícita; los demás quedan undefined (sin tocar)
+      setLlamadoNovedades(estadoCargado);
+    } catch(e){ console.error("Error cargando estado llamado:",e); }
+    setCargandoLlamado(false);
+  }, []);
+
+  // ── Crear nueva novedad desde el llamado a lista ─────────────────────────
   const crearNovedadDesdeCallada = async () => {
     const label  = formNuevaNov.label.trim();
     if(!label){setErrNuevaNov("El nombre es requerido.");return;}
@@ -721,6 +785,25 @@ export default function AsistenciaPage() {
                 </div>
               </div>
             </div>
+
+            {/* Banner guardado exitosamente */}
+            {llamadoGuardadoOk&&(
+              <div style={{background:"#d1fae5",border:"1.5px solid #6ee7b7",borderRadius:"12px",
+                padding:"0.7rem 1.1rem",marginBottom:"1rem",
+                display:"flex",alignItems:"center",gap:"0.6rem",
+                boxShadow:"0 2px 8px rgba(16,185,129,0.15)"}}>
+                <span style={{fontSize:"1.2rem"}}>✅</span>
+                <span style={{fontWeight:"700",color:"#065f46",fontSize:"0.88rem"}}>
+                  Llamado guardado en Firestore. Las novedades marcadas se ven en Registro Diario.
+                </span>
+              </div>
+            )}
+            {cargandoLlamado&&(
+              <div style={{textAlign:"center",padding:"1.5rem",color:"#64748b",fontSize:"0.85rem"}}>
+                <RefreshCw size={18} style={{animation:"spin 1s linear infinite",marginRight:"0.4rem"}}/>
+                Cargando estado del día...
+              </div>
+            )}
 
             {workersDelCliente.length===0?(
               <EmptyState icon="👷" title="Sin trabajadores" desc={`No hay trabajadores activos para ${clienteActivo.nombre}.`}/>
