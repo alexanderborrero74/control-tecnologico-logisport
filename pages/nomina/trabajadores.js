@@ -371,6 +371,10 @@ export default function NominaTrabajadores() {
   /* ── Toggle activo/inactivo de un trabajador ── */
   const toggleActivo = async (t) => {
     const nuevoEstado = t.activo === false ? true : false;
+    const msg = nuevoEstado
+      ? `¿Reactivar a ${t.nombre}?\nVolverá a aparecer en la matriz, liquidación y asistencia.`
+      : `¿Deshabilitar a ${t.nombre}?\nNo aparecerá en la matriz ni en la liquidación de nómina.`;
+    if (!confirm(msg)) return;
     try {
       const updateData = {
         activo: nuevoEstado,
