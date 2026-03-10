@@ -273,6 +273,10 @@ export default function NominaLiquidarUnificada() {
   const router       = useRouter();
   const def          = quincenaActual();
 
+  // Leer fechas de query params (cuando se navega desde Historial)
+  const queryFi = router.query?.fi;
+  const queryFf = router.query?.ff;
+
   const [rol,            setRol]            = useState(null);
   const [fechaInicio,    setFechaInicio]    = useState(def.fechaInicio);
   const [fechaFin,       setFechaFin]       = useState(def.fechaFin);
@@ -305,6 +309,14 @@ export default function NominaLiquidarUnificada() {
   const qLabel = `UNIFICADA · ${labelPeriodo(fechaInicio, fechaFin)}`;
   const diasDef = diasEntreFechas(fechaInicio, fechaFin);
   const periodoValido = fechaInicio && fechaFin && fechaFin >= fechaInicio;
+
+  // Aplicar fechas de query params cuando Next.js los resuelva
+  useEffect(() => {
+    if (queryFi && queryFf && queryFi <= queryFf) {
+      setFechaInicio(queryFi);
+      setFechaFin(queryFf);
+    }
+  }, [queryFi, queryFf]);
 
   useEffect(() => {
     getDocs(collection(db,"nomina_clientes")).then(snap => {

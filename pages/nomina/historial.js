@@ -384,7 +384,13 @@ export default function NominaHistorial() {
                   )}
 
                   {/* Ver en liquidar */}
-                  <button onClick={() => router.push(`/nomina/liquidar?q=${p.id}`)}
+                  <button onClick={() => {
+                    if (p.tipo === "unificada" || p.id?.startsWith("unificada_")) {
+                      router.push(`/nomina/liquidar_unificada?fi=${p.fechaInicio}&ff=${p.fechaFin}`);
+                    } else {
+                      router.push(`/nomina/liquidar?q=${p.id}`);
+                    }
+                  }}
                     style={{ background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: "8px", padding: "0.5rem 0.75rem", cursor: "pointer", color: ACCENT, fontWeight: "700", fontSize: "0.82rem", display: "flex", alignItems: "center", gap: "0.4rem" }}>
                     <Eye size={15} /> Ver
                   </button>
