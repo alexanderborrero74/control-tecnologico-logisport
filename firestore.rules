@@ -419,6 +419,13 @@ service cloud.firestore {
       allow delete: if isNominaAdmin();
     }
 
+    // Novedades por trabajador (vacaciones, permisos, incapacidades individuales)
+    match /nomina_novedades_trabajador/{id} {
+      allow read: if isNominaRRHH();
+      allow create, update: if isNominaAdmin();
+      allow delete: if isNominaAdmin();
+    }
+
     // Adelantos de salario
     match /nomina_adelantos/{id} {
       allow read: if isNominaRRHH();
@@ -454,6 +461,16 @@ service cloud.firestore {
       allow read: if true; // el trabajador accede por token o cédula sin auth
       allow create, update: if isNominaAdmin();
       allow delete: if isNominaAdmin();
+    }
+
+    // Permisos por usuario y módulo del Control Operativo
+    // Solo el admin puede escribir; cada usuario solo puede leer su propio documento
+    match /nomina_permisos_usuario/{uid} {
+      allow read: if isSignedIn() && (
+        request.auth.uid == uid ||
+        isAdmin()
+      );
+      allow create, update, delete: if isAdmin();
     }
 
     /* ======================

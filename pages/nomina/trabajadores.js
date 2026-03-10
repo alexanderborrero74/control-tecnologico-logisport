@@ -7,6 +7,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@/firebase/firebaseConfig";
 import { getUserRoleByUid } from "@/utils/getUserRole";
+import { usePermisosNomina } from "@/utils/usePermisosNomina";
 import LayoutWithSidebar from "@/components/LayoutWithSidebar";
 import { Users, Plus, Edit2, Trash2, Search, ArrowLeft, X, Save, Upload, FileSpreadsheet, AlertTriangle, CheckCircle, RefreshCw, Download, Calendar, Smile } from "lucide-react";
 
@@ -143,6 +144,7 @@ function detectarFormatoLogisport(raw) {
 export default function NominaTrabajadores() {
   const router = useRouter();
   const [rol,          setRol]          = useState(null);
+  const [uid,          setUid]          = useState(null);
   const [trabajadores, setTrabajadores] = useState([]);
   const [filtro,       setFiltro]       = useState("");
   const [loading,      setLoading]      = useState(true);
@@ -201,11 +203,15 @@ export default function NominaTrabajadores() {
   const [novBusqueda, setNovBusqueda] = useState("");
   const [novFiltroActivo, setNovFiltroActivo] = useState("todos"); // "todos" | "activos" | "codigo"
 
+  /* ── Permisos por módulo del usuario actual ── */
+  const { permisos: permisosUsuario } = usePermisosNomina(uid);
+
   /* ── Auth ── */
   useEffect(() => {
     const auth = getAuth();
     const unsub = onAuthStateChanged(auth, async (user) => {
       if (!user) { router.push("/login"); return; }
+      setUid(user.uid);
       const r = await getUserRoleByUid(user.uid);
       setRol(r);
       if (!["admin","admin_nomina","rrhh","nomina"].includes(r)) { router.push("/"); return; }
@@ -1009,7 +1015,8 @@ export default function NominaTrabajadores() {
 
   const totalInactivos = trabajadoresFiltradosCliente.filter(t => t.activo === false).length;
 
-  const puedeEditar = ["admin","admin_nomina"].includes(rol);
+  // Puede editar si es admin/admin_nomina O si tiene el permiso específico de trabajadores
+  const puedeEditar = ["admin","admin_nomina"].includes(rol) || permisosUsuario?.trabajadores === true;
 
   if (loading) return (
     <LayoutWithSidebar>

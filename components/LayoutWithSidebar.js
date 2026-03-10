@@ -104,6 +104,7 @@ export default function LayoutWithSidebar({ children }) {
     { icon: CreditCard,   label: "Adelantos y Restaurante", path: "/nomina/adelantos", roles: ["admin", "admin_nomina", "rrhh", "nomina"] },
     { icon: Printer,           label: "Desprendibles",  path: "/nomina/desprendibles",roles: ["admin", "admin_nomina", "rrhh", "usuario", "nomina"] },
     { icon: SlidersHorizontal, label: "Administrar",    path: "/nomina/administrar",  roles: ["admin", "admin_nomina", "nomina"] },
+    { icon: Lock,              label: "Control de Roles", path: "/nomina/control-roles", roles: ["admin"] },
   ];
   const subMenuNomina = subMenuNominaAll.filter(m => m.roles.includes(rol));
 
