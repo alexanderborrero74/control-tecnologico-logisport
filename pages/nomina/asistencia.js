@@ -1479,6 +1479,22 @@ export default function AsistenciaPage() {
         }}>
           <div style={{fontWeight:"800",color:PRIMARY,fontSize:"0.82rem",marginBottom:"0.3rem",padding:"0 0.25rem"}}>Registrar novedad</div>
           <div style={{height:"1px",background:"#f1f5f9",marginBottom:"0.45rem"}}/>
+          {/* Opción para quitar novedad (volver a Asistió) */}
+          <button
+            onClick={()=>{
+              setLlamadoNovedades(p=>({...p,[llamadoPopover.workerId]:null}));
+              setLlamadoPopover(null);
+            }}
+            style={{display:"flex",alignItems:"center",gap:"0.6rem",
+              width:"100%",padding:"0.48rem 0.55rem",
+              background:"#f0fdf4",border:"1.5px solid #86efac",
+              borderRadius:"9px",cursor:"pointer",marginBottom:"6px",textAlign:"left"}}
+            onMouseEnter={e=>{e.currentTarget.style.background="#dcfce7";}}
+            onMouseLeave={e=>{e.currentTarget.style.background="#f0fdf4";}}>
+            <span style={{fontSize:"1rem",lineHeight:1,flexShrink:0}}>✅</span>
+            <span style={{flex:1,fontSize:"0.8rem",fontWeight:"700",color:"#059669"}}>Sin novedad (Asistió)</span>
+          </button>
+          <div style={{height:"1px",background:"#f1f5f9",marginBottom:"0.45rem"}}/>
           {novedades.map(n=>(
             <button key={n.codigo}
               onClick={()=>{
