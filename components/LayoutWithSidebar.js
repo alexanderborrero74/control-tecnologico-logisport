@@ -212,7 +212,7 @@ export default function LayoutWithSidebar({ children }) {
                   display: "flex", alignItems: "center", gap: "0.5rem",
                 }}>
                   <DollarSign size={14} />
-                  LIQUIDACIÓN NÓMINA
+                  CONTROL OPERATIVO
                 </div>
               )}
 
@@ -272,7 +272,7 @@ export default function LayoutWithSidebar({ children }) {
                       color: "rgba(255,255,255,0.45)", textTransform: "uppercase",
                       marginTop: "0.5rem",
                     }}>
-                      ── Liquidación Nómina ──
+                      ── Control Operativo ──
                     </div>
                   )}
                   <button
@@ -282,7 +282,7 @@ export default function LayoutWithSidebar({ children }) {
                     onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
                   >
                     <DollarSign size={20} style={{ flexShrink: 0 }} />
-                    {!collapsed && <span>Liquidación Nómina</span>}
+                    {!collapsed && <span>Control Operativo</span>}
                   </button>
                 </>
               )}

@@ -181,7 +181,7 @@ export default function NominaIndex() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "60vh", color: PRIMARY }}>
         <div style={{ textAlign: "center" }}>
           <div style={{ fontSize: "3rem", marginBottom: "1rem" }}>💰</div>
-          <div style={{ fontWeight: "700", fontSize: "1.2rem" }}>Cargando Liquidación Nómina...</div>
+          <div style={{ fontWeight: "700", fontSize: "1.2rem" }}>Cargando Control Operativo...</div>
         </div>
       </div>
     </LayoutWithSidebar>
@@ -202,7 +202,7 @@ export default function NominaIndex() {
           alignItems: "center",
         }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: "2rem", fontWeight: "800" }}>💰 LIQUIDACIÓN NÓMINA</h1>
+            <h1 style={{ margin: 0, fontSize: "2rem", fontWeight: "800" }}>⚙️ CONTROL OPERATIVO</h1>
             <p style={{ margin: "0.5rem 0 0", opacity: 0.9 }}>
               Gestión integral de nómina — LOGISPORT S.A.S.
             </p>
