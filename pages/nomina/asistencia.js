@@ -10,6 +10,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@/firebase/firebaseConfig";
 import { getUserRoleByUid } from "@/utils/getUserRole";
+import { usePermisosNomina } from "@/utils/usePermisosNomina";
 import LayoutWithSidebar from "@/components/LayoutWithSidebar";
 import {
   ArrowLeft, Plus, Save, Trash2, X, Users, Edit2,
@@ -67,7 +68,18 @@ function ausentesDelDia(miembros, novedadesDia) {
 export default function AsistenciaPage() {
   const router  = useRouter();
   const [rol,     setRol]     = useState(null);
+  const [uid,     setUid]     = useState(null);
   const [loading, setLoading] = useState(true);
+
+  // Permisos por módulo — nueva API
+  const { puedeVer, puedeEditar: puedeEditarAsistencia, loadingPermisos } = usePermisosNomina(uid, rol);
+
+  // Redirigir si no tiene visibilidad en este módulo
+  useEffect(() => {
+    if (!rol || !uid || loadingPermisos) return;
+    if (["admin", "admin_nomina"].includes(rol)) return;
+    if (!puedeVer("asistencia")) router.push("/nomina");
+  }, [rol, uid, loadingPermisos, puedeVer]);
   const [vista,   setVista]   = useState("cuadrillas"); // "cuadrillas" | "diario" | "mensual"
 
   // ── Cuadrillas ────────────────────────────────────────────────────────────
@@ -133,6 +145,7 @@ export default function AsistenciaPage() {
     const auth = getAuth();
     const unsub = onAuthStateChanged(auth, async(user)=>{
       if(!user){router.push("/login");return;}
+      setUid(user.uid);
       const r = await getUserRoleByUid(user.uid);
       setRol(r);
       if(!["admin","admin_nomina","nomina"].includes(r)){router.push("/nomina");return;}
