@@ -372,10 +372,16 @@ export default function NominaTrabajadores() {
   const toggleActivo = async (t) => {
     const nuevoEstado = t.activo === false ? true : false;
     try {
-      await updateDoc(doc(db, "nomina_trabajadores", t.id), {
+      const updateData = {
         activo: nuevoEstado,
         actualizadoEn: new Date(),
-      });
+      };
+      if (!nuevoEstado) {
+        updateData.fechaDesactivado = new Date();
+      } else {
+        updateData.fechaDesactivado = null;
+      }
+      await updateDoc(doc(db, "nomina_trabajadores", t.id), updateData);
       await cargar();
     } catch (e) {
       alert("Error al cambiar estado: " + e.message);
@@ -1484,7 +1490,7 @@ export default function NominaTrabajadores() {
                 <table style={{ width:"100%", borderCollapse:"collapse" }}>
                   <thead>
                     <tr style={{ background:DANGER, color:"#fff" }}>
-                      {["#","Nombre","Cédula","Cargo","Centro Costo","Básico Mensual",...(puedeEditar?["Acciones"]:[])].map(h => (
+                      {["#","Nombre","Cédula","Cargo","Centro Costo","Básico Mensual","Desactivado",...(puedeEditar?["Acciones"]:[])].map(h => (
                         <th key={h} style={{ padding:"0.75rem 1rem", textAlign:"left", fontSize:"0.83rem", fontWeight:"700", whiteSpace:"nowrap" }}>{h}</th>
                       ))}
                     </tr>
@@ -1512,6 +1518,17 @@ export default function NominaTrabajadores() {
                         </td>
                         <td style={{ padding:"0.75rem 1rem", fontWeight:"700", color:"#b91c1c" }}>
                           {t.basicoMensual ? `${Number(t.basicoMensual).toLocaleString("es-CO")}` : <span style={{color:"#fca5a5"}}>--</span>}
+                        </td>
+                        <td style={{ padding:"0.75rem 1rem", whiteSpace:"nowrap" }}>
+                          {t.fechaDesactivado
+                            ? (() => {
+                                const d = t.fechaDesactivado?.toDate ? t.fechaDesactivado.toDate() : new Date(t.fechaDesactivado);
+                                const dd = String(d.getDate()).padStart(2,"0");
+                                const mm = String(d.getMonth()+1).padStart(2,"0");
+                                const yy = d.getFullYear();
+                                return <span style={{ background:"#fef2f2", color:"#dc2626", borderRadius:"6px", padding:"2px 8px", fontSize:"0.78rem", fontWeight:"700", fontFamily:"monospace" }}>📅 {dd}/{mm}/{yy}</span>;
+                              })()
+                            : <span style={{ color:"#fca5a5", fontSize:"0.78rem" }}>—</span>}
                         </td>
                         {puedeEditar && (
                           <td style={{ padding:"0.75rem 1rem" }}>
