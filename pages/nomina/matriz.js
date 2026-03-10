@@ -478,9 +478,8 @@ export default function NominaMatriz() {
   const [novedades, setNovedades] = useState(NOVEDADES_DEFAULT);
   const [novMapState, setNovMapState] = useState(Object.fromEntries(NOVEDADES_DEFAULT.map(n=>[n.codigo,n])));
 
-  // Novedades por trabajador (nomina_novedades_trabajador)
-  const [novedadesWorker, setNovedadesWorker] = useState([]);
-  const [novedadActivaWorker, setNovedadActivaWorker] = useState(null); // novedad activa del trabajador seleccionado para la fecha del form
+  // Novedad del día del trabajador (leída de nomina_asistencia_registro — fuente: Llamado a Lista)
+  const [novedadActivaWorker, setNovedadActivaWorker] = useState(null);
 
   // Clientes
   const [clienteActivo, setClienteActivo] = useState("spia");
@@ -507,7 +506,7 @@ export default function NominaMatriz() {
       const r = await getUserRoleByUid(user.uid);
       setRol(r);
       if (!["admin","admin_nomina","nomina"].includes(r)) { router.push("/nomina"); return; }
-      await Promise.all([cargarCuadrillas(), cargarClientes(), cargarServicios("spia"), cargarCatalogos("spia"), cargarNovedades(), cargarNovedadesWorker()]);
+      await Promise.all([cargarCuadrillas(), cargarClientes(), cargarServicios("spia"), cargarCatalogos("spia"), cargarNovedades()]);
       setLoading(false);
     });
     return () => unsub();
@@ -543,35 +542,62 @@ export default function NominaMatriz() {
     }
   }, [form.cuadrillaId, form.fecha]);
 
-  /* ── Novedades por trabajador (nomina_novedades_trabajador) ── */
-  const cargarNovedadesWorker = async () => {
+  /**
+   * Lee nomina_asistencia_registro para saber si el trabajador tiene novedad
+   * marcada en el día seleccionado. Fuente: Llamado a Lista (asistencia.js).
+   */
+  const cargarNovedadDiaWorker = async (trabId, fecha) => {
+    if (!trabId || !fecha) { setNovedadActivaWorker(null); return; }
     try {
-      const snap = await getDocs(query(collection(db,"nomina_novedades_trabajador"), orderBy("fechaInicio","desc")));
-      setNovedadesWorker(snap.docs.map(d=>({id:d.id,...d.data()})));
-    } catch(e) { console.error("Error cargando novedades trabajador:", e); }
+      const d    = new Date(fecha + "T12:00:00");
+      const anio = d.getFullYear();
+      const mes  = d.getMonth() + 1;
+      const dia  = String(d.getDate());
+      // Buscar cuadrilla del trabajador
+      let cuadId = null;
+      for (const c of cuadrillasAsistencia) {
+        if ((c.miembros||[]).some(m => m.id === trabId)) { cuadId = c.id; break; }
+      }
+      // DocIDs posibles donde el Llamado a Lista pudo guardar la novedad
+      const docIds = [];
+      if (cuadId) docIds.push(docIdReg(cuadId, anio, mes));
+      docIds.push(`llamado_${clienteActivo}_${anio}_${String(mes).padStart(2,"0")}`);
+      docIds.push(`individual_${trabId}`);
+      for (const docId of docIds) {
+        const snap = await getDoc(doc(db, "nomina_asistencia_registro", docId));
+        if (snap.exists()) {
+          const codNov = snap.data().registro?.[dia]?.[trabId];
+          if (codNov) { setNovedadActivaWorker({ novedad: codNov }); return; }
+        }
+      }
+      setNovedadActivaWorker(null);
+    } catch(e) {
+      console.error("Error leyendo novedad del día:", e);
+      setNovedadActivaWorker(null);
+    }
   };
 
-  const novTieneFechaActiva = (nov, fecha) => {
-    if (!nov.fechaInicio || !nov.fechaFin || !fecha) return false;
-    if (fecha < nov.fechaInicio || fecha > nov.fechaFin) return false;
-    return !(nov.diasExcluidos||[]).includes(fecha);
-  };
-
-  const getNovedadActivaTrabajador = (trabId, fecha) => {
-    if (!trabId || !fecha) return null;
-    return novedadesWorker.find(n => n.trabajadorId === trabId && novTieneFechaActiva(n, fecha)) || null;
-  };
-
-  // Recalcular novedad activa cuando cambia trabajador o fecha
+  // Recargar novedad del día cuando cambia trabajador o fecha
   useEffect(() => {
-    if (!isCiamsa && form.tipoSeleccion === "trabajador" && form.cuadrillaId) {
+    if (!isCiamsa && form.tipoSeleccion === "trabajador" && form.cuadrillaId && form.fecha) {
       const trabId = form.cuadrillaId.replace("trab_","");
-      setNovedadActivaWorker(getNovedadActivaTrabajador(trabId, form.fecha));
+      cargarNovedadDiaWorker(trabId, form.fecha);
     } else {
       setNovedadActivaWorker(null);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.cuadrillaId, form.fecha, form.tipoSeleccion, novedadesWorker]);
+  }, [form.cuadrillaId, form.fecha, form.tipoSeleccion]);
+
+  // Novedad del día para CIAMSA (cliente2/cliente3) cuando cambia trabajador o fecha
+  useEffect(() => {
+    if (!isCiamsa) return;
+    if (ciamsaForm.trabajadorId && ciamsaForm.fecha) {
+      cargarNovedadDiaWorker(ciamsaForm.trabajadorId, ciamsaForm.fecha);
+    } else {
+      setNovedadActivaWorker(null);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ciamsaForm.trabajadorId, ciamsaForm.fecha, clienteActivo]);
 
   /* ── Novedades catálogo — fuente: Firestore (administrar.js) ── */
   const cargarNovedades = async () => {
@@ -1339,6 +1365,78 @@ export default function NominaMatriz() {
 
               </div>
 
+              {/* ── Banner novedad activa CIAMSA — bloquea producción cuando hay novedad en Llamado a Lista ── */}
+              {novedadActivaWorker && ciamsaForm.trabajadorId && (()=>{
+                const ncat = novMapState[novedadActivaWorker.novedad]||{emoji:"📅",label:novedadActivaWorker.novedad,color:"#7c3aed",bg:"#ede9fe"};
+                return (
+                  <div style={{borderRadius:"12px",overflow:"hidden",border:`2px solid ${ncat.color}`,marginTop:"0.75rem",marginBottom:"0.5rem"}}>
+                    <div style={{background:ncat.color,padding:"0.75rem 1.1rem",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:"0.6rem"}}>
+                        <span style={{fontSize:"1.4rem"}}>{ncat.emoji}</span>
+                        <div>
+                          <div style={{fontWeight:"800",color:"#fff",fontSize:"0.95rem"}}>{ncat.label} — Novedad marcada en Llamado a Lista</div>
+                          <div style={{color:"rgba(255,255,255,0.85)",fontSize:"0.75rem"}}>Registrada para el {ciamsaForm.fecha}</div>
+                        </div>
+                      </div>
+                      <span style={{background:"rgba(255,255,255,0.2)",color:"#fff",borderRadius:"8px",padding:"3px 10px",fontSize:"0.72rem",fontWeight:"800",fontFamily:"monospace"}}>{novedadActivaWorker.novedad}</span>
+                    </div>
+                    <div style={{background:ncat.bg,padding:"0.85rem 1.1rem"}}>
+                      <div style={{fontWeight:"700",color:ncat.color,fontSize:"0.88rem",marginBottom:"0.4rem"}}>
+                        ⚠️ Este trabajador tiene novedad registrada para el <strong>{ciamsaForm.fecha}</strong> desde el Llamado a Lista.
+                      </div>
+                      <div style={{fontSize:"0.8rem",color:ncat.color,opacity:0.85,marginBottom:"0.75rem"}}>
+                        No genera producción este día. Solo puedes guardar la novedad en la matriz.
+                      </div>
+                      <button
+                        onClick={async()=>{
+                          if(!ciamsaForm.trabajadorNombre||!ciamsaForm.fecha)return;
+                          setCiamsaGuardando(true);
+                          try{
+                            const codNov=novedadActivaWorker.novedad;
+                            const data={
+                              periodoDesde,periodoHasta,
+                              clienteId:clienteActivo,modoCiamsa:true,modoNovedad:true,
+                              quincenaId:`${periodoDesde} al ${periodoHasta}`,
+                              quincenaLabel:`${periodoDesde} al ${periodoHasta}`,
+                              cuadrillaId:`trab_${ciamsaForm.trabajadorId}`,
+                              cuadrillaNombre:ciamsaForm.trabajadorNombre,
+                              cuadrilla:ciamsaForm.trabajadorNombre,
+                              cuadrillaPersonas:1,
+                              trabajadorId:ciamsaForm.trabajadorId,
+                              trabajadorNombre:ciamsaForm.trabajadorNombre,
+                              trabajadorCedula:ciamsaForm.trabajadorCedula,
+                              fecha:Timestamp.fromDate(new Date(ciamsaForm.fecha+"T12:00:00")),
+                              fechaStr:ciamsaForm.fecha,
+                              servicioNombre:codNov,novedad:codNov,
+                              netoAPagar:0,personas:1,cantidad:1,
+                              modoHorasExtras:false,horasExtras:null,
+                              trabajadoresAsisten:[{id:ciamsaForm.trabajadorId,nombre:ciamsaForm.trabajadorNombre,cedula:ciamsaForm.trabajadorCedula}],
+                              trabajadoresAusentes:[],
+                              actualizadoEn:new Date(),
+                            };
+                            await addDoc(collection(db,"nomina_operaciones"),{...data,creadoEn:new Date()});
+                            await guardarMotivoEnRegistro(ciamsaForm.trabajadorId,ciamsaForm.fecha,codNov);
+                            await cargarOperaciones();
+                            setCiamsaOk(true);
+                            setTimeout(()=>setCiamsaOk(false),2500);
+                            tablaRef.current?.scrollIntoView({behavior:"smooth",block:"start"});
+                          }catch(e){alert("Error: "+e.message);}
+                          setCiamsaGuardando(false);
+                        }}
+                        disabled={ciamsaGuardando}
+                        style={{background:ncat.color,border:"2px solid rgba(255,255,255,0.4)",borderRadius:"10px",padding:"0.75rem 1.5rem",color:"#fff",fontWeight:"800",fontSize:"0.9rem",cursor:"pointer",display:"flex",alignItems:"center",gap:"0.5rem",boxShadow:`0 4px 12px ${ncat.color}50`}}>
+                        {ciamsaGuardando?<><RefreshCw size={16} style={{animation:"spin 1s linear infinite"}}/> Guardando...</>
+                          :ciamsaOk?<><CheckCircle size={16}/> ¡Registrado!</>
+                          :<><Save size={16}/> Registrar {ncat.emoji} {ncat.label} (neto $0)</>}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Solo mostrar cálculo y botón guardar cuando NO hay novedad activa del llamado */}
+              {!novedadActivaWorker && (<>
+
               {/* ── Fila cálculo destajo ── */}
               <div style={{marginTop:"1rem",background:`${colorCiamsa}06`,border:`1.5px solid ${colorCiamsa}20`,borderRadius:"12px",padding:"1.1rem"}}>
                 <div style={{fontSize:"0.75rem",fontWeight:"800",color:colorCiamsa,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:"0.85rem"}}>
@@ -1424,6 +1522,7 @@ export default function NominaMatriz() {
                   </span>
                 )}
               </div>
+            </>)} {/* fin: !novedadActivaWorker CIAMSA */}
             </div>
           </div>
         )}
@@ -1568,7 +1667,7 @@ export default function NominaMatriz() {
                 </div>
               )}
 
-              {/* ── Banner novedad activa — bloquea registro de producción ── */}
+              {/* ── Banner novedad activa — muestra info + botón para registrar la novedad ── */}
               {form.tipoSeleccion === "trabajador" && novedadActivaWorker && (() => {
                 const ncat = novMapState[novedadActivaWorker.novedad] || { emoji:"📅", label: novedadActivaWorker.novedad, color:"#7c3aed", bg:"#ede9fe" };
                 return (
@@ -1586,15 +1685,10 @@ export default function NominaMatriz() {
                         <span style={{fontSize:"1.4rem"}}>{ncat.emoji}</span>
                         <div>
                           <div style={{fontWeight:"800",color:"#fff",fontSize:"0.95rem"}}>
-                            {ncat.label} — Novedad activa
+                            {ncat.label} — Novedad marcada en Llamado a Lista
                           </div>
                           <div style={{color:"rgba(255,255,255,0.85)",fontSize:"0.75rem"}}>
-                            {novedadActivaWorker.fechaInicio} → {novedadActivaWorker.fechaFin}
-                            {novedadActivaWorker.diasExcluidos?.length > 0 && (
-                              <span style={{marginLeft:"0.5rem",fontStyle:"italic"}}>
-                                · {novedadActivaWorker.diasExcluidos.length} días excluidos
-                              </span>
-                            )}
+                            Registrada para el {form.fecha}
                           </div>
                         </div>
                       </div>
@@ -1605,16 +1699,77 @@ export default function NominaMatriz() {
                     {/* Cuerpo */}
                     <div style={{background:ncat.bg, padding:"0.85rem 1.1rem"}}>
                       <div style={{fontWeight:"700",color:ncat.color,fontSize:"0.88rem",marginBottom:"0.4rem"}}>
-                        ⚠️ Este trabajador tiene novedad activa para el <strong>{form.fecha}</strong>.
+                        ⚠️ Este trabajador tiene novedad registrada para el <strong>{form.fecha}</strong> desde el Llamado a Lista.
                       </div>
-                      <div style={{fontSize:"0.8rem",color:ncat.color,opacity:0.85,marginBottom:"0.5rem"}}>
-                        No genera producción este día. Cambia la fecha o selecciona otro trabajador para registrar horas.
+                      <div style={{fontSize:"0.8rem",color:ncat.color,opacity:0.85,marginBottom:"0.75rem"}}>
+                        No genera producción este día. Solo puedes guardar la novedad en la matriz.
                       </div>
-                      {novedadActivaWorker.observacion && (
-                        <div style={{fontSize:"0.75rem",color:ncat.color,background:"rgba(255,255,255,0.5)",borderRadius:"6px",padding:"0.3rem 0.6rem",fontStyle:"italic"}}>
-                          💬 {novedadActivaWorker.observacion}
-                        </div>
-                      )}
+                      {/* Botón registrar novedad */}
+                      <button
+                        onClick={async () => {
+                          if (!form.cuadrillaNombre || !form.fecha) return;
+                          setGuardando(true);
+                          try {
+                            const trabId = form.cuadrillaId.replace("trab_","");
+                            const codNov = novedadActivaWorker.novedad;
+                            const data = {
+                              periodoDesde, periodoHasta,
+                              clienteId:       clienteActivo,
+                              modoCiamsa:      false,
+                              modoNovedad:     true,
+                              quincenaId:      `${periodoDesde} al ${periodoHasta}`,
+                              quincenaLabel:   `${periodoDesde} al ${periodoHasta}`,
+                              cuadrillaId:     form.cuadrillaId,
+                              cuadrillaNombre: form.cuadrillaNombre.trim().toUpperCase(),
+                              cuadrilla:       form.cuadrillaNombre.trim().toUpperCase(),
+                              cuadrillaPersonas: 1,
+                              trabajadorId:    trabId,
+                              trabajadorNombre:form.cuadrillaNombre.trim().toUpperCase(),
+                              trabajadorCedula:asistentesForm[0]?.cedula || "",
+                              fecha:           Timestamp.fromDate(new Date(form.fecha+"T12:00:00")),
+                              fechaStr:        form.fecha,
+                              servicioNombre:  codNov,
+                              novedad:         codNov,
+                              netoAPagar:      0,
+                              personas:        1,
+                              cantidad:        1,
+                              modoHorasExtras: false,
+                              horasExtras:     null,
+                              trabajadoresAsisten: asistentesForm.map(a=>({id:a.id,nombre:a.nombre,cedula:a.cedula||""})),
+                              trabajadoresAusentes:[],
+                              actualizadoEn:   new Date(),
+                            };
+                            await addDoc(collection(db,"nomina_operaciones"),{...data,creadoEn:new Date()});
+                            await guardarMotivoEnRegistro(trabId, form.fecha, codNov);
+                            await cargarOperaciones();
+                            setGuardadoOk(true);
+                            setTimeout(()=>setGuardadoOk(false),2500);
+                            tablaRef.current?.scrollIntoView({behavior:"smooth",block:"start"});
+                          } catch(e) { alert("Error: "+e.message); }
+                          setGuardando(false);
+                        }}
+                        disabled={guardando}
+                        style={{
+                          background:ncat.color,
+                          border:`2px solid rgba(255,255,255,0.4)`,
+                          borderRadius:"10px",
+                          padding:"0.75rem 1.5rem",
+                          color:"#fff",
+                          fontWeight:"800",
+                          fontSize:"0.9rem",
+                          cursor:"pointer",
+                          display:"flex",
+                          alignItems:"center",
+                          gap:"0.5rem",
+                          boxShadow:`0 4px 12px ${ncat.color}50`,
+                        }}
+                      >
+                        {guardando
+                          ? <><RefreshCw size={16} style={{animation:"spin 1s linear infinite"}}/> Guardando...</>
+                          : guardadoOk
+                          ? <><CheckCircle size={16}/> ¡Registrado!</>
+                          : <><Save size={16}/> Registrar {ncat.emoji} {ncat.label} (neto $0)</>}
+                      </button>
                     </div>
                   </div>
                 );
