@@ -67,10 +67,12 @@ export default function NominaServicios() {
         const orden = ["spia","cliente1","cliente2","cliente3"];
         data.sort((a,b) => orden.indexOf(a.id) - orden.indexOf(b.id));
         // Combinar con CLIENTES_BASE para emoji/color por defecto
-        const merged = data.map(c => {
-          const base = CLIENTES_BASE.find(b => b.id === c.id);
-          return { ...base, ...c };
-        });
+        const merged = data
+          .filter(c => c.id !== "admon") // Excluir ADMON SPIA de servicios
+          .map(c => {
+            const base = CLIENTES_BASE.find(b => b.id === c.id);
+            return { ...base, ...c };
+          });
         setClientes(merged.length > 0 ? merged : CLIENTES_BASE);
       }
     } catch {}
