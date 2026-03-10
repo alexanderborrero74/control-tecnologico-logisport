@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/router";
 import { getAuth, onAuthStateChanged, signOut } from "firebase/auth";
 import { getUserRoleByUid } from "@/utils/getUserRole";
+import { usePermisosNomina } from "@/utils/usePermisosNomina";
 import { 
   Home, Wrench, FileText, HardDrive, Settings, Book,
   BarChart3, Package, Lock, CloudUpload, LogOut, Menu, X,
@@ -18,11 +19,15 @@ const PRIMARY = "#0B3D91";
 
 export default function LayoutWithSidebar({ children }) {
   const router = useRouter();
-  const [usuario, setUsuario] = useState(null);
-  const [rol, setRol] = useState("usuario");
+  const [usuario,  setUsuario]  = useState(null);
+  const [rol,      setRol]      = useState("usuario");
+  const [uid,      setUid]      = useState(null);
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [nominaExpanded, setNominaExpanded] = useState(false);
+
+  // Permisos por módulo del usuario actual (para filtrar el sidebar en tiempo real)
+  const { puedeVer: puedeVerModuloNav } = usePermisosNomina(uid, rol);
 
   // (gate de contraseñas manejado globalmente por GateModulo en _app.js)
 
@@ -37,6 +42,7 @@ export default function LayoutWithSidebar({ children }) {
     const auth = getAuth();
     const unsub = onAuthStateChanged(auth, async (user) => {
       if (user) {
+        setUid(user.uid);
         setUsuario({
           email: user.email,
           nombre: user.displayName || user.email?.split("@")[0] || "Usuario",
@@ -92,21 +98,45 @@ export default function LayoutWithSidebar({ children }) {
     { icon: Settings, label: "TI Implementado", path: "/ti-implementado", roles: ["admin"] },
   ].filter(item => item.roles.includes(rol));
 
+  // Mapa ruta → moduloId (para filtrar sidebar por permisos)
+  const RUTA_MODULO = {
+    "/nomina/trabajadores":      "trabajadores",
+    "/nomina/asistencia":        "asistencia",
+    "/nomina/servicios":         "servicios",
+    "/nomina/matriz":            "matriz",
+    "/nomina/liquidar":          "liquidar",
+    "/nomina/liquidar_unificada":"liquidar_unificada",
+    "/nomina/historial":         "historial",
+    "/nomina/adelantos":         "adelantos",
+    "/nomina/desprendibles":     "desprendibles",
+    "/nomina/administrar":       "administrar",
+  };
+
   const subMenuNominaAll = [
-    { icon: Home,         label: "Dashboard",           path: "/nomina",              roles: ["admin", "admin_nomina", "rrhh", "usuario", "nomina"] },
-    { icon: UserCheck,    label: "Trabajadores",         path: "/nomina/trabajadores", roles: ["admin", "admin_nomina", "rrhh", "nomina"] },
-    { icon: UsersRound,   label: "Listado de Asistencia", path: "/nomina/asistencia",   roles: ["admin", "admin_nomina", "rrhh", "nomina"] },
-    { icon: ClipboardList,label: "Servicios y Tarifas",  path: "/nomina/servicios",    roles: ["admin", "admin_nomina", "nomina"] },
-    { icon: TrendingUp,   label: "Matriz",                path: "/nomina/matriz",       roles: ["admin", "admin_nomina", "nomina"] },
-    { icon: DollarSign,   label: "Liquidar Nómina",     path: "/nomina/liquidar",          roles: ["admin", "admin_nomina", "nomina"] },
-    { icon: DollarSign,   label: "Liquidación Unificada", path: "/nomina/liquidar_unificada", roles: ["admin", "admin_nomina", "nomina"] },
-    { icon: CalendarDays, label: "Historial Nóminas",   path: "/nomina/historial",    roles: ["admin", "admin_nomina", "rrhh", "usuario", "nomina"] },
-    { icon: CreditCard,   label: "Adelantos y Restaurante", path: "/nomina/adelantos", roles: ["admin", "admin_nomina", "rrhh", "nomina"] },
-    { icon: Printer,           label: "Desprendibles",  path: "/nomina/desprendibles",roles: ["admin", "admin_nomina", "rrhh", "usuario", "nomina"] },
-    { icon: SlidersHorizontal, label: "Administrar",    path: "/nomina/administrar",  roles: ["admin", "admin_nomina", "nomina"] },
-    { icon: Lock,              label: "Control de Roles", path: "/nomina/control-roles", roles: ["admin"] },
+    { icon: Home,         label: "Dashboard",              path: "/nomina",              roles: ["admin", "admin_nomina", "rrhh", "usuario", "nomina"], moduloId: null },
+    { icon: UserCheck,    label: "Trabajadores",           path: "/nomina/trabajadores", roles: ["admin", "admin_nomina", "rrhh", "nomina"], moduloId: "trabajadores" },
+    { icon: UsersRound,   label: "Listado de Asistencia",  path: "/nomina/asistencia",   roles: ["admin", "admin_nomina", "rrhh", "nomina"], moduloId: "asistencia" },
+    { icon: ClipboardList,label: "Servicios y Tarifas",   path: "/nomina/servicios",    roles: ["admin", "admin_nomina", "nomina"], moduloId: "servicios" },
+    { icon: TrendingUp,   label: "Matriz",                 path: "/nomina/matriz",       roles: ["admin", "admin_nomina", "nomina"], moduloId: "matriz" },
+    { icon: DollarSign,   label: "Liquidar Nómina",        path: "/nomina/liquidar",          roles: ["admin", "admin_nomina", "nomina"], moduloId: "liquidar" },
+    { icon: DollarSign,   label: "Liquidación Unificada",  path: "/nomina/liquidar_unificada", roles: ["admin", "admin_nomina", "nomina"], moduloId: "liquidar_unificada" },
+    { icon: CalendarDays, label: "Historial Nóminas",      path: "/nomina/historial",    roles: ["admin", "admin_nomina", "rrhh", "usuario", "nomina"], moduloId: "historial" },
+    { icon: CreditCard,   label: "Adelantos y Restaurante",path: "/nomina/adelantos",    roles: ["admin", "admin_nomina", "rrhh", "nomina"], moduloId: "adelantos" },
+    { icon: Printer,           label: "Desprendibles",    path: "/nomina/desprendibles",roles: ["admin", "admin_nomina", "rrhh", "usuario", "nomina"], moduloId: "desprendibles" },
+    { icon: SlidersHorizontal, label: "Administrar",      path: "/nomina/administrar",  roles: ["admin", "admin_nomina", "nomina"], moduloId: "administrar" },
+    { icon: Lock,              label: "Control de Roles", path: "/nomina/control-roles", roles: ["admin"], moduloId: null },
   ];
-  const subMenuNomina = subMenuNominaAll.filter(m => m.roles.includes(rol));
+
+  const subMenuNomina = subMenuNominaAll.filter(m => {
+    // 1. El rol debe estar en la lista de roles permitidos
+    if (!m.roles.includes(rol)) return false;
+    // 2. Si es admin o admin_nomina, siempre pasa
+    if (["admin", "admin_nomina"].includes(rol)) return true;
+    // 3. Si el item no tiene moduloId (dashboard), siempre visible
+    if (!m.moduloId) return true;
+    // 4. Para usuarios nomina: filtrar según nivel (cualquier nivel != "ninguno" = visible)
+    return puedeVerModuloNav(m.moduloId);
+  });
 
   const isNominaActive = router.pathname.startsWith("/nomina");
 

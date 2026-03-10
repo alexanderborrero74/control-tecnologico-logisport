@@ -203,8 +203,15 @@ export default function NominaTrabajadores() {
   const [novBusqueda, setNovBusqueda] = useState("");
   const [novFiltroActivo, setNovFiltroActivo] = useState("todos"); // "todos" | "activos" | "codigo"
 
-  /* ── Permisos por módulo del usuario actual ── */
-  const { permisos: permisosUsuario } = usePermisosNomina(uid);
+  /* ── Permisos por módulo del usuario actual (3 niveles) ── */
+  const { puedeVer, puedeEditar: puedeEditarModulo, tieneControl, loadingPermisos } = usePermisosNomina(uid, rol);
+
+  // Redirigir si el usuario no tiene visibilidad en este módulo
+  useEffect(() => {
+    if (!rol || !uid || loadingPermisos) return;
+    if (["admin", "admin_nomina"].includes(rol)) return; // admin siempre pasa
+    if (!puedeVer("trabajadores")) router.push("/nomina");
+  }, [rol, uid, loadingPermisos]);
 
   /* ── Auth ── */
   useEffect(() => {
@@ -215,6 +222,8 @@ export default function NominaTrabajadores() {
       const r = await getUserRoleByUid(user.uid);
       setRol(r);
       if (!["admin","admin_nomina","rrhh","nomina"].includes(r)) { router.push("/"); return; }
+      // Verificar visibilidad del módulo después de cargar los permisos
+      // (la redirección por "ninguno" se maneja con useEffect separado cuando carguen los permisos)
       await Promise.all([cargar(), cargarCatalogos(), cargarClientes(), cargarAsistenciaCuadrillas(), cargarNovedadesWorker(), cargarNovedadesCatalogo()]);
       setLoading(false);
     });
@@ -1015,8 +1024,9 @@ export default function NominaTrabajadores() {
 
   const totalInactivos = trabajadoresFiltradosCliente.filter(t => t.activo === false).length;
 
-  // Puede editar si es admin/admin_nomina O si tiene el permiso específico de trabajadores
-  const puedeEditar = ["admin","admin_nomina"].includes(rol) || permisosUsuario?.trabajadores === true;
+  // puedeEditar (limitado|total): crear y editar. puedeEliminar (solo total): eliminar, habilitar/deshabilitar, importar
+  const puedeEditar   = puedeEditarModulo("trabajadores");
+  const puedeEliminar = tieneControl("trabajadores");
 
   if (loading) return (
     <LayoutWithSidebar>

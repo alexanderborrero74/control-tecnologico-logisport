@@ -483,6 +483,18 @@ service cloud.firestore {
     }
 
     /* ======================
+       PERMISOS POR USUARIO (nómina)
+       Estructura: { uid, email, nombre, modulos: { [moduloId]: nivel } }
+       Niveles: "ninguno" | "lectura" | "limitado" | "total"
+    =======================*/
+    match /nomina_permisos_usuario/{uid} {
+      // El propio usuario puede leer sus permisos en tiempo real
+      allow read: if request.auth.uid == uid || isAdmin();
+      // Solo el admin puede escribir
+      allow write: if isAdmin();
+    }
+
+    /* ======================
        Denegar el resto
     =======================*/
     match /{document=**} {
