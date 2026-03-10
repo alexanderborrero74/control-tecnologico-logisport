@@ -381,7 +381,7 @@ export default function AsistenciaPage() {
         (workerCuadMap[t.id]||[]).forEach(cId=>cuadIdsNeeded.add(cId));
       });
 
-      if(cuadIdsNeeded.size===0){
+      if(false && cuadIdsNeeded.size===0){ // DISABLED: ahora guardamos doc especial aunque no haya cuadrillas
         alert("⚠️ Los trabajadores seleccionados no pertenecen a ninguna cuadrilla.\nAgrega los trabajadores a una cuadrilla primero.");
         setGuardandoLlamado(false); return;
       }
@@ -409,6 +409,31 @@ export default function AsistenciaPage() {
           cuadrillaNombre:cuadrilla?.nombre||cId,
           anio:year, mes:month,
           registro:{...regExiste,[dia]:diaData},
+          actualizadoEn:new Date(),
+        });
+      }
+
+      // 2. SIEMPRE guardar doc especial llamado_${clienteId}_${year}_${MM}
+      //    Esto garantiza que cargarNovedadDiaWorker en matriz.js encuentre las novedades
+      //    incluso para trabajadores sin cuadrilla asignada.
+      {
+        const docEspecialId = `llamado_${llamadoClienteId}_${year}_${String(month).padStart(2,"0")}`;
+        const snapEspecial  = await getDoc(doc(db,"nomina_asistencia_registro",docEspecialId));
+        const regEspecial   = snapEspecial.exists()?(snapEspecial.data().registro||{}):{}
+        const diaDataEspecial = {...(regEspecial[dia]||{})};
+        wDelLlamado.forEach(t=>{
+          const cod = llamadoNovedades[t.id];
+          if(cod===null){
+            delete diaDataEspecial[t.id];
+          }else if(cod){
+            diaDataEspecial[t.id]=cod;
+          }
+        });
+        await setDoc(doc(db,"nomina_asistencia_registro",docEspecialId),{
+          clienteId: llamadoClienteId,
+          tipo: "llamado",
+          anio:year, mes:month,
+          registro:{...regEspecial,[dia]:diaDataEspecial},
           actualizadoEn:new Date(),
         });
       }
