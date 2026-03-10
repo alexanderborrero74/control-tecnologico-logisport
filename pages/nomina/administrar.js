@@ -11,6 +11,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@/firebase/firebaseConfig";
 import { getUserRoleByUid } from "@/utils/getUserRole";
+import { usePermisosNomina } from "@/utils/usePermisosNomina";
 import LayoutWithSidebar from "@/components/LayoutWithSidebar";
 import {
   Settings, Plus, Edit2, Trash2, Save, X, ArrowLeft,
@@ -98,6 +99,10 @@ const NOVEDADES_INICIALES = [
     paga:"Acuerdo",   porcentaje:"100%",   info:"Permiso religioso · remunerado si compensa horas (Ley 133/94)" },
   { codigo:"L",       label:"Luto",                        emoji:"🖤", color:"#374151", bg:"#f9fafb", orden:15,
     paga:"Empleador", porcentaje:"100%",   info:"Empleador paga 100% · 5 días hábiles remunerados (Ley 1280/09)" },
+  { codigo:"VAC",     label:"Vacaciones",                  emoji:"🏖️", color:"#0d9488", bg:"#f0fdfa", orden:16,
+    paga:"Empleador", porcentaje:"100%",   info:"Disfrute de vacaciones remuneradas · 15 días hábiles por año (art. 186 CST)" },
+  { codigo:"PR",      label:"Permiso Remunerado",          emoji:"📅", color:"#2563eb", bg:"#eff6ff", orden:17,
+    paga:"Empleador", porcentaje:"100%",   info:"Permiso con goce de sueldo autorizado por el empleador (art. 57 CST)" },
 ];
 
 const TABS = [
@@ -145,7 +150,11 @@ function CargoClienteBadge({ clienteId }) {
 
 export default function NominaAdministrar() {
   const router = useRouter();
+  const [uid, setUid] = useState(null);
   const [rol, setRol] = useState(null);
+
+  // ── Permisos granulares ──────────────────────────────────────────────────
+  const { tieneAccion, puedeVer } = usePermisosNomina(uid, rol);
   const [loading, setLoading] = useState(true);
   const [tabActiva, setTabActiva] = useState("cargos");
 
@@ -185,6 +194,7 @@ export default function NominaAdministrar() {
     const unsub = onAuthStateChanged(auth, async (user) => {
       if (!user) { router.push("/login"); return; }
       const r = await getUserRoleByUid(user.uid);
+      setUid(user.uid);
       setRol(r);
       if (!["admin", "admin_nomina", "nomina"].includes(r)) {
         router.push("/nomina"); return;
@@ -670,7 +680,7 @@ export default function NominaAdministrar() {
           )}
 
           <div style={{ display: "flex", gap: "0.5rem" }}>
-              {(tabActiva === "cargos" || tabActiva === "cuadrillas" || tabActiva === "novedades") && itemsActuales.length === 0 && (
+              {(tabActiva === "cargos" || tabActiva === "cuadrillas" || tabActiva === "novedades") && itemsActuales.length === 0 && tieneAccion("administrar", tabActiva==="cargos"?"crear_cargo":tabActiva==="cuadrillas"?"crear_cuadrilla":"cargar_predefinidos") && (
                 <button onClick={() => poblarIniciales(tabActiva)} style={{
                   background: "#f0fdf4", border: "1.5px solid #10b981",
                   borderRadius: "8px", padding: "0.5rem 0.9rem",
@@ -682,7 +692,7 @@ export default function NominaAdministrar() {
                 </button>
               )}
               {/* Botón siempre visible para novedades: permite repoblar aunque ya existan datos viejos */}
-              {tabActiva === "novedades" && itemsActuales.length > 0 && (
+              {tabActiva === "novedades" && itemsActuales.length > 0 && tieneAccion("administrar","cargar_predefinidos") && (
                 <button onClick={() => poblarIniciales("novedades")} style={{
                   background: "#fffbeb", border: "1.5px solid #f59e0b",
                   borderRadius: "8px", padding: "0.5rem 0.9rem",
@@ -693,7 +703,10 @@ export default function NominaAdministrar() {
                   🔄 Repoblar catálogo completo
                 </button>
               )}
-              <button onClick={iniciarAgregar} disabled={agregando} style={{
+              {(() => {
+                const accionCrear = esCargo?"crear_cargo":esNovedad?"crear_novedad":esCuad?"crear_cuadrilla":"crear_observacion";
+                return tieneAccion("administrar", accionCrear) ? (
+                <button onClick={iniciarAgregar} disabled={agregando} style={{
                 background: PRIMARY, border: "none", borderRadius: "8px",
                 padding: "0.5rem 1rem", color: "#fff", cursor: "pointer",
                 fontWeight: "700", fontSize: "0.88rem",
@@ -701,7 +714,9 @@ export default function NominaAdministrar() {
                 opacity: agregando ? 0.5 : 1,
               }}>
                 <Plus size={15} /> Nuevo
-              </button>
+              </button>) : null;
+              })()
+              }
             </div>
           </div>
 
@@ -1033,8 +1048,12 @@ export default function NominaAdministrar() {
                           </div>
                         ) : (
                           <div style={{ display: "flex", gap: "0.35rem" }}>
-                            <button onClick={() => iniciarEditar(item)} style={{ background: "#f0f9ff", border: "none", borderRadius: "6px", padding: "0.3rem 0.45rem", cursor: "pointer", color: ACCENT }}><Edit2 size={13}/></button>
-                            <button onClick={() => eliminar(item)} style={{ background: "#fff1f2", border: "none", borderRadius: "6px", padding: "0.3rem 0.45rem", cursor: "pointer", color: "#ef4444" }}><Trash2 size={13}/></button>
+                            {tieneAccion("administrar", esCargo?"editar_cargo":esNovedad?"editar_novedad":esCuad?"editar_cuadrilla":"editar_observacion") && (
+                              <button onClick={() => iniciarEditar(item)} style={{ background: "#f0f9ff", border: "none", borderRadius: "6px", padding: "0.3rem 0.45rem", cursor: "pointer", color: ACCENT }}><Edit2 size={13}/></button>
+                            )}
+                            {tieneAccion("administrar", esCargo?"eliminar_cargo":esNovedad?"eliminar_novedad":esCuad?"eliminar_cuadrilla":"eliminar_observacion") && (
+                              <button onClick={() => eliminar(item)} style={{ background: "#fff1f2", border: "none", borderRadius: "6px", padding: "0.3rem 0.45rem", cursor: "pointer", color: "#ef4444" }}><Trash2 size={13}/></button>
+                            )}
                           </div>
                         )}
                       </td>

@@ -6,20 +6,24 @@
 // {
 //   uid, email, nombre,
 //   modulos: {
-//     trabajadores:      "ninguno" | "lectura" | "limitado" | "total",
-//     asistencia:        "ninguno" | "lectura" | "limitado" | "total",
-//     ...
+//     trabajadores: {
+//       nivel:    "ninguno" | "lectura" | "limitado" | "total",
+//       acciones: { crear_trabajador: true, editar_trabajador: false, ... }
+//     },
+//     // También acepta el formato antiguo (string) por compatibilidad:
+//     asistencia: "lectura",
 //   }
 // }
 //
 // Uso en páginas:
-//   const { nivel, puedeVer, puedeEditar, tieneControl } = usePermisosNomina(uid, rol);
+//   const { puedeVer, puedeEditar, tieneControl, tieneAccion } = usePermisosNomina(uid, rol);
 //   if (!puedeVer("trabajadores")) return <Redirect />;
-//   const puedeEliminar = tieneControl("trabajadores");
+//   const puedeEliminar = tieneAccion("administrar", "eliminar_novedad");
 
 import { useState, useEffect } from "react";
 import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "@/firebase/firebaseConfig";
+import { normalizarPermiso } from "@/utils/permisosConfig";
 
 // Roles que siempre tienen acceso total sin importar los permisos de Firestore
 const ROLES_SUPER = ["admin", "admin_nomina"];
@@ -30,57 +34,43 @@ const NIVEL_ORDEN = { ninguno: 0, lectura: 1, limitado: 2, total: 3 };
 /**
  * @param {string|null} uid   UID de Firebase Auth
  * @param {string|null} rol   Rol del usuario ("admin", "nomina", etc.)
- * @returns {{
- *   modulosPermisos: Object<string, string>,
- *   loadingPermisos: boolean,
- *   puedeVer:    (modulo: string) => boolean,
- *   puedeEditar: (modulo: string) => boolean,
- *   tieneControl:(modulo: string) => boolean,
- *   nivel:       (modulo: string) => string,
- * }}
  */
 export function usePermisosNomina(uid, rol) {
+  // modulosPermisos guarda el valor RAW de Firestore (puede ser string u objeto)
   const [modulosPermisos, setModulosPermisos] = useState({});
   const [loadingPermisos, setLoadingPermisos] = useState(true);
 
   const esSuper = ROLES_SUPER.includes(rol);
 
   useEffect(() => {
-    // Si es super-admin, no necesitamos leer Firestore
-    if (esSuper) {
-      setLoadingPermisos(false);
-      return;
-    }
-    if (!uid) {
-      setModulosPermisos({});
-      setLoadingPermisos(false);
-      return;
-    }
+    if (esSuper) { setLoadingPermisos(false); return; }
+    if (!uid)    { setModulosPermisos({}); setLoadingPermisos(false); return; }
 
     const unsub = onSnapshot(
       doc(db, "nomina_permisos_usuario", uid),
       (snap) => {
-        setModulosPermisos(
-          snap.exists() ? (snap.data().modulos || {}) : {}
-        );
+        setModulosPermisos(snap.exists() ? (snap.data().modulos || {}) : {});
         setLoadingPermisos(false);
       },
-      () => {
-        setModulosPermisos({});
-        setLoadingPermisos(false);
-      }
+      () => { setModulosPermisos({}); setLoadingPermisos(false); }
     );
-
     return () => unsub();
   }, [uid, esSuper]);
 
-  /**
-   * Retorna el nivel efectivo del usuario para un módulo.
-   * Super-admin siempre retorna "total".
-   */
+  // ── Helpers internos ──────────────────────────────────────────────────────
+
+  /** Devuelve el objeto normalizado { nivel, acciones } para un módulo */
+  const _normalizado = (modulo) => {
+    if (esSuper) return { nivel: "total", acciones: {} };
+    return normalizarPermiso(modulo, modulosPermisos[modulo]);
+  };
+
+  // ── API pública ───────────────────────────────────────────────────────────
+
+  /** Nivel efectivo del usuario para un módulo ("ninguno"|"lectura"|"limitado"|"total") */
   const nivel = (modulo) => {
     if (esSuper) return "total";
-    return modulosPermisos[modulo] || "lectura"; // default: solo lectura si no está configurado
+    return _normalizado(modulo).nivel;
   };
 
   /** ¿Puede ver la página? (nivel > ninguno) */
@@ -101,5 +91,35 @@ export function usePermisosNomina(uid, rol) {
     return nivel(modulo) === "total";
   };
 
-  return { modulosPermisos, loadingPermisos, puedeVer, puedeEditar, tieneControl, nivel };
+  /**
+   * ¿Tiene permiso para una acción granular específica dentro de un módulo?
+   * Ejemplo: tieneAccion("administrar", "crear_novedad")
+   *
+   * Lógica:
+   * - super-admin → siempre true
+   * - nivel "ninguno" → siempre false (no tiene acceso al módulo)
+   * - nivel "total" sin acciones configuradas → true por defecto
+   * - nivel "limitado" sin acciones configuradas → true por defecto
+   * - nivel "lectura" sin acciones configuradas → false por defecto
+   * - acciones configuradas explícitamente → respeta el valor guardado
+   */
+  const tieneAccion = (modulo, accion) => {
+    if (esSuper) return true;
+    const { nivel: niv, acciones } = _normalizado(modulo);
+    if (niv === "ninguno") return false;
+    // Si la acción tiene un valor explícito, usarlo
+    if (accion in acciones) return acciones[accion] === true;
+    // Default: activo si nivel >= limitado
+    return NIVEL_ORDEN[niv] >= NIVEL_ORDEN["limitado"];
+  };
+
+  return {
+    modulosPermisos,
+    loadingPermisos,
+    puedeVer,
+    puedeEditar,
+    tieneControl,
+    tieneAccion,
+    nivel,
+  };
 }
