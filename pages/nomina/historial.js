@@ -134,7 +134,8 @@ export default function NominaHistorial() {
   const exportarDataX = async () => {
     const p = modalDataX;
     try {
-      const XLSX = await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");
+      const _mod = await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs");
+      const XLSX = _mod.default || _mod;
       const wb   = XLSX.utils.book_new();
       // Columnas activas en el orden definido
       const activas = COLS_DATAX.filter(c => colsDataX.has(c.key));
