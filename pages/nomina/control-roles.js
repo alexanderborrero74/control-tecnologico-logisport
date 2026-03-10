@@ -15,7 +15,7 @@ import LayoutWithSidebar from "@/components/LayoutWithSidebar";
 import {
   ArrowLeft, Shield, Save, RefreshCw, CheckCircle,
   Users, Lock, Eye, EyeOff, Zap, Settings,
-  ChevronDown, X, Info, AlertTriangle
+  ChevronDown, X, Info, AlertTriangle, UserPlus
 } from "lucide-react";
 
 const PRIMARY = "#0B3D91";
@@ -343,6 +343,12 @@ export default function ControlRoles() {
   const [vistaCompacta, setVistaCompacta] = useState(false);
   // Módulo seleccionado para info lateral
   const [moduloInfo, setModuloInfo] = useState(null);
+  // Modal agregar usuario
+  const [modalAgregar, setModalAgregar] = useState(false);
+  const [nuevoUid,     setNuevoUid]     = useState("");
+  const [nuevoEmail,   setNuevoEmail]   = useState("");
+  const [nuevoNombre,  setNuevoNombre]  = useState("");
+  const [errAgregar,   setErrAgregar]   = useState("");
 
   // ── Auth ─────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -449,6 +455,24 @@ export default function ControlRoles() {
     setGuardando(false);
   };
 
+  // ── Agregar usuario manualmente ─────────────────────────────────────
+  const agregarUsuario = () => {
+    const uid   = nuevoUid.trim();
+    const email = nuevoEmail.trim().toLowerCase();
+    const nombre= nuevoNombre.trim();
+    if (!uid)   { setErrAgregar("El UID es obligatorio."); return; }
+    if (!email) { setErrAgregar("El email es obligatorio."); return; }
+    if (usuarios.some(u => u.uid === uid)) {
+      setErrAgregar("Ya existe un usuario con ese UID."); return;
+    }
+    const nuevoUser = { uid, email, nombre, modulos: modulosDefault() };
+    setUsuarios(prev => [...prev, nuevoUser]);
+    setCambiosUids(prev => new Set([...prev, uid]));
+    setNuevoUid(""); setNuevoEmail(""); setNuevoNombre(""); setErrAgregar("");
+    setModalAgregar(false);
+    toast(`➕ ${email} agregado — configura sus permisos y guarda`);
+  };
+
   // ── Sembrar datos ─────────────────────────────────────────────────────
   const sembrar = async () => {
     if (!confirm("🌱 Cargar configuración inicial del Excel entregado.\n¿Confirmar?")) return;
@@ -529,6 +553,11 @@ export default function ControlRoles() {
             <button onClick={() => setVistaCompacta(!vistaCompacta)}
               style={{ background: vistaCompacta ? `${PRIMARY}15` : "#f8fafc", border: `1.5px solid ${vistaCompacta ? PRIMARY : "#e2e8f0"}`, borderRadius: "10px", padding: "0.6rem 1rem", color: vistaCompacta ? PRIMARY : "#64748b", cursor: "pointer", fontWeight: "700", fontSize: "0.82rem", display: "flex", alignItems: "center", gap: "0.4rem" }}>
               <Settings size={14} /> {vistaCompacta ? "Vista normal" : "Vista compacta"}
+            </button>
+            {/* Agregar usuario */}
+            <button onClick={() => { setErrAgregar(""); setModalAgregar(true); }}
+              style={{ background: "#f0fdf4", border: `1.5px solid #86efac`, borderRadius: "10px", padding: "0.6rem 1rem", color: "#065f46", cursor: "pointer", fontWeight: "700", fontSize: "0.82rem", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+              <UserPlus size={14} /> Agregar usuario
             </button>
             {/* Sembrar */}
             <button onClick={sembrar} disabled={guardando}
@@ -757,6 +786,87 @@ export default function ControlRoles() {
                 <div style={{ color: "#475569", fontSize: "0.8rem", lineHeight: "1.5" }}>
                   La página NO aparece en el menú lateral. Si el usuario intenta acceder por URL directa, es redirigido al dashboard de nómina.
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Modal agregar usuario ── */}
+        {modalAgregar && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}
+            onClick={e => { if (e.target === e.currentTarget) setModalAgregar(false); }}>
+            <div style={{ background: "#fff", borderRadius: "18px", padding: "2rem", maxWidth: "460px", width: "100%", boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
+
+              {/* Header modal */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
+                <div>
+                  <div style={{ fontWeight: "800", color: PRIMARY, fontSize: "1.1rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                    <UserPlus size={18} /> Agregar usuario
+                  </div>
+                  <div style={{ color: "#64748b", fontSize: "0.78rem", marginTop: "2px" }}>Los permisos inician todos en "Sin acceso".</div>
+                </div>
+                <button onClick={() => setModalAgregar(false)} style={{ background: "none", border: "none", cursor: "pointer" }}>
+                  <X size={20} color="#94a3b8" />
+                </button>
+              </div>
+
+              {/* Campo UID */}
+              <label style={{ display: "block", fontWeight: "700", color: "#374151", fontSize: "0.82rem", marginBottom: "0.3rem" }}>
+                UID de Firebase Auth <span style={{ color: DANGER }}>*</span>
+              </label>
+              <input
+                autoFocus
+                value={nuevoUid}
+                onChange={e => { setNuevoUid(e.target.value); setErrAgregar(""); }}
+                placeholder="Ej: AbCdEfGhIjKlMnOpQrSt12345678"
+                style={{ width: "100%", padding: "0.65rem 0.9rem", border: `1.5px solid ${errAgregar && !nuevoUid.trim() ? DANGER : "#e2e8f0"}`, borderRadius: "10px", fontSize: "0.87rem", outline: "none", boxSizing: "border-box", marginBottom: "0.85rem", fontFamily: "monospace" }}
+              />
+
+              {/* Campo Email */}
+              <label style={{ display: "block", fontWeight: "700", color: "#374151", fontSize: "0.82rem", marginBottom: "0.3rem" }}>
+                Email <span style={{ color: DANGER }}>*</span>
+              </label>
+              <input
+                value={nuevoEmail}
+                onChange={e => { setNuevoEmail(e.target.value); setErrAgregar(""); }}
+                placeholder="usuario@logisport.com.co"
+                style={{ width: "100%", padding: "0.65rem 0.9rem", border: `1.5px solid ${errAgregar && !nuevoEmail.trim() ? DANGER : "#e2e8f0"}`, borderRadius: "10px", fontSize: "0.87rem", outline: "none", boxSizing: "border-box", marginBottom: "0.85rem" }}
+              />
+
+              {/* Campo Nombre */}
+              <label style={{ display: "block", fontWeight: "700", color: "#374151", fontSize: "0.82rem", marginBottom: "0.3rem" }}>
+                Nombre (opcional)
+              </label>
+              <input
+                value={nuevoNombre}
+                onChange={e => setNuevoNombre(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") agregarUsuario(); }}
+                placeholder="Ej: Juan Pérez"
+                style={{ width: "100%", padding: "0.65rem 0.9rem", border: "1.5px solid #e2e8f0", borderRadius: "10px", fontSize: "0.87rem", outline: "none", boxSizing: "border-box", marginBottom: errAgregar ? "0.5rem" : "1.25rem" }}
+              />
+
+              {/* Error */}
+              {errAgregar && (
+                <div style={{ color: DANGER, fontSize: "0.8rem", fontWeight: "600", marginBottom: "1rem", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                  <AlertTriangle size={13} /> {errAgregar}
+                </div>
+              )}
+
+              {/* Nota UID */}
+              <div style={{ background: "#f0f9ff", border: "1.5px solid #93c5fd", borderRadius: "10px", padding: "0.75rem 1rem", fontSize: "0.75rem", color: "#1e40af", lineHeight: "1.6", marginBottom: "1.25rem" }}>
+                <strong>¿Cómo obtener el UID?</strong> Ve a Firebase Console → Authentication → busca el usuario por email → copia el User UID de la columna correspondiente.
+              </div>
+
+              {/* Botones */}
+              <div style={{ display: "flex", gap: "0.65rem" }}>
+                <button onClick={() => setModalAgregar(false)}
+                  style={{ flex: 1, padding: "0.75rem", background: "#f1f5f9", border: "none", borderRadius: "10px", color: "#475569", fontWeight: "700", cursor: "pointer", fontSize: "0.9rem" }}>
+                  Cancelar
+                </button>
+                <button onClick={agregarUsuario}
+                  style={{ flex: 2, padding: "0.75rem", background: PRIMARY, border: "none", borderRadius: "10px", color: "#fff", fontWeight: "700", cursor: "pointer", fontSize: "0.9rem", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.5rem" }}>
+                  <UserPlus size={16} /> Agregar usuario
+                </button>
               </div>
             </div>
           </div>
