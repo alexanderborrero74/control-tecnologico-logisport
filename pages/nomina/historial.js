@@ -136,6 +136,18 @@ export default function NominaHistorial() {
     try {
       const mod  = await import("xlsx");
       const XLSX = mod.default || mod; // compatibilidad CJS/ESM
+
+      // ── Fallback centroCostos: cargar desde nomina_trabajadores para nóminas antiguas ──
+      const ccFallbackMap = {};
+      try {
+        const tSnap = await getDocs(collection(db, "nomina_trabajadores"));
+        tSnap.docs.forEach(d => {
+          const t = d.data();
+          const ced = String(t.cedula || "").trim();
+          if (ced) ccFallbackMap[ced] = t.centroCostos || "";
+        });
+      } catch (_) {}
+
       const wb   = XLSX.utils.book_new();
       // Columnas activas en el orden definido
       const activas = COLS_DATAX.filter(c => colsDataX.has(c.key));
@@ -148,9 +160,12 @@ export default function NominaHistorial() {
       rows.push(activas.map(c => c.label.toUpperCase()));
       // Filas
       (p.empleados || []).forEach(e => {
+        const ced = String(e.cedula || "").trim();
+        // centroCostos: usar el guardado en nómina, o fallback desde nomina_trabajadores
+        const ccRaw = e.centroCostos || ccFallbackMap[ced] || "";
         const fila = activas.map(c => {
           if (c.key === "centroUtilidad")  return centroUtilidad(e.clienteId || p.clienteId || "");
-          if (c.key === "centroCostos")    return e.centroCostos ? e.centroCostos.split(" ")[0] : "";
+          if (c.key === "centroCostos")    return ccRaw ? ccRaw.split(" ")[0] : "";
           if (c.key === "cedula")          return String(e.cedula || "");
           if (c.key === "fechaInicio")     return p.fechaInicio || "";
           if (c.key === "fechaFin")        return p.fechaFin || "";

@@ -614,8 +614,13 @@ export default function NominaLiquidar() {
     setGuardando(true);
     try {
       const auth = getAuth();
+      // Mapa cédula → centroCostos (desde listaTrabaj ya cargado)
+      const ccMap = {};
+      listaTrabaj.forEach(t => { ccMap[String(t.cedula).trim()] = t.centroCostos || ""; });
+
       const empleadosData = filasCalculadas.map(e => ({
         cedula: e.cedula, nombre: e.nombre, cargo: e.cargo,
+        centroCostos:            ccMap[String(e.cedula).trim()] || "",
         basicoMensual:           e.basicoMensual || 0,
         totalProduccion:         e.totalProduccion,
         diasTrabajados:          parseInt(e.dias) || 0,
