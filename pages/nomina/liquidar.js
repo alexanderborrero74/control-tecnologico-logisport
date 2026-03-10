@@ -156,6 +156,7 @@ export default function NominaLiquidar() {
   const [subgruposCliente, setSubgruposCliente] = useState([]); // subgrupos del cliente activo
   const [infoMatriz,     setInfoMatriz]     = useState({ ops: 0, trabajadores: 0 });
   const [motivosMap,     setMotivosMap]     = useState({});
+  const [novedadesFormalesMap, setNovedadesFormalesMap] = useState({}); // { cedula: [{novedad,fechaInicio,fechaFin,...}] }
   const [diasIRMap,      setDiasIRMap]      = useState({});  // días IR por cédula
   const [adelantosMap,   setAdelantosMap]   = useState({});  // { cedula: total adelantos pendientes }
   const [comidaMap,      setComidaMap]      = useState({});  // { cedula: total comida pendiente }
@@ -257,6 +258,9 @@ export default function NominaLiquidar() {
         const hExtras   = op.horasExtras ?? null;
         const cantOp    = op.cantidad ?? null;
 
+        const esModoNovedad = op.modoNovedad || false;
+        const codNovedad    = op.novedad || null;
+
         if (asisten.length > 0) {
           const netoPorPersona = op.netoAPagar || 0;
           asisten.forEach(w => {
@@ -264,7 +268,7 @@ export default function NominaLiquidar() {
             if (!cc) return;
             if (!prod[cc]) prod[cc] = { total: 0, ops: [] };
             prod[cc].total += netoPorPersona;
-            prod[cc].ops.push({ fecha: fechaStr, servicio: servNom, valor: netoPorPersona, modoHE, horasExtras: hExtras, cantidad: cantOp });
+            prod[cc].ops.push({ fecha: fechaStr, servicio: servNom, valor: netoPorPersona, modoHE, horasExtras: hExtras, cantidad: cantOp, modoNovedad: esModoNovedad, novedad: codNovedad });
             trabajadoresSet.add(cc);
           });
         } else {
@@ -273,7 +277,7 @@ export default function NominaLiquidar() {
           if (!prod[cc]) prod[cc] = { total: 0, ops: [] };
           const v = op.netoAPagar || 0;
           prod[cc].total += v;
-          prod[cc].ops.push({ fecha: fechaStr, servicio: servNom, valor: v, modoHE, horasExtras: hExtras, cantidad: cantOp });
+          prod[cc].ops.push({ fecha: fechaStr, servicio: servNom, valor: v, modoHE, horasExtras: hExtras, cantidad: cantOp, modoNovedad: esModoNovedad, novedad: codNovedad });
           trabajadoresSet.add(cc);
         }
       });
@@ -289,6 +293,7 @@ export default function NominaLiquidar() {
         const workerMap = {};
         listaTrabaj.forEach(t => { workerMap[t.id] = String(t.cedula || "").trim(); });
         const motivosAcc = {};
+        const novsContadas = new Set(); // "ced|codigo|fecha" para deduplicar entre asistencia y ops
         for (const cId of cuadIds) {
           for (const { year, month } of months) {
             const regId = `${cId}_${year}_${String(month).padStart(2, "0")}`;
@@ -303,6 +308,9 @@ export default function NominaLiquidar() {
                 for (const [workerId, codigo] of Object.entries(novsDia)) {
                   const ced = workerMap[workerId];
                   if (!ced) continue;
+                  const clave = `${ced}|${codigo}|${fecha}`;
+                  if (novsContadas.has(clave)) continue;
+                  novsContadas.add(clave);
                   if (!motivosAcc[ced]) motivosAcc[ced] = {};
                   motivosAcc[ced][codigo] = (motivosAcc[ced][codigo] || 0) + 1;
                 }
@@ -310,8 +318,42 @@ export default function NominaLiquidar() {
             } catch (_) {}
           }
         }
+        // ── Agregar novedades de ops con modoNovedad:true (guardadas desde la Matriz)
+        //    Estas ops tienen novedad:codNov, fecha y netoAPagar:0
+        //    novsContadas ya tiene los de asistencia_registro → sin doble conteo
+        Object.entries(prod).forEach(([cc, data]) => {
+          data.ops.forEach(op => {
+            if (!op.modoNovedad || !op.novedad || !op.fecha) return;
+            const clave = `${cc}|${op.novedad}|${op.fecha}`;
+            if (novsContadas.has(clave)) return; // ya contado desde asistencia_registro
+            novsContadas.add(clave);
+            if (!motivosAcc[cc]) motivosAcc[cc] = {};
+            motivosAcc[cc][op.novedad] = (motivosAcc[cc][op.novedad] || 0) + 1;
+          });
+        });
         setMotivosMap(motivosAcc);
       } catch (e) { console.warn("Error cargando motivos:", e); }
+
+      // Cargar novedades formales de trabajadores (fechas marcadas en página Trabajadores)
+      try {
+        const novSnap = await getDocs(collection(db, "nomina_novedades_trabajador"));
+        const cedulaByTrabId = {};
+        listaTrabaj.forEach(t => { cedulaByTrabId[t.id] = String(t.cedula || "").trim(); });
+        const novFormMap = {};
+        novSnap.docs.forEach(d => {
+          const nov = d.data();
+          const ced = cedulaByTrabId[nov.trabajadorId];
+          if (!ced) return;
+          if (!novFormMap[ced]) novFormMap[ced] = [];
+          novFormMap[ced].push({
+            novedad:    nov.novedad     || "",
+            fechaInicio:nov.fechaInicio || "",
+            fechaFin:   nov.fechaFin   || "",
+            observacion:nov.observacion || "",
+          });
+        });
+        setNovedadesFormalesMap(novFormMap);
+      } catch (e) { console.warn("Error cargando novedades formales:", e); }
 
       // Cargar adelantos pendientes
       try {
@@ -498,6 +540,15 @@ export default function NominaLiquidar() {
       diasIncapacidad:   mots["IR"]     || 0,   // 66.67% — IR
       diasIncapacidad100: mots["IR-100"] || 0,  // 100%   — IR-100
     });
+    // Calcular primera fecha de cada novedad desde las ops (fallback si no hay fechas formales)
+    const primeraFechaNovedad = {};
+    prodData.ops.forEach(op => {
+      if (op.modoNovedad && op.novedad && !primeraFechaNovedad[op.novedad]) {
+        primeraFechaNovedad[op.novedad] = op.fecha;
+      }
+    });
+    const novedadesFormales = novedadesFormalesMap[String(f.cedula).trim()] || [];
+
     const motivoResumen = Object.entries(mots)
       .map(([cod, cnt]) => {
         const n = NOV_MAP[cod];
@@ -508,7 +559,9 @@ export default function NominaLiquidar() {
     const adelantosDeducidos = adelantosMap[String(f.cedula).trim()] || 0;
     const comidaDeducida     = comidaMap[String(f.cedula).trim()]    || 0;  // solo informativo
     const netoFinal = Math.max(0, calc.netoAPagar - adelantosDeducidos); // comida NO resta por ahora
-    return { ...f, idx: i + 1, totalProduccion, detalleOps: prodData.ops, totalExtras, desgloseExtras, ...calc, motivoResumen, adelantosDeducidos, comidaDeducida, netoFinal };
+    // Array de códigos de novedad para el tooltip de duración
+    const motivosCodes = Object.entries(mots).map(([cod, cnt]) => ({ cod, cnt }));
+    return { ...f, idx: i + 1, totalProduccion, detalleOps: prodData.ops, totalExtras, desgloseExtras, ...calc, motivoResumen, motivosCodes, novedadesFormales, primeraFechaNovedad, adelantosDeducidos, comidaDeducida, netoFinal };
   });
 
   // ── Mapa cédula → centroCostos del trabajador (para filtro subgrupo)
@@ -1422,6 +1475,42 @@ export default function NominaLiquidar() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// Calcula cuánto lleva una novedad y desde qué fuente
+function calcularDuracionNovedad(codNov, novedadesFormales, primeraFechaOp) {
+  const hoy = new Date();
+  // Buscar registro formal con ese código de novedad
+  const reg = (novedadesFormales || []).find(n => n.novedad === codNov && n.fechaInicio);
+  if (reg && reg.fechaInicio) {
+    const fi  = new Date(reg.fechaInicio + "T00:00:00");
+    const ff  = reg.fechaFin ? new Date(reg.fechaFin  + "T00:00:00") : hoy;
+    const hasta = ff < hoy ? ff : hoy;
+    const dias  = Math.max(1, Math.round((hasta - fi) / 86400000) + 1);
+    const novInfo = NOV_MAP[codNov];
+    const novLabel = novInfo ? `${novInfo.emoji} ${novInfo.label}` : codNov;
+    return [
+      `⏱ ${novLabel}`,
+      `▶ Inicio: ${reg.fechaInicio}${reg.fechaFin ? " → Fin: " + reg.fechaFin : " (en curso)"}`,
+      `▶ Duración: ${dias} día${dias !== 1 ? "s" : ""}`,
+      reg.observacion ? `▶ Obs: ${reg.observacion}` : null,
+    ].filter(Boolean).join("\n");
+  }
+  // Fallback: calcular desde la primera operación registrada en la Matriz
+  if (primeraFechaOp && primeraFechaOp[codNov]) {
+    const fi   = new Date(primeraFechaOp[codNov] + "T00:00:00");
+    const dias = Math.max(1, Math.round((hoy - fi) / 86400000) + 1);
+    const novInfo = NOV_MAP[codNov];
+    const novLabel = novInfo ? `${novInfo.emoji} ${novInfo.label}` : codNov;
+    return [
+      `⏱ ${novLabel}`,
+      `▶ Primer registro en Matriz: ${primeraFechaOp[codNov]}`,
+      `▶ Duración aprox.: ${dias} día${dias !== 1 ? "s" : ""}`,
+      `⚠️ Se calcula fecha de inasistencia porque no se marcó fecha inicial y final`,
+    ].join("\n");
+  }
+  return null;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // Fila individual de nómina — 21 columnas
 // Orden: # | NOMBRE | CÉDULA | CARGO | BÁSICO | TOTAL PROD | COMPL |
 //        DÍAS | OBSERVACIÓN | MOTIVO (←aquí) |
@@ -1539,13 +1628,29 @@ function FilaNomina({ fila, listaCargos, onCambio, onBlurCedula, onHoraExtra, on
       {/* Col 10: MOTIVO desde asistencia (ahora junto a OBSERVACIÓN) */}
       <td style={{ padding: "0.35rem 0.4rem", background: e.motivoResumen ? "#e0f2fe" : "#f8fafc" }}>
         {e.motivoResumen ? (
-          <span title="Novedades del período (desde Asistencia)" style={{
-            fontSize: "0.72rem", color: "#0369a1", fontWeight: "700",
-            background: "#bae6fd", borderRadius: "4px", padding: "2px 6px",
-            whiteSpace: "nowrap", display: "inline-block",
-          }}>
-            {e.motivoResumen}
-          </span>
+          <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+            {(e.motivosCodes || []).map(({ cod, cnt }) => {
+              const info    = NOV_MAP[cod];
+              const label   = info ? `${info.emoji} ${info.label}` : cod;
+              const display = cnt > 1 ? `${label} ×${cnt}` : label;
+              const tooltip = calcularDuracionNovedad(cod, e.novedadesFormales, e.primeraFechaNovedad);
+              return (
+                <span key={cod}
+                  title={tooltip || "Novedades del período (desde Asistencia)"}
+                  style={{
+                    fontSize: "0.72rem", color: "#0369a1", fontWeight: "700",
+                    background: tooltip ? "#bae6fd" : "#e0f2fe",
+                    borderRadius: "4px", padding: "2px 6px",
+                    whiteSpace: "nowrap", display: "inline-block",
+                    cursor: tooltip ? "help" : "default",
+                    borderBottom: tooltip ? "1.5px dashed #0369a1" : "none",
+                  }}
+                >
+                  {display}
+                </span>
+              );
+            })}
+          </div>
         ) : (
           <span style={{ color: "#cbd5e1", fontSize: "0.7rem" }}>—</span>
         )}

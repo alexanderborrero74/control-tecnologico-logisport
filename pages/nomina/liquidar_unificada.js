@@ -58,6 +58,8 @@ const NOV_MAP = {
   "CAL":    { emoji:"🏠", label:"Calamidad doméstica" },
   "ADV":    { emoji:"⛪", label:"Adventista" },
   "L":      { emoji:"🖤", label:"Luto" },
+  "VAC":    { emoji:"🏖️", label:"Vacaciones" },
+  "PR":     { emoji:"📝", label:"Permiso Remunerado" },
 };
 
 // ── Helpers de fecha ─────────────────────────────────────────────────────────
@@ -284,6 +286,7 @@ export default function NominaLiquidarUnificada() {
   const [nominaGuardada, setNominaGuardada] = useState(null);
   const [infoMatriz,     setInfoMatriz]     = useState({ ops:0, trabajadores:0 });
   const [motivosMap,     setMotivosMap]     = useState({});
+  const [novedadesFormalesMap, setNovedadesFormalesMap] = useState({});
   const [adelantosMap,   setAdelantosMap]   = useState({});
   const [comidaMap,      setComidaMap]      = useState({});
   const [clientes,       setClientes]       = useState(CLIENTES_BASE);
@@ -292,6 +295,8 @@ export default function NominaLiquidarUnificada() {
   const [filtroNombre,   setFiltroNombre]   = useState("");
   const [filtroCedula,   setFiltroCedula]   = useState("");
   const [filtroCliente,  setFiltroCliente]  = useState("");
+  const [filtroSubgrupo, setFiltroSubgrupo] = useState("");
+  const [subgruposLista, setSubgruposLista] = useState([]);
 
   // Modal detalle producción
   const [modalProd, setModalProd] = useState(null);
@@ -329,13 +334,15 @@ export default function NominaLiquidarUnificada() {
   }, [qId, loading]);
 
   const cargarCatalogos = async () => {
-    const [cSnap, tSnap] = await Promise.all([
+    const [cSnap, tSnap, sgSnap] = await Promise.all([
       getDocs(query(collection(db,"nomina_cargos"),       orderBy("nombre"))),
       getDocs(query(collection(db,"nomina_trabajadores"), orderBy("nombre"))),
+      getDocs(query(collection(db,"nomina_subgrupos"),    orderBy("orden"))),
     ]);
     setListaCargos(cSnap.docs.map(d => ({id:d.id,...d.data()})));
     const todos = tSnap.docs.map(d => ({id:d.id,...d.data()}));
     setListaTrabaj(todos.filter(t => t.activo !== false));
+    setSubgruposLista(sgSnap.docs.map(d => ({id:d.id,...d.data()})));
   };
 
   const cargarPeriodo = async () => {
@@ -370,11 +377,15 @@ export default function NominaLiquidarUnificada() {
         const unidad    = op.unidad || null;
         const personas  = op.personas || asisten.length || 1;
 
+        const esModoNovedad = op.modoNovedad || false;
+        const codNovedad    = op.novedad || null;
+
         const opDetalle = {
           fecha: fechaStr, servicio: servNom, clienteId,
           modoHE, horasExtras: hExtras, cantidad: cantOp,
           cuadrilla, cantidadTons: cantTons, nPersonas, per,
           tarifa, unidad, personas, modoCiamsa: op.modoCiamsa || false,
+          modoNovedad: esModoNovedad, novedad: codNovedad,
         };
 
         if (asisten.length > 0) {
@@ -409,6 +420,7 @@ export default function NominaLiquidarUnificada() {
         const workerMap = {};
         listaTrabaj.forEach(t => { workerMap[t.id] = String(t.cedula||"").trim(); });
         const motivosAcc = {};
+        const novsContadas = new Set(); // "ced|codigo|fecha" para deduplicar entre asistencia y ops
         for (const cId of cuadIds) {
           for (const {year, month} of months) {
             const regId = `${cId}_${year}_${String(month).padStart(2,"0")}`;
@@ -423,6 +435,9 @@ export default function NominaLiquidarUnificada() {
                 for (const [wId, codigo] of Object.entries(novsDia)) {
                   const ced = workerMap[wId];
                   if (!ced) continue;
+                  const clave = `${ced}|${codigo}|${fecha}`;
+                  if (novsContadas.has(clave)) continue;
+                  novsContadas.add(clave);
                   if (!motivosAcc[ced]) motivosAcc[ced] = {};
                   motivosAcc[ced][codigo] = (motivosAcc[ced][codigo]||0) + 1;
                 }
@@ -430,8 +445,41 @@ export default function NominaLiquidarUnificada() {
             } catch(_) {}
           }
         }
+        // ── Agregar novedades de ops con modoNovedad:true (guardadas desde la Matriz)
+        //    novsContadas ya tiene los de asistencia_registro → sin doble conteo
+        Object.entries(prod).forEach(([cc, data]) => {
+          data.ops.forEach(op => {
+            if (!op.modoNovedad || !op.novedad || !op.fecha) return;
+            const clave = `${cc}|${op.novedad}|${op.fecha}`;
+            if (novsContadas.has(clave)) return;
+            novsContadas.add(clave);
+            if (!motivosAcc[cc]) motivosAcc[cc] = {};
+            motivosAcc[cc][op.novedad] = (motivosAcc[cc][op.novedad]||0) + 1;
+          });
+        });
         setMotivosMap(motivosAcc);
       } catch(e) {}
+
+      // Novedades formales (fechas marcadas en página Trabajadores)
+      try {
+        const novSnap = await getDocs(collection(db, "nomina_novedades_trabajador"));
+        const cedulaByTrabId = {};
+        listaTrabaj.forEach(t => { cedulaByTrabId[t.id] = String(t.cedula||""||t.id).trim(); });
+        const novFormMap = {};
+        novSnap.docs.forEach(d => {
+          const nov = d.data();
+          const ced = cedulaByTrabId[nov.trabajadorId];
+          if (!ced) return;
+          if (!novFormMap[ced]) novFormMap[ced] = [];
+          novFormMap[ced].push({
+            novedad:    nov.novedad     || "",
+            fechaInicio:nov.fechaInicio || "",
+            fechaFin:   nov.fechaFin   || "",
+            observacion:nov.observacion || "",
+          });
+        });
+        setNovedadesFormalesMap(novFormMap);
+      } catch(e) { console.warn("Error cargando novedades formales:", e); }
 
       // Adelantos pendientes
       try {
@@ -564,25 +612,39 @@ export default function NominaLiquidarUnificada() {
         const label = n ? `${n.emoji} ${n.label}` : cod;
         return cnt > 1 ? `${label} ×${cnt}` : label;
       }).join(", ");
+    const motivosCodes = Object.entries(mots).map(([cod, cnt]) => ({ cod, cnt }));
+    // Primera fecha de novedad desde ops (fallback si no hay fechas formales)
+    const primeraFechaNovedad = {};
+    prodData.ops.forEach(op => {
+      if (op.modoNovedad && op.novedad && !primeraFechaNovedad[op.novedad]) {
+        primeraFechaNovedad[op.novedad] = op.fecha;
+      }
+    });
+    const novedadesFormales = novedadesFormalesMap[String(f.cedula).trim()] || [];
+    // Centro de costos del trabajador
+    const trabInfo = listaTrabaj.find(t => String(t.cedula||""||t.id).trim() === String(f.cedula).trim());
+    const centroCostos = trabInfo?.centroCostos || "";
     const adelantosDeducidos = adelantosMap[String(f.cedula).trim()] || 0;
     const comidaDeducida     = comidaMap[String(f.cedula).trim()]    || 0;
     const netoFinal          = Math.max(0, calc.netoAPagar - adelantosDeducidos);
     const clienteInfo        = clientes.find(c => c.id === (f.clienteId||"spia")) || clientes[0];
     return {
       ...f, idx: i+1, totalProduccion, detalleOps: prodData.ops,
-      totalExtras, desgloseExtras, ...calc, motivoResumen,
+      totalExtras, desgloseExtras, ...calc, motivoResumen, motivosCodes,
+      novedadesFormales, primeraFechaNovedad, centroCostos,
       adelantosDeducidos, comidaDeducida, netoFinal, clienteInfo,
     };
   });
 
-  const hayFiltro = filtroNombre.trim() || filtroCedula.trim() || filtroCliente;
+  const hayFiltro = filtroNombre.trim() || filtroCedula.trim() || filtroCliente || filtroSubgrupo;
   const filasFiltradas = filasCalculadas.filter(f => {
     const okN  = !filtroNombre.trim() || f.nombre?.toLowerCase().includes(filtroNombre.toLowerCase());
     const okC  = !filtroCedula.trim() || String(f.cedula).includes(filtroCedula.trim());
     const okCl = !filtroCliente       || f.clienteId === filtroCliente;
-    return okN && okC && okCl;
+    const okSg = !filtroSubgrupo      || (f.centroCostos || "").includes(filtroSubgrupo);
+    return okN && okC && okCl && okSg;
   });
-  const limpiarFiltros = () => { setFiltroNombre(""); setFiltroCedula(""); setFiltroCliente(""); };
+  const limpiarFiltros = () => { setFiltroNombre(""); setFiltroCedula(""); setFiltroCliente(""); setFiltroSubgrupo(""); };
 
   const totalesPorTipoExtra = HORAS_EXTRAS_2026.reduce((acc, t) => {
     acc[t.codigo] = {
@@ -821,6 +883,34 @@ export default function NominaLiquidarUnificada() {
                 <option value="">🏢 Todos los clientes</option>
                 {clientes.map(c=><option key={c.id} value={c.id}>{c.emoji} {c.nombre}</option>)}
               </select>
+              {/* Centro de Costo / Subgrupo */}
+              {subgruposLista.length > 0 && (
+                <div style={{position:"relative"}}>
+                  <select
+                    value={filtroSubgrupo}
+                    onChange={e => setFiltroSubgrupo(e.target.value)}
+                    style={{
+                      border:`1.5px solid ${filtroSubgrupo?"#0d9488":"#e2e8f0"}`,
+                      borderRadius:"8px",padding:"0.38rem 0.9rem 0.38rem 0.75rem",
+                      fontSize:"0.82rem",outline:"none",
+                      background:filtroSubgrupo?"#f0fdfa":"#f8fafc",
+                      color:filtroSubgrupo?"#0f766e":"#64748b",
+                      fontWeight:filtroSubgrupo?"700":"500",
+                      cursor:"pointer",height:"34px",minWidth:"185px",
+                    }}
+                  >
+                    <option value="">📊 Centro de costo...</option>
+                    {subgruposLista.map(sg => (
+                      <option key={sg.id} value={sg.codigo}>{sg.codigo} — {sg.nombre}</option>
+                    ))}
+                  </select>
+                  {filtroSubgrupo && (
+                    <button onClick={() => setFiltroSubgrupo("")}
+                      style={{position:"absolute",right:"1.4rem",top:"50%",transform:"translateY(-50%)",
+                        background:"none",border:"none",cursor:"pointer",color:"#94a3b8",fontSize:"1rem",lineHeight:1,padding:0}}>×</button>
+                  )}
+                </div>
+              )}
               {hayFiltro&&(
                 <div style={{display:"flex",alignItems:"center",gap:"0.35rem"}}>
                   <span style={{fontSize:"0.78rem",color:"#64748b",fontWeight:"700",background:"#f1f5f9",
@@ -907,6 +997,7 @@ export default function NominaLiquidarUnificada() {
                 {/* ── Fila 1: grupos de columnas ── */}
                 <tr style={{background:"#e2e8f0"}}>
                   <th colSpan={3} style={thGrupo("#94a3b8")}/>
+                  <th style={thGrupo("#0d9488")}>C.COSTOS</th>
                   <th colSpan={3} style={thGrupo("#3b82f6")}>DATOS EDITABLES</th>
                   <th style={thGrupo(SUCCESS)}>PRODUCCIÓN MATRIZ</th>
                   <th style={thGrupo(WARN)}>COMPLEMENTO</th>
@@ -934,6 +1025,7 @@ export default function NominaLiquidarUnificada() {
                     { h:"#",              w:"35px",  a:"center" },
                     { h:"CLIENTE",        w:"110px", a:"center", tip:"Cliente del trabajador" },
                     { h:"NOMBRE",         w:"160px", a:"left" },
+                    { h:"C.COSTOS",       w:"115px", a:"left",   tip:"Centro de costos contable" },
                     { h:"CÉDULA",         w:"110px", a:"left" },
                     { h:"CARGO",          w:"175px", a:"left",  tip:"Desde catálogo Administrar" },
                     { h:"BÁSICO MENS.",   w:"105px", a:"right", tip:"Auto desde cargo" },
@@ -994,7 +1086,7 @@ export default function NominaLiquidarUnificada() {
                 {/* ── FILA TOTALES ── */}
                 {!hayFiltro && (
                   <tr style={{background:"#f0fdf4",borderTop:`3px solid ${SUCCESS}`}}>
-                    <td colSpan={5} style={{padding:"0.85rem 0.5rem",color:"#065f46",fontWeight:"800",fontSize:"0.82rem"}}>
+                    <td colSpan={6} style={{padding:"0.85rem 0.5rem",color:"#065f46",fontWeight:"800",fontSize:"0.82rem"}}>
                       TOTALES — {filas.length} empleados · Todos los clientes
                     </td>
                     <td/>{/* BÁSICO */}
@@ -1075,6 +1167,40 @@ export default function NominaLiquidarUnificada() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// Tooltip de duración de novedad
+function calcularDuracionNovedad(codNov, novedadesFormales, primeraFechaOp) {
+  const hoy = new Date();
+  const reg = (novedadesFormales || []).find(n => n.novedad === codNov && n.fechaInicio);
+  if (reg && reg.fechaInicio) {
+    const fi    = new Date(reg.fechaInicio + "T00:00:00");
+    const ff    = reg.fechaFin ? new Date(reg.fechaFin + "T00:00:00") : hoy;
+    const hasta = ff < hoy ? ff : hoy;
+    const dias  = Math.max(1, Math.round((hasta - fi) / 86400000) + 1);
+    const info  = NOV_MAP[codNov];
+    const novLabel = info ? `${info.emoji} ${info.label}` : codNov;
+    return [
+      `⏱ ${novLabel}`,
+      `▶ Inicio: ${reg.fechaInicio}${reg.fechaFin ? " → Fin: " + reg.fechaFin : " (en curso)"}`,
+      `▶ Duración: ${dias} día${dias !== 1 ? "s" : ""}`,
+      reg.observacion ? `▶ Obs: ${reg.observacion}` : null,
+    ].filter(Boolean).join("\n");
+  }
+  if (primeraFechaOp && primeraFechaOp[codNov]) {
+    const fi   = new Date(primeraFechaOp[codNov] + "T00:00:00");
+    const dias = Math.max(1, Math.round((hoy - fi) / 86400000) + 1);
+    const info = NOV_MAP[codNov];
+    const novLabel = info ? `${info.emoji} ${info.label}` : codNov;
+    return [
+      `⏱ ${novLabel}`,
+      `▶ Primer registro en Matriz: ${primeraFechaOp[codNov]}`,
+      `▶ Duración aprox.: ${dias} día${dias !== 1 ? "s" : ""}`,
+      `⚠️ Se calcula fecha de inasistencia porque no se marcó fecha inicial y final`,
+    ].join("\n");
+  }
+  return null;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // FilaUnificada — idéntica a FilaNomina de liquidar.js + columna CLIENTE
 // ════════════════════════════════════════════════════════════════════════════
 function FilaUnificada({ fila, listaCargos, onCambio, onBlurCedula, onHoraExtra, onEliminar, onVerProd }) {
@@ -1115,7 +1241,23 @@ function FilaUnificada({ fila, listaCargos, onCambio, onBlurCedula, onHoraExtra,
           placeholder="Nombre..." style={iS("155px")}/>
       </td>
 
-      {/* Col 4: CÉDULA */}
+      {/* Col 4: CENTRO COSTOS */}
+      <td style={{padding:"0.35rem 0.4rem",background:e.centroCostos?"#f0fdfa":"#f8fafc"}}>
+        {e.centroCostos ? (
+          <span style={{
+            fontSize:"0.7rem",color:"#0f766e",fontWeight:"700",
+            background:"#ccfbf1",borderRadius:"4px",padding:"2px 6px",
+            whiteSpace:"nowrap",display:"inline-block",
+            border:"1px solid #99f6e4",
+          }}>
+            {e.centroCostos}
+          </span>
+        ):(
+          <span style={{color:"#cbd5e1",fontSize:"0.7rem"}}>—</span>
+        )}
+      </td>
+
+      {/* Col 5: CÉDULA */}
       <td style={tdEdit}>
         <input value={e.cedula} onChange={ev=>cc("cedula",ev.target.value)}
           onBlur={ev=>onBlurCedula(e._key,ev.target.value)}
@@ -1190,16 +1332,32 @@ function FilaUnificada({ fila, listaCargos, onCambio, onBlurCedula, onHoraExtra,
             color:"#374151",fontSize:"0.74rem"}}/>
       </td>
 
-      {/* Col 11: MOTIVO */}
+      {/* Col 11: MOTIVO — badge con tooltip de duración */}
       <td style={{padding:"0.35rem 0.4rem",background:e.motivoResumen?"#e0f2fe":"#f8fafc"}}>
         {e.motivoResumen?(
-          <span title="Novedades del período" style={{
-            fontSize:"0.72rem",color:"#0369a1",fontWeight:"700",
-            background:"#bae6fd",borderRadius:"4px",padding:"2px 6px",
-            whiteSpace:"nowrap",display:"inline-block",
-          }}>
-            {e.motivoResumen}
-          </span>
+          <div style={{display:"flex",flexDirection:"column",gap:"2px"}}>
+            {(e.motivosCodes||[]).map(({cod,cnt})=>{
+              const info    = NOV_MAP[cod];
+              const label   = info?`${info.emoji} ${info.label}`:cod;
+              const display = cnt>1?`${label} ×${cnt}`:label;
+              const tooltip = calcularDuracionNovedad(cod,e.novedadesFormales,e.primeraFechaNovedad);
+              return (
+                <span key={cod}
+                  title={tooltip||"Novedades del período (desde Asistencia)"}
+                  style={{
+                    fontSize:"0.72rem",color:"#0369a1",fontWeight:"700",
+                    background:tooltip?"#bae6fd":"#e0f2fe",
+                    borderRadius:"4px",padding:"2px 6px",
+                    whiteSpace:"nowrap",display:"inline-block",
+                    cursor:tooltip?"help":"default",
+                    borderBottom:tooltip?"1.5px dashed #0369a1":"none",
+                  }}
+                >
+                  {display}
+                </span>
+              );
+            })}
+          </div>
         ):(
           <span style={{color:"#cbd5e1",fontSize:"0.7rem"}}>—</span>
         )}
