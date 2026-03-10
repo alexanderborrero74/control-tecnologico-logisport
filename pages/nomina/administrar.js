@@ -173,6 +173,7 @@ export default function NominaAdministrar() {
   const [formPaga,       setFormPaga]       = useState("");
   const [formPorcentaje, setFormPorcentaje] = useState("");
   const [formInfo,       setFormInfo]       = useState("");
+  const [formNombreCompleto, setFormNombreCompleto] = useState("");
   const [formClienteId, setFormClienteId] = useState("spia");
   const [filtroClienteCargo, setFiltroClienteCargo] = useState("spia");
   // Campos extra para clientes
@@ -337,7 +338,7 @@ export default function NominaAdministrar() {
     setEditandoId(null);
     setFormNombre(""); setFormDesc(""); setFormBasico("");
     setFormCodigo(""); setFormEmoji("🏢"); setFormColor("#10b981"); setFormBg("#f1f5f9");
-    setFormPaga(""); setFormPorcentaje(""); setFormInfo("");
+    setFormPaga(""); setFormPorcentaje(""); setFormInfo(""); setFormNombreCompleto("");
     setFormCodContable(""); setFormClienteDocId("");
     setFormClienteId(tabActiva === "cargos" ? filtroClienteCargo : "spia");
     setAgregando(true);
@@ -346,7 +347,7 @@ export default function NominaAdministrar() {
   const iniciarEditar = (item) => {
     setAgregando(false);
     setEditandoId(item.id);
-    setFormNombre(item.nombre || item.label || item.texto || "");
+    setFormNombre(esNovedad ? (item.label || "") : (item.nombre || item.label || item.texto || ""));
     setFormDesc(item.descripcion || "");
     setFormBasico(item.basicoMensual != null ? String(item.basicoMensual) : "");
     setFormCodigo(item.codigo || "");
@@ -356,6 +357,7 @@ export default function NominaAdministrar() {
     setFormPaga(item.paga || "");
     setFormPorcentaje(item.porcentaje || "");
     setFormInfo(item.info || "");
+    setFormNombreCompleto(item.nombre || "");
     setFormCodContable(item.codContable || "");
     setFormClienteId(item.clienteId || "spia");
   };
@@ -364,7 +366,7 @@ export default function NominaAdministrar() {
     setEditandoId(null); setAgregando(false);
     setFormNombre(""); setFormDesc(""); setFormBasico("");
     setFormCodigo(""); setFormEmoji(""); setFormColor("#64748b"); setFormBg("#f1f5f9");
-    setFormPaga(""); setFormPorcentaje(""); setFormInfo("");
+    setFormPaga(""); setFormPorcentaje(""); setFormInfo(""); setFormNombreCompleto("");
     setFormCodContable(""); setFormClienteDocId("");
     setFormClienteId(filtroClienteCargo);
   };
@@ -423,6 +425,7 @@ export default function NominaAdministrar() {
     data = {
     codigo:      formCodigo.trim().toUpperCase(),
     label:       formNombre.trim(),
+    nombre:      formNombreCompleto.trim(),
     emoji:       formEmoji.trim() || "📌",
     color:       formColor,
     bg:          formBg,
@@ -732,7 +735,8 @@ export default function NominaAdministrar() {
             {esCargo  && <th style={{ ...thStyle, textAlign: "right" }}>💰 Básico Mensual</th>}
             {esCargo  && <th style={{ ...thStyle, textAlign: "center" }}>Cliente</th>}
               {esCuad   && <th style={thStyle}>Descripción</th>}
-                {esNovedad && <th style={{ ...thStyle, textAlign:"center" }}>Emoji</th>}
+                {esNovedad && <th style={{ ...thStyle, minWidth:"160px" }}>Nombre completo</th>}
+            {esNovedad && <th style={{ ...thStyle, textAlign:"center" }}>Emoji</th>}
                 {esNovedad && <th style={{ ...thStyle, textAlign:"center" }}>Color</th>}
               {esNovedad && <th style={{ ...thStyle, textAlign:"center" }}>Fondo</th>}
               {esNovedad && <th style={thStyle}>Paga</th>}
@@ -800,6 +804,15 @@ export default function NominaAdministrar() {
                     placeholder="Descripción opcional..."
                       style={inputInlineStyle}/>
                       </td>
+                )}
+                {esNovedad && (
+                <td style={tdStyle}>
+                <input value={formNombreCompleto}
+                  onChange={e => setFormNombreCompleto(e.target.value)}
+                  onKeyDown={e => { if(e.key==="Enter")guardar(); if(e.key==="Escape")cancelar(); }}
+                  placeholder="Nombre oficial completo..."
+                  style={{ ...inputInlineStyle, minWidth:"140px" }}/>
+                </td>
                 )}
                 {esNovedad && (
                 <td style={{ ...tdStyle, textAlign:"center" }}>
@@ -946,6 +959,23 @@ export default function NominaAdministrar() {
                               style={inputInlineStyle}/>
                           ) : (
                             <span style={{ color: "#64748b", fontSize: "0.85rem" }}>{item.descripcion || "—"}</span>
+                          )}
+                        </td>
+                      )}
+
+                      {/* Nombre completo (solo novedades) */}
+                      {esNovedad && (
+                        <td style={tdStyle}>
+                          {enEdicion ? (
+                            <input value={formNombreCompleto}
+                              onChange={e => setFormNombreCompleto(e.target.value)}
+                              onKeyDown={e => { if(e.key==="Enter")guardar(); if(e.key==="Escape")cancelar(); }}
+                              placeholder="Nombre oficial completo..."
+                              style={{ ...inputInlineStyle, minWidth:"150px" }}/>
+                          ) : (
+                            <span style={{ fontSize:"0.82rem", color:"#334155", fontWeight:"600" }}>
+                              {item.nombre || <span style={{color:"#cbd5e1",fontStyle:"italic"}}>sin nombre</span>}
+                            </span>
                           )}
                         </td>
                       )}
