@@ -15,7 +15,8 @@ import { calcularNetoOperacion, formatCOP } from "@/utils/nominaCalculos";
 import {
   ArrowLeft, Save, Trash2, Edit2, RefreshCw,
   Calendar, ChevronDown, CheckCircle, X,
-  FileText, DollarSign, Users, Search, UserCheck
+  FileText, DollarSign, Users, Search, UserCheck,
+  Zap, Clock, Plus, ChevronRight, UserPlus
 } from "lucide-react";
 
 const PRIMARY = "#0B3D91";
@@ -426,6 +427,482 @@ function FilaResumen({ t, i, formatCOP }) {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// MINI CUADRILLAS — Panel embebido en Matriz
+// Una «mini cuadrilla» es un subconjunto de la cuadrilla principal que trabaja
+// las horas restantes del día para completar contenedores pendientes.
+// ─────────────────────────────────────────────────────────────────────────────
+const MINI_FORM_INIT = {
+  cuadrillaPrincipalId: "",
+  cuadrillaPrincipalNombre: "",
+  fecha: "",
+  miembrosSeleccionados: [],
+  horasInicio: "15:00",
+  horasFin: "",
+  horas: 3,
+  servicioId: "",
+  servicioNombre: "",
+  servicioValor: 0,
+  contenedores: 1,
+  netoCalculado: 0,
+};
+
+function MiniCuadrillaPanel({ cuadrillas, servicios, clienteId, onGuardado, onClose }) {
+  const [miniForm, setMiniForm] = useState({ ...MINI_FORM_INIT, fecha: hoy() });
+  const [guardando, setGuardando] = useState(false);
+  const [okMsg, setOkMsg] = useState("");
+  const [miniCuadrillas, setMiniCuadrillas] = useState([]);
+  const [cargandoLista, setCargandoLista] = useState(false);
+
+  // Calcular neto cada vez que cambian los valores
+  const recalcMini = (f) => {
+    const n = f.miembrosSeleccionados.length || 1;
+    const neto = Math.round(
+      calcularNetoOperacion(parseFloat(f.servicioValor)||0, n, parseInt(f.contenedores)||1) * 100
+    ) / 100;
+    return { ...f, netoCalculado: neto };
+  };
+
+  const setMF = (key, val) => setMiniForm(prev => {
+    const next = { ...prev, [key]: val };
+    return ["servicioValor","contenedores","miembrosSeleccionados"].includes(key) ? recalcMini(next) : next;
+  });
+
+  const cuadActual = cuadrillas.find(c => c.id === miniForm.cuadrillaPrincipalId);
+  const miembros   = cuadActual?.miembros || [];
+
+  const toggleMiembro = (m) => {
+    const sel = miniForm.miembrosSeleccionados;
+    const existe = sel.some(x => x.id === m.id);
+    const next = existe ? sel.filter(x => x.id !== m.id) : [...sel, { id:m.id, nombre:m.nombre, cedula:m.cedula||"" }];
+    setMF("miembrosSeleccionados", next);
+  };
+
+  const selTodos = () => setMF("miembrosSeleccionados", miembros.map(m=>({id:m.id,nombre:m.nombre,cedula:m.cedula||""})));
+  const deselTodos = () => setMF("miembrosSeleccionados", []);
+
+  const selServicio = (id) => {
+    const s = servicios.find(x=>x.id===id);
+    if (!s) { setMF("servicioId",""); return; }
+    setMiniForm(prev => recalcMini({ ...prev, servicioId:s.id, servicioNombre:s.nombre, servicioValor:s.valor||s.tarifa||0 }));
+  };
+
+  const cargarLista = async () => {
+    setCargandoLista(true);
+    try {
+      const snap = await getDocs(query(
+        collection(db, "nomina_mini_cuadrillas"),
+        orderBy("creadoEn","desc")
+      ));
+      setMiniCuadrillas(snap.docs.slice(0,15).map(d=>({id:d.id,...d.data()})));
+    } catch(e) { console.error(e); }
+    setCargandoLista(false);
+  };
+
+  useEffect(() => { cargarLista(); }, []);
+
+  const guardar = async () => {
+    if (!miniForm.cuadrillaPrincipalId) { alert("Selecciona la cuadrilla principal."); return; }
+    if (miniForm.miembrosSeleccionados.length === 0) { alert("Selecciona al menos un miembro."); return; }
+    if (!miniForm.servicioId) { alert("Selecciona el servicio."); return; }
+    if (!miniForm.fecha) { alert("Indica la fecha."); return; }
+    setGuardando(true);
+    try {
+      const n = miniForm.miembrosSeleccionados.length;
+      const neto = Math.round(calcularNetoOperacion(
+        parseFloat(miniForm.servicioValor)||0, n, parseInt(miniForm.contenedores)||1
+      )*100)/100;
+      // 1. Guardar mini cuadrilla en su colección
+      const miniRef = await addDoc(collection(db, "nomina_mini_cuadrillas"), {
+        clienteId,
+        cuadrillaPrincipalId:     miniForm.cuadrillaPrincipalId,
+        cuadrillaPrincipalNombre: miniForm.cuadrillaPrincipalNombre,
+        fecha:     miniForm.fecha,
+        miembros:  miniForm.miembrosSeleccionados,
+        horasInicio: miniForm.horasInicio,
+        horasFin:    miniForm.horasFin,
+        horas:       parseFloat(miniForm.horas)||0,
+        servicioId:    miniForm.servicioId,
+        servicioNombre: miniForm.servicioNombre,
+        servicioValor:  parseFloat(miniForm.servicioValor)||0,
+        contenedores:   parseInt(miniForm.contenedores)||1,
+        netoAPagar:    neto,
+        creadoEn: new Date(),
+      });
+      // 2. Guardar en nomina_operaciones como operación etiquetada
+      await addDoc(collection(db,"nomina_operaciones"), {
+        clienteId,
+        modoCiamsa: false,
+        esMiniCuadrilla: true,
+        miniCuadrillaId: miniRef.id,
+        cuadrillaPrincipalId:     miniForm.cuadrillaPrincipalId,
+        cuadrillaPrincipalNombre: miniForm.cuadrillaPrincipalNombre,
+        // La mini cuadrilla se identifica con un nombre especial en las tablas
+        cuadrillaId:       `mini_${miniForm.cuadrillaPrincipalId}`,
+        cuadrillaNombre:   `⚡ MINI · Cuad ${miniForm.cuadrillaPrincipalNombre}`,
+        cuadrilla:         `⚡ MINI · Cuad ${miniForm.cuadrillaPrincipalNombre}`,
+        cuadrillaPersonas: n,
+        fecha:    Timestamp.fromDate(new Date(miniForm.fecha+"T12:00:00")),
+        fechaStr: miniForm.fecha,
+        servicioNombre:   miniForm.servicioNombre.toUpperCase(),
+        servicioValorUnitario: parseFloat(miniForm.servicioValor)||0,
+        servicioValor:    (parseFloat(miniForm.servicioValor)||0) * (parseInt(miniForm.contenedores)||1),
+        cantidad:  parseInt(miniForm.contenedores)||1,
+        personas:  n,
+        horasExtras: parseFloat(miniForm.horas)||0,
+        horasInicio: miniForm.horasInicio,
+        horasFin:    miniForm.horasFin,
+        modoHorasExtras: false,
+        netoAPagar: neto,
+        trabajadoresAsisten: miniForm.miembrosSeleccionados,
+        trabajadoresAusentes: [],
+        creadoEn: new Date(),
+        actualizadoEn: new Date(),
+      });
+      setOkMsg(`✅ Mini cuadrilla guardada — ${n} miembros · ${miniForm.contenedores} contenedor(es)`);
+      setTimeout(() => setOkMsg(""), 4000);
+      setMiniForm({ ...MINI_FORM_INIT, fecha: miniForm.fecha, cuadrillaPrincipalId: miniForm.cuadrillaPrincipalId, cuadrillaPrincipalNombre: miniForm.cuadrillaPrincipalNombre });
+      await cargarLista();
+      onGuardado();
+    } catch(e) { alert("Error: " + e.message); }
+    setGuardando(false);
+  };
+
+  const eliminarMini = async (m) => {
+    if (!confirm(`¿Eliminar mini cuadrilla del ${m.fecha}?`)) return;
+    try {
+      await deleteDoc(doc(db, "nomina_mini_cuadrillas", m.id));
+      // Buscar y eliminar la operación asociada
+      const opSnap = await getDocs(query(
+        collection(db,"nomina_operaciones"),
+        where("miniCuadrillaId","==",m.id)
+      ));
+      for (const d of opSnap.docs) await deleteDoc(d.ref);
+      await cargarLista();
+      onGuardado();
+    } catch(e) { alert("Error: "+e.message); }
+  };
+
+  const MINI_COLOR = "#e11d48"; // rosa fuerte para diferenciar visualmente
+
+  return (
+    <div style={{ background:"#fff", borderRadius:"16px",
+      boxShadow:"0 4px 24px rgba(225,29,72,0.10)",
+      border:`2px solid ${MINI_COLOR}30`,
+      marginBottom:"1.5rem", overflow:"hidden" }}>
+      {/* Header */}
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
+        padding:"0.9rem 1.25rem",
+        background:`linear-gradient(135deg, ${MINI_COLOR}15 0%, #fff5f7 100%)`,
+        borderBottom:`2px solid ${MINI_COLOR}20` }}>
+        <div style={{ display:"flex", alignItems:"center", gap:"0.6rem" }}>
+          <div style={{ background:MINI_COLOR, borderRadius:"10px", padding:"0.5rem",
+            display:"flex", alignItems:"center", justifyContent:"center" }}>
+            <Zap size={18} color="#fff"/>
+          </div>
+          <div>
+            <div style={{ fontWeight:"800", fontSize:"1rem", color:MINI_COLOR }}>⚡ Mini Cuadrillas</div>
+            <div style={{ fontSize:"0.75rem", color:"#94a3b8" }}>Personal adicional que continúa la operación tras la jornada principal</div>
+          </div>
+        </div>
+        <button onClick={onClose}
+          style={{ background:"#f1f5f9", border:"none", borderRadius:"8px",
+            padding:"0.5rem", cursor:"pointer", color:"#64748b" }}>
+          <X size={16}/>
+        </button>
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0",
+        borderBottom:`1px solid ${MINI_COLOR}15` }}>
+
+        {/* ── COLUMNA IZQUIERDA: Formulario ── */}
+        <div style={{ padding:"1.25rem", borderRight:`1px solid ${MINI_COLOR}15` }}>
+          <div style={{ fontWeight:"800", fontSize:"0.82rem", color:MINI_COLOR,
+            textTransform:"uppercase", letterSpacing:"0.05em", marginBottom:"1rem" }}>
+            📋 Nueva Mini Cuadrilla
+          </div>
+
+          {/* Cuadrilla principal */}
+          <div style={{ marginBottom:"0.9rem" }}>
+            <label style={{ ...labelSt, color:MINI_COLOR }}>1️⃣ Cuadrilla principal origen</label>
+            <select value={miniForm.cuadrillaPrincipalId}
+              onChange={e => {
+                const c = cuadrillas.find(x=>x.id===e.target.value);
+                setMiniForm(prev => ({
+                  ...prev,
+                  cuadrillaPrincipalId: e.target.value,
+                  cuadrillaPrincipalNombre: c?.nombre||"",
+                  miembrosSeleccionados: [],
+                }));
+              }}
+              style={{ ...selectSt, border:`1.5px solid ${MINI_COLOR}60`, color:miniForm.cuadrillaPrincipalId?"#1e293b":"#94a3b8" }}>
+              <option value="">— Seleccionar cuadrilla —</option>
+              {cuadrillas.map(c=>(
+                <option key={c.id} value={c.id}>Cuadrilla {c.nombre} · {c.miembros?.length||0} miembros</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Seleccionar miembros */}
+          {cuadActual && (
+            <div style={{ marginBottom:"0.9rem" }}>
+              <label style={{ ...labelSt, color:MINI_COLOR }}>2️⃣ Miembros de la mini cuadrilla</label>
+              <div style={{ border:`1.5px solid ${MINI_COLOR}40`, borderRadius:"10px", overflow:"hidden", maxHeight:"220px", overflowY:"auto" }}>
+                {/* Header con seleccionar todos */}
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
+                  padding:"0.45rem 0.75rem", background:`${MINI_COLOR}08`,
+                  borderBottom:`1px solid ${MINI_COLOR}20`, position:"sticky", top:0 }}>
+                  <span style={{ fontSize:"0.72rem", fontWeight:"700", color:"#64748b" }}>
+                    {miniForm.miembrosSeleccionados.length} / {miembros.length} seleccionados
+                  </span>
+                  <div style={{ display:"flex", gap:"0.4rem" }}>
+                    <button onClick={selTodos}
+                      style={{ fontSize:"0.7rem", background:MINI_COLOR, color:"#fff",
+                        border:"none", borderRadius:"5px", padding:"2px 8px", cursor:"pointer", fontWeight:"700" }}>
+                      Todos
+                    </button>
+                    <button onClick={deselTodos}
+                      style={{ fontSize:"0.7rem", background:"#f1f5f9", color:"#64748b",
+                        border:"1px solid #e2e8f0", borderRadius:"5px", padding:"2px 8px", cursor:"pointer" }}>
+                      Ninguno
+                    </button>
+                  </div>
+                </div>
+                {miembros.map(m => {
+                  const sel = miniForm.miembrosSeleccionados.some(x=>x.id===m.id);
+                  return (
+                    <div key={m.id}
+                      onClick={() => toggleMiembro(m)}
+                      style={{ display:"flex", alignItems:"center", gap:"0.65rem",
+                        padding:"0.5rem 0.75rem",
+                        background: sel ? `${MINI_COLOR}10` : "#fff",
+                        borderBottom:`1px solid ${MINI_COLOR}10`,
+                        cursor:"pointer", transition:"background 0.1s" }}
+                      onMouseEnter={e=>{ if(!sel) e.currentTarget.style.background="#fff5f7"; }}
+                      onMouseLeave={e=>{ if(!sel) e.currentTarget.style.background="#fff"; }}>
+                      <div style={{ width:"18px", height:"18px", borderRadius:"5px",
+                        border:`2px solid ${sel ? MINI_COLOR : "#cbd5e1"}`,
+                        background: sel ? MINI_COLOR : "#fff",
+                        display:"flex", alignItems:"center", justifyContent:"center",
+                        flexShrink:0, transition:"all 0.1s" }}>
+                        {sel && <CheckCircle size={11} color="#fff" strokeWidth={3}/>}
+                      </div>
+                      <span style={{ flex:1, fontSize:"0.84rem", fontWeight: sel?"700":"500",
+                        color: sel ? MINI_COLOR : "#1e293b",
+                        overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                        {m.nombre}
+                      </span>
+                      <span style={{ fontSize:"0.72rem", fontFamily:"monospace", color:"#94a3b8" }}>
+                        {m.cedula||""}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Fecha y horas */}
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:"0.6rem", marginBottom:"0.9rem" }}>
+            <div style={{ gridColumn:"1/-1" }}>
+              <label style={labelSt}>📅 Fecha</label>
+              <input type="date" value={miniForm.fecha}
+                onChange={e => setMF("fecha", e.target.value)}
+                style={{ ...inputSt, border:`1.5px solid ${MINI_COLOR}60` }}/>
+            </div>
+            <div>
+              <label style={labelSt}><Clock size={12} style={{marginRight:"4px"}}/>Hora inicio</label>
+              <input type="time" value={miniForm.horasInicio}
+                onChange={e => setMF("horasInicio", e.target.value)}
+                style={{ ...inputSt, textAlign:"center" }}/>
+            </div>
+            <div>
+              <label style={labelSt}><Clock size={12} style={{marginRight:"4px"}}/>Hora fin</label>
+              <input type="time" value={miniForm.horasFin}
+                onChange={e => {
+                  const inicio = miniForm.horasInicio;
+                  let horas = miniForm.horas;
+                  if (inicio && e.target.value) {
+                    const [ih,im] = inicio.split(":").map(Number);
+                    const [fh,fm] = e.target.value.split(":").map(Number);
+                    horas = Math.max(0, (fh*60+fm - ih*60-im)/60);
+                    horas = Math.round(horas*10)/10;
+                  }
+                  setMiniForm(prev => ({ ...prev, horasFin:e.target.value, horas }));
+                }}
+                style={{ ...inputSt, textAlign:"center" }}/>
+            </div>
+            <div>
+              <label style={labelSt}>⏱ Horas totales</label>
+              <input type="number" min="0" step="0.5" value={miniForm.horas}
+                onChange={e => setMF("horas", parseFloat(e.target.value)||0)}
+                style={{ ...inputSt, textAlign:"center", background:"#f8fafc" }}/>
+            </div>
+          </div>
+
+          {/* Servicio */}
+          <div style={{ marginBottom:"0.9rem" }}>
+            <label style={labelSt}>3️⃣ Servicio</label>
+            <div style={{ position:"relative" }}>
+              <select value={miniForm.servicioId} onChange={e => selServicio(e.target.value)}
+                style={{ ...selectSt, border:`1.5px solid ${MINI_COLOR}60` }}>
+                <option value="">— Seleccionar servicio —</option>
+                {servicios.map(s=>(
+                  <option key={s.id} value={s.id}>{s.nombre} · {formatCOP(s.valor||s.tarifa||0)}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Contenedores y neto */}
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.6rem", marginBottom:"1rem" }}>
+            <div>
+              <label style={labelSt}>📦 Contenedores</label>
+              <input type="number" min="1" value={miniForm.contenedores}
+                onChange={e => setMF("contenedores", e.target.value)}
+                style={{ ...inputSt, textAlign:"center", border:`1.5px solid ${MINI_COLOR}60` }}/>
+            </div>
+            <div>
+              <label style={{ ...labelSt, color:"#065f46" }}>💵 Neto por persona</label>
+              <div style={{ ...readonlySt, background:miniForm.netoCalculado>0?"#f0fdf4":"#f8fafc",
+                border:`1.5px solid ${miniForm.netoCalculado>0?"#6ee7b7":"#e2e8f0"}`,
+                fontWeight:"900", color:"#065f46", fontFamily:"monospace", fontSize:"1rem" }}>
+                {formatCOP(miniForm.netoCalculado)}
+              </div>
+            </div>
+          </div>
+
+          {/* Resumen */}
+          {miniForm.miembrosSeleccionados.length > 0 && miniForm.netoCalculado > 0 && (
+            <div style={{ background:`${MINI_COLOR}08`, border:`1.5px solid ${MINI_COLOR}30`,
+              borderRadius:"10px", padding:"0.75rem", marginBottom:"1rem",
+              fontSize:"0.82rem" }}>
+              <div style={{ fontWeight:"800", color:MINI_COLOR, marginBottom:"0.4rem" }}>📊 Resumen operación</div>
+              <div style={{ color:"#475569" }}>
+                {miniForm.miembrosSeleccionados.length} miembros · 
+                {miniForm.contenedores} contenedor(es) · 
+                {miniForm.horas}h de trabajo
+              </div>
+              <div style={{ fontWeight:"900", color:"#065f46", marginTop:"0.35rem", fontFamily:"monospace" }}>
+                Total mini cuadrilla: {formatCOP(miniForm.netoCalculado * miniForm.miembrosSeleccionados.length)}
+              </div>
+            </div>
+          )}
+
+          {okMsg && (
+            <div style={{ background:"#f0fdf4", border:"1.5px solid #6ee7b7",
+              borderRadius:"10px", padding:"0.6rem 0.9rem",
+              color:"#065f46", fontWeight:"700", fontSize:"0.85rem",
+              marginBottom:"0.75rem" }}>{okMsg}</div>
+          )}
+
+          <button onClick={guardar} disabled={guardando}
+            style={{ width:"100%", padding:"0.8rem",
+              background: guardando ? "#94a3b8" : MINI_COLOR,
+              border:"none", borderRadius:"10px", color:"#fff",
+              fontWeight:"800", fontSize:"0.9rem", cursor:"pointer",
+              display:"flex", alignItems:"center", justifyContent:"center", gap:"0.5rem",
+              transition:"background 0.15s" }}>
+            {guardando ? <><RefreshCw size={16} style={{animation:"spin 1s linear infinite"}}/> Guardando...</>
+              : <><Zap size={16}/> Crear Mini Cuadrilla</>}
+          </button>
+        </div>
+
+        {/* ── COLUMNA DERECHA: Historial ── */}
+        <div style={{ padding:"1.25rem", background:"#fafafa" }}>
+          <div style={{ fontWeight:"800", fontSize:"0.82rem", color:"#64748b",
+            textTransform:"uppercase", letterSpacing:"0.05em", marginBottom:"1rem",
+            display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+            <span>⚡ Mini Cuadrillas Recientes</span>
+            <button onClick={cargarLista}
+              style={{ background:"transparent", border:"none", cursor:"pointer", color:"#94a3b8" }}>
+              <RefreshCw size={13}/>
+            </button>
+          </div>
+          {cargandoLista ? (
+            <div style={{ textAlign:"center", padding:"2rem", color:"#94a3b8" }}>
+              <RefreshCw size={20} style={{animation:"spin 1s linear infinite"}}/>
+            </div>
+          ) : miniCuadrillas.length === 0 ? (
+            <div style={{ textAlign:"center", padding:"2rem", color:"#cbd5e1" }}>
+              <Zap size={32} color="#e2e8f0" style={{marginBottom:"0.5rem"}}/>
+              <div style={{ fontSize:"0.85rem" }}>Sin mini cuadrillas creadas</div>
+            </div>
+          ) : (
+            <div style={{ display:"flex", flexDirection:"column", gap:"0.6rem", maxHeight:"520px", overflowY:"auto" }}>
+              {miniCuadrillas.map(mc => (
+                <div key={mc.id} style={{
+                  background:"#fff", borderRadius:"10px",
+                  border:`1.5px solid ${MINI_COLOR}25`,
+                  padding:"0.75rem", fontSize:"0.82rem",
+                  boxShadow:"0 1px 4px rgba(225,29,72,0.06)" }}>
+                  {/* Header */}
+                  <div style={{ display:"flex", alignItems:"flex-start",
+                    justifyContent:"space-between", marginBottom:"0.4rem" }}>
+                    <div>
+                      <span style={{ background:`${MINI_COLOR}15`, color:MINI_COLOR,
+                        borderRadius:"6px", padding:"1px 8px",
+                        fontWeight:"800", fontSize:"0.72rem" }}>
+                        ⚡ Cuad. {mc.cuadrillaPrincipalNombre}
+                      </span>
+                      <span style={{ marginLeft:"0.4rem", color:"#64748b",
+                        fontSize:"0.72rem", fontFamily:"monospace" }}>
+                        {mc.fecha}
+                      </span>
+                    </div>
+                    <button onClick={() => eliminarMini(mc)}
+                      style={{ background:"#fff1f2", border:"none", borderRadius:"6px",
+                        padding:"2px 5px", cursor:"pointer", color:"#ef4444" }}>
+                      <Trash2 size={11}/>
+                    </button>
+                  </div>
+                  {/* Detalle */}
+                  <div style={{ color:"#334155", fontWeight:"600", marginBottom:"0.25rem" }}>
+                    {mc.servicioNombre}
+                  </div>
+                  <div style={{ display:"flex", gap:"0.5rem", flexWrap:"wrap" }}>
+                    <span style={{ background:"#f0f9ff", color:"#0ea5e9",
+                      borderRadius:"5px", padding:"1px 7px", fontSize:"0.7rem", fontWeight:"700" }}>
+                      👥 {mc.miembros?.length||0} miembros
+                    </span>
+                    <span style={{ background:"#fef9c3", color:"#92400e",
+                      borderRadius:"5px", padding:"1px 7px", fontSize:"0.7rem", fontWeight:"700" }}>
+                      📦 {mc.contenedores} cont.
+                    </span>
+                    {mc.horasInicio && mc.horasFin && (
+                      <span style={{ background:"#f5f3ff", color:"#7c3aed",
+                        borderRadius:"5px", padding:"1px 7px", fontSize:"0.7rem", fontWeight:"700" }}>
+                        ⏱ {mc.horasInicio}–{mc.horasFin}
+                      </span>
+                    )}
+                    <span style={{ background:"#f0fdf4", color:"#065f46",
+                      borderRadius:"5px", padding:"1px 7px", fontSize:"0.7rem",
+                      fontWeight:"900", fontFamily:"monospace" }}>
+                      {formatCOP(mc.netoAPagar)}/p
+                    </span>
+                  </div>
+                  {/* Miembros */}
+                  <div style={{ marginTop:"0.4rem", display:"flex", flexWrap:"wrap", gap:"0.25rem" }}>
+                    {(mc.miembros||[]).slice(0,6).map(m=>(
+                      <span key={m.id} style={{ background:"#f8fafc", borderRadius:"5px",
+                        padding:"1px 6px", fontSize:"0.68rem", color:"#475569",
+                        border:"1px solid #e2e8f0" }}>{m.nombre.split(" ")[0]}</span>
+                    ))}
+                    {(mc.miembros||[]).length > 6 && (
+                      <span style={{ fontSize:"0.68rem", color:"#94a3b8" }}>+{(mc.miembros||[]).length-6} más</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function NominaMatriz() {
   const router = useRouter();
   const [rol,     setRol]     = useState(null);
@@ -470,6 +947,9 @@ export default function NominaMatriz() {
   const [ciamsaGuardando, setCiamsaGuardando] = useState(false);
   const [ciamsaOk,        setCiamsaOk]        = useState(false);
   const [ciamsaEditId,    setCiamsaEditId]    = useState(null);
+
+  // Mini cuadrillas
+  const [showMiniCuad, setShowMiniCuad] = useState(false);
 
   // Modal eliminación
   const [modalElim, setModalElim] = useState(null);
@@ -1206,9 +1686,30 @@ export default function NominaMatriz() {
                 : "Registro diario por cuadrilla · asistencia en tiempo real"}
             </p>
           </div>
+          {!isCiamsa && (
+            <button onClick={() => setShowMiniCuad(p => !p)}
+              style={{
+                background: showMiniCuad ? "#e11d48" : "#fff5f7",
+                border: `2px solid ${showMiniCuad ? "#e11d48" : "#fecdd3"}`,
+                borderRadius: "10px",
+                padding: "0.55rem 1rem",
+                color: showMiniCuad ? "#fff" : "#e11d48",
+                fontWeight: "800",
+                fontSize: "0.85rem",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "0.4rem",
+                transition: "all 0.15s",
+                flexShrink: 0,
+              }}>
+              <Zap size={15}/> ⚡ Mini Cuadrillas
+              {showMiniCuad && <X size={13} style={{marginLeft:"2px"}}/>}
+            </button>
+          )}
         </div>
 
-        {/* ── SELECTOR DE CLIENTE ── */}
+        {/* ── SELECTOR DE CLIENTE ── */
         <div style={{display:"flex",gap:"0.5rem",marginBottom:"1.25rem",flexWrap:"wrap",alignItems:"center"}}>
           <span style={{fontSize:"0.78rem",fontWeight:"700",color:"#64748b",marginRight:"0.25rem"}}>🏢 Cliente:</span>
           {clientes.map(c=>{
@@ -1530,6 +2031,15 @@ export default function NominaMatriz() {
         {/* ════════════════════════════════════════════════
             FORMULARIO SPIA / CLIENTE 1 (cuadrilla)
             ════════════════════════════════════════════════ */}
+        {!isCiamsa && showMiniCuad && (
+          <MiniCuadrillaPanel
+            cuadrillas={cuadrillasAsistencia}
+            servicios={servicios}
+            clienteId={clienteActivo}
+            onGuardado={cargarOperaciones}
+            onClose={() => setShowMiniCuad(false)}
+          />
+        )}
         {!isCiamsa && (
           <div style={{background:"#fff",borderRadius:"14px",
             boxShadow:"0 4px 20px rgba(11,61,145,0.10)",
@@ -2045,9 +2555,14 @@ export default function NominaMatriz() {
                               <td style={tdSt}><span style={{color:"#94a3b8",fontSize:"0.78rem"}}>{i+1}</span></td>
                               <td style={{...tdSt,whiteSpace:"nowrap"}}>
                                 {esEd&&<span style={{background:"#fef3c7",color:"#92400e",borderRadius:"4px",padding:"1px 5px",fontSize:"0.7rem",marginRight:"5px",fontWeight:"700"}}>ed.</span>}
-                                <span style={{background:"#f0f9ff",color:ACCENT,borderRadius:"6px",padding:"3px 10px",fontSize:"0.82rem",fontWeight:"700"}}>
-                                  Cua. {nomCua}
-                                </span>
+                                {op.esMiniCuadrilla
+                                  ? <span style={{background:"#fff1f2",color:"#e11d48",borderRadius:"6px",padding:"3px 10px",fontSize:"0.82rem",fontWeight:"700"}}>
+                                      ⚡ {nomCua}
+                                    </span>
+                                  : <span style={{background:"#f0f9ff",color:ACCENT,borderRadius:"6px",padding:"3px 10px",fontSize:"0.82rem",fontWeight:"700"}}>
+                                      Cua. {nomCua}
+                                    </span>
+                                }
                               </td>
                               <td style={{...tdSt,color:"#475569",fontSize:"0.85rem",whiteSpace:"nowrap"}}>{op.fechaStr||"—"}</td>
                               <td style={tdSt}>
