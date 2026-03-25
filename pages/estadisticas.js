@@ -5,6 +5,8 @@ import { collection, getDocs } from "firebase/firestore";
 import { db } from "@/firebase/firebaseConfig";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
+import LayoutWithSidebar from "@/components/LayoutWithSidebar";
+import PageHeader from "@/components/PageHeader";
 import {
   ResponsiveContainer,
   PieChart,
@@ -326,7 +328,9 @@ export default function Estadisticas() {
 
   /* ---- UI ---- */
   return (
-    <div style={{ padding: 20, fontFamily: "Arial, sans-serif" }}>
+    <LayoutWithSidebar>
+      <PageHeader titulo="Estadísticas" />
+      <div style={{ padding: 20, fontFamily: "Arial, sans-serif" }}>
       {/* Encabezado */}
       <div
         style={{
@@ -549,11 +553,9 @@ export default function Estadisticas() {
         {renderDetalleFiltro("parte", "Pieza")}
       </div>
 
-      {/* Botón Regresar */}
-      <button onClick={() => router.push("/")} style={styles.backBtn} title="Volver al inicio">
-        ⬅ Regresar
-      </button>
+
     </div>
+    </LayoutWithSidebar>
   );
 }
 

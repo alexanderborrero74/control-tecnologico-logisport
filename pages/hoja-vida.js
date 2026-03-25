@@ -10,33 +10,22 @@ import {
   updateDoc,
   deleteDoc,
 } from "firebase/firestore";
+// Firebase storage ya no se usa directamente, se usa API
 import * as XLSX from "xlsx";
-import { addManyToCatalog, watchCatalogs } from "@/utils/catalogs";
+import LayoutWithSidebar from "@/components/LayoutWithSidebar";
+import PageHeader from "@/components/PageHeader";
+import { useUsuarios } from "@/utils/useUsuarios";
+import { useCargos } from "@/utils/useCargos";
 
-/* ==================== PRESETS solicitados ==================== */
+/* ==================== PRESETS ==================== */
 const CARGO_PRESETS = [
-  "gerencia",
-  "asistente administrativa",
-  "auxiliar contable",
-  "auxiliar comercio exterior",
-  "analista comercio exterior",
-  "jefe de exportacion",
-  "jefe de importacion",
-  "Tramitadores",
-  "Analista importacion",
-  "Revisora importacion",
-  "Auxiliar aduanero",
-  "Auxiliar de comercio exterior",
-  "Aprendiz sena",
-  "Auxiliar operativo",
-  "Auxiliar administrativo y coserje",
-  "Archivo",
+  "GERENTE GENERAL",
 ];
 
-const NOMBRE_PC_PRESETS = Array.from({ length: 100 }, (_, i) => {
-  const n = String(i + 1).padStart(3, "0");
-  return `SIDECOMEX${n}`;
-});
+// Nombres de PC para LOGISPORT
+const NOMBRE_PC_PRESETS = [
+  "GERENTEGENERAL",
+];
 
 const OFFICE_PRESETS = [
   "Office 2016",
@@ -75,13 +64,21 @@ const WINDOWS_PRESETS = (() => {
 })();
 
 /* ============ Filtro genérico con autocompletado (una casilla) ============ */
-const AutoFilter = memo(function AutoFilter({ label, options, value, onChange, placeholder = "Escribe para filtrar…" }) {
+const AutoFilter = memo(function AutoFilter({
+  label,
+  options,
+  value,
+  onChange,
+  placeholder = "Escribe para filtrar…",
+}) {
   const [query, setQuery] = useState(value || "");
   const [open, setOpen] = useState(false);
   const [hi, setHi] = useState(0);
   const boxRef = useRef(null);
 
-  useEffect(() => { setQuery(value || ""); }, [value]);
+  useEffect(() => {
+    setQuery(value || "");
+  }, [value]);
 
   useEffect(() => {
     function onDocClick(e) {
@@ -96,24 +93,49 @@ const AutoFilter = memo(function AutoFilter({ label, options, value, onChange, p
     const q = (query || "").trim().toLowerCase();
     const base = Array.from(new Set((options || []).filter(Boolean)));
     const filtered = q ? base.filter((o) => o.toLowerCase().includes(q)) : base;
-    return filtered.sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" })).slice(0, 25);
+    return filtered
+      .sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }))
+      .slice(0, 25);
   }, [options, query]);
 
-  const pick = (v) => { onChange(v); setQuery(v); setOpen(false); };
-  const clear = () => { onChange(""); setQuery(""); setOpen(false); setHi(0); };
+  const pick = (v) => {
+    onChange(v);
+    setQuery(v);
+    setOpen(false);
+  };
+  const clear = () => {
+    onChange("");
+    setQuery("");
+    setOpen(false);
+    setHi(0);
+  };
 
   const onKeyDown = (e) => {
-    if (!open && (e.key === "ArrowDown" || e.key === "ArrowUp")) { setOpen(true); return; }
+    if (!open && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+      setOpen(true);
+      return;
+    }
     if (!open && e.key === "Enter") {
-      const exact = (options || []).find((o) => o?.toLowerCase() === (query || "").trim().toLowerCase());
+      const exact = (options || []).find(
+        (o) => o?.toLowerCase() === (query || "").trim().toLowerCase()
+      );
       pick(exact || "");
       return;
     }
     if (open) {
-      if (e.key === "ArrowDown") { e.preventDefault(); setHi((i) => Math.min(i + 1, Math.max(0, list.length - 1))); }
-      else if (e.key === "ArrowUp") { e.preventDefault(); setHi((i) => Math.max(i - 1, 0)); }
-      else if (e.key === "Enter") { e.preventDefault(); pick(list[hi] || ""); }
-      else if (e.key === "Escape") { e.preventDefault(); setOpen(false); }
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setHi((i) => Math.min(i + 1, Math.max(0, list.length - 1)));
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setHi((i) => Math.max(i - 1, 0));
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        pick(list[hi] || "");
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        setOpen(false);
+      }
     }
   };
 
@@ -128,7 +150,11 @@ const AutoFilter = memo(function AutoFilter({ label, options, value, onChange, p
           aria-autocomplete="list"
           placeholder={placeholder}
           value={query}
-          onChange={(e) => { setQuery(e.target.value); setOpen(true); setHi(0); }}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setOpen(true);
+            setHi(0);
+          }}
           onFocus={() => setOpen(true)}
           onKeyDown={onKeyDown}
           style={{ ...styles.input, color: "#0f172a" }}
@@ -139,8 +165,14 @@ const AutoFilter = memo(function AutoFilter({ label, options, value, onChange, p
             onClick={clear}
             title="Limpiar"
             style={{
-              position: "absolute", right: 8, top: 8,
-              background: "transparent", border: 0, cursor: "pointer", fontSize: 16, color: "#111827"
+              position: "absolute",
+              right: 8,
+              top: 8,
+              background: "transparent",
+              border: 0,
+              cursor: "pointer",
+              fontSize: 16,
+              color: "#111827",
             }}
           >
             ×
@@ -156,7 +188,10 @@ const AutoFilter = memo(function AutoFilter({ label, options, value, onChange, p
                   key={`opt_${opt}`}
                   role="option"
                   aria-selected={active}
-                  onMouseDown={(e) => { e.preventDefault(); pick(opt); }}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    pick(opt);
+                  }}
                   onMouseEnter={() => setHi(idx)}
                   style={{
                     padding: "10px 12px",
@@ -174,9 +209,21 @@ const AutoFilter = memo(function AutoFilter({ label, options, value, onChange, p
         )}
       </div>
       {value ? (
-        <div style={{ marginTop: 6, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <div
+          style={{
+            marginTop: 6,
+            display: "flex",
+            gap: 8,
+            alignItems: "center",
+            flexWrap: "wrap",
+          }}
+        >
           <span style={styles.chip}>{value}</span>
-          <button type="button" style={{ ...styles.btn, background: "#6b7280" }} onClick={clear}>
+          <button
+            type="button"
+            style={{ ...styles.btn, background: "#6b7280" }}
+            onClick={clear}
+          >
             Quitar
           </button>
         </div>
@@ -190,6 +237,10 @@ const AutoFilter = memo(function AutoFilter({ label, options, value, onChange, p
 /* ============================ Página principal ============================ */
 export default function HojaVidaEquipos() {
   const router = useRouter();
+
+  // Cargar usuarios y cargos desde Firestore
+  const { usuarios: usuariosDisponibles } = useUsuarios();
+  const { cargos: cargosDisponibles } = useCargos();
 
   // Estado de pestaña (activos / baja)
   const [vista, setVista] = useState("activos"); // "activos" | "baja"
@@ -212,24 +263,39 @@ export default function HojaVidaEquipos() {
     marca: "",
     modelo: "",
     dadoDeBaja: false,
+    foto1URL: "",
+    foto2URL: "",
+    foto1Name: "",
+    foto2Name: "",
     apps: Array(10).fill(""),
   });
   const [mensaje, setMensaje] = useState("");
   const [tipoMensaje, setTipoMensaje] = useState("");
   const [registros, setRegistros] = useState([]);
   const [editandoId, setEditandoId] = useState(null);
+  
+  // Estados para preview de fotos
+  const [foto1Preview, setFoto1Preview] = useState(null);
+  const [foto2Preview, setFoto2Preview] = useState(null);
+  const [uploadingFoto1, setUploadingFoto1] = useState(false);
+  const [uploadingFoto2, setUploadingFoto2] = useState(false);
 
-  // Catálogos compartidos
-  const [catCargos, setCatCargos] = useState([]);
-  const [catPCs, setCatPCs] = useState([]);
+  // Preparar opciones desde Firestore
+  const opcionesUsuarios = useMemo(() => {
+    return (usuariosDisponibles || [])
+      .filter(u => u.activo !== false)
+      .map(u => u.nombre)
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }));
+  }, [usuariosDisponibles]);
 
-  useEffect(() => {
-    const unsub = watchCatalogs({
-      onCargos: setCatCargos,
-      onPcs: setCatPCs,
-    });
-    return () => unsub && unsub();
-  }, []);
+  const opcionesCargos = useMemo(() => {
+    return (cargosDisponibles || [])
+      .filter(c => c.activo !== false)
+      .map(c => c.nombre)
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }));
+  }, [cargosDisponibles]);
 
   // ------ Carga de datos ------
   const cargarRegistros = async () => {
@@ -237,7 +303,9 @@ export default function HojaVidaEquipos() {
     const docs = querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
     setRegistros(docs);
   };
-  useEffect(() => { cargarRegistros(); }, []);
+  useEffect(() => {
+    cargarRegistros();
+  }, []);
 
   const handleChange = (key, value) => setFormData({ ...formData, [key]: value });
   const handleAppChange = (index, value) => {
@@ -245,24 +313,218 @@ export default function HojaVidaEquipos() {
     updatedApps[index] = value;
     setFormData({ ...formData, apps: updatedApps });
   };
+
+  // Función para subir foto usando API
+  const subirFoto = async (file, equipoId, numeroFoto) => {
+    try {
+      if (!file) return null;
+      
+      // Validar tamaño (máximo 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        throw new Error("La imagen no debe superar 5MB");
+      }
+      
+      // Validar tipo
+      if (!file.type.startsWith('image/')) {
+        throw new Error("Solo se permiten archivos de imagen");
+      }
+      
+      // Convertir archivo a base64
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      
+      // Crear nombre único
+      const timestamp = Date.now();
+      const extension = file.name.split('.').pop();
+      const fileName = `foto${numeroFoto}_${timestamp}.${extension}`;
+      
+      // Subir usando API
+      const response = await fetch('/api/upload-image', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          imageData: base64,
+          fileName: fileName,
+          folder: `hojaVidaEquipos/${equipoId}`
+        }),
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Error al subir imagen');
+      }
+      
+      const result = await response.json();
+      
+      return {
+        url: result.url,
+        name: file.name
+      };
+    } catch (error) {
+      console.error("Error subiendo foto:", error);
+      throw error;
+    }
+  };
+
+  // Handler para seleccionar foto 1
+  const handleFoto1Change = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    try {
+      // Validar tamaño
+      if (file.size > 5 * 1024 * 1024) {
+        setMensaje("La imagen no debe superar 5MB");
+        setTipoMensaje("error");
+        setTimeout(() => setMensaje(""), 3000);
+        return;
+      }
+      
+      // Crear preview
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setFoto1Preview(reader.result);
+      };
+      reader.readAsDataURL(file);
+      
+      // Guardar archivo temporalmente
+      setFormData({
+        ...formData,
+        _foto1File: file
+      });
+      
+    } catch (error) {
+      console.error("Error procesando foto 1:", error);
+      setMensaje("Error procesando la imagen");
+      setTipoMensaje("error");
+      setTimeout(() => setMensaje(""), 3000);
+    }
+  };
+
+  // Handler para seleccionar foto 2
+  const handleFoto2Change = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    try {
+      // Validar tamaño
+      if (file.size > 5 * 1024 * 1024) {
+        setMensaje("La imagen no debe superar 5MB");
+        setTipoMensaje("error");
+        setTimeout(() => setMensaje(""), 3000);
+        return;
+      }
+      
+      // Crear preview
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setFoto2Preview(reader.result);
+      };
+      reader.readAsDataURL(file);
+      
+      // Guardar archivo temporalmente
+      setFormData({
+        ...formData,
+        _foto2File: file
+      });
+      
+    } catch (error) {
+      console.error("Error procesando foto 2:", error);
+      setMensaje("Error procesando la imagen");
+      setTipoMensaje("error");
+      setTimeout(() => setMensaje(""), 3000);
+    }
+  };
+
+  // Función para eliminar foto
+  const eliminarFoto = (numeroFoto) => {
+    if (numeroFoto === 1) {
+      setFoto1Preview(null);
+      setFormData({
+        ...formData,
+        foto1URL: "",
+        foto1Name: "",
+        _foto1File: null
+      });
+    } else {
+      setFoto2Preview(null);
+      setFormData({
+        ...formData,
+        foto2URL: "",
+        foto2Name: "",
+        _foto2File: null
+      });
+    }
+  };
   const resetForm = () => {
     setFormData({
-      cargo: "", nombrePC: "", procesador: "", ip: "", ram: "",
-      discoTipo: "", discoSolido: "", discoMecanico: "",
-      windowsVersion: "", windowsSerie: "",
-      officeVersion: "", officeSerie: "",
-      serial: "", numeroActivo: "",
-      marca: "", modelo: "",
+      cargo: "",
+      nombrePC: "",
+      procesador: "",
+      ip: "",
+      ram: "",
+      discoTipo: "",
+      discoSolido: "",
+      discoMecanico: "",
+      windowsVersion: "",
+      windowsSerie: "",
+      officeVersion: "",
+      officeSerie: "",
+      serial: "",
+      numeroActivo: "",
+      marca: "",
+      modelo: "",
       dadoDeBaja: false,
+      foto1URL: "",
+      foto2URL: "",
+      foto1Name: "",
+      foto2Name: "",
       apps: Array(10).fill(""),
     });
     setEditandoId(null);
+    setFoto1Preview(null);
+    setFoto2Preview(null);
   };
 
   const handleSave = async () => {
     const dataToSave = { ...formData };
     delete dataToSave.id;
+    delete dataToSave._foto1File;
+    delete dataToSave._foto2File;
+    
     try {
+      let equipoId = editandoId;
+      
+      // Si es nuevo, crear primero para tener ID
+      if (!editandoId) {
+        const docRef = await addDoc(collection(db, "hojaVidaEquipos"), dataToSave);
+        equipoId = docRef.id;
+      }
+      
+      // Subir fotos si hay archivos nuevos
+      if (formData._foto1File) {
+        setUploadingFoto1(true);
+        const resultado = await subirFoto(formData._foto1File, equipoId, 1);
+        dataToSave.foto1URL = resultado.url;
+        dataToSave.foto1Name = resultado.name;
+        setUploadingFoto1(false);
+      }
+      
+      if (formData._foto2File) {
+        setUploadingFoto2(true);
+        const resultado = await subirFoto(formData._foto2File, equipoId, 2);
+        dataToSave.foto2URL = resultado.url;
+        dataToSave.foto2Name = resultado.name;
+        setUploadingFoto2(false);
+      }
+      
+      // Actualizar documento con URLs de fotos
       if (editandoId) {
         const docRef = doc(db, "hojaVidaEquipos", editandoId);
         const docSnap = await getDoc(docRef);
@@ -275,30 +537,31 @@ export default function HojaVidaEquipos() {
         await updateDoc(docRef, dataToSave);
         setMensaje("Datos actualizados exitosamente.");
       } else {
-        await addDoc(collection(db, "hojaVidaEquipos"), dataToSave);
+        // Actualizar el documento recién creado con las URLs
+        await updateDoc(doc(db, "hojaVidaEquipos", equipoId), dataToSave);
         setMensaje("Datos guardados exitosamente.");
       }
 
-      // Alimentar catálogos compartidos
-      await addManyToCatalog({
-        cargo: formData.cargo,
-        pc: formData.nombrePC,
-        usuario: "", // Hoja de vida no maneja usuario aquí
-      });
+      // Catálogos ahora se gestionan desde Admin Usuarios
+      // Ya no necesitamos alimentar catálogos compartidos aquí
 
       setTipoMensaje("success");
       resetForm();
       await cargarRegistros();
     } catch (error) {
       console.error("Error al guardar/actualizar:", error);
-      setMensaje("Error al guardar los datos.");
+      setMensaje("Error al guardar los datos: " + error.message);
       setTipoMensaje("error");
+      setUploadingFoto1(false);
+      setUploadingFoto2(false);
     }
     setTimeout(() => setMensaje(""), 3000);
   };
 
   const handleDelete = async (id) => {
-    const confirmacion = window.confirm("¿Estás seguro de que deseas eliminar este registro?");
+    const confirmacion = window.confirm(
+      "¿Estás seguro de que deseas eliminar este registro?"
+    );
     if (!confirmacion) return;
     try {
       await deleteDoc(doc(db, "hojaVidaEquipos", id));
@@ -318,6 +581,15 @@ export default function HojaVidaEquipos() {
     const { id, ...rest } = registro;
     setFormData({ ...rest, dadoDeBaja: !!rest.dadoDeBaja });
     setEditandoId(id);
+    
+    // Cargar previews de fotos existentes
+    if (rest.foto1URL) {
+      setFoto1Preview(rest.foto1URL);
+    }
+    if (rest.foto2URL) {
+      setFoto2Preview(rest.foto2URL);
+    }
+    
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -353,35 +625,44 @@ export default function HojaVidaEquipos() {
       };
       await addDoc(collection(db, "hojaVidaEquipos"), registro);
 
-      // alimentar catálogos importados
-      await addManyToCatalog({
-        cargo: registro.cargo,
-        pc: registro.nombrePC,
-        usuario: "",
-      });
+      // Catálogos ahora se gestionan desde Admin Usuarios
     }
     cargarRegistros();
     alert("Importación completada");
     e.target.value = "";
   };
 
-  // Validación: todos los campos string no vacíos + apps no vacías + disco seleccionado correctamente
+  // Validación
   const formularioValido = useMemo(() => {
     const requiredKeys = [
-      "cargo","nombrePC","procesador","ip","ram",
-      "windowsVersion","windowsSerie","officeVersion","officeSerie",
-      "serial","numeroActivo","marca","modelo",
+      "cargo",
+      "nombrePC",
+      "procesador",
+      "ip",
+      "ram",
+      "windowsVersion",
+      "windowsSerie",
+      "officeVersion",
+      "officeSerie",
+      "serial",
+      "numeroActivo",
+      "marca",
+      "modelo",
     ];
     for (const k of requiredKeys) {
       if (!String(formData[k] || "").trim()) return false;
     }
     if (!formData.discoTipo) return false;
-    if (formData.discoTipo === "solido" && !String(formData.discoSolido || "").trim()) return false;
-    if (formData.discoTipo === "mecanico" && !String(formData.discoMecanico || "").trim()) return false;
-
-    // Apps: (si quieres exigir todas, descomenta)
-    // if (!formData.apps.every((a) => String(a || "").trim())) return false;
-
+    if (
+      formData.discoTipo === "solido" &&
+      !String(formData.discoSolido || "").trim()
+    )
+      return false;
+    if (
+      formData.discoTipo === "mecanico" &&
+      !String(formData.discoMecanico || "").trim()
+    )
+      return false;
     return true;
   }, [formData]);
 
@@ -394,18 +675,16 @@ export default function HojaVidaEquipos() {
   const clearAllFilters = () => setFilters({ numeroActivo: "", nombrePC: "" });
 
   const uniq = (arr) => Array.from(new Set(arr.filter(Boolean)));
-  const merge = (...arrs) => Array.from(new Set(arrs.flat().filter(Boolean)));
 
+  // SOLO las 8 opciones fijas para Nombre PC (también en filtros)
   const options = useMemo(() => {
     return {
-      numeroActivo: uniq(registros.map((r) => r.numeroActivo?.trim()).filter(Boolean)),
-      nombrePC: merge(
-        uniq(registros.map((r) => r.nombrePC?.trim()).filter(Boolean)),
-        NOMBRE_PC_PRESETS,
-        catPCs
+      numeroActivo: uniq(
+        registros.map((r) => r.numeroActivo?.trim()).filter(Boolean)
       ),
+      nombrePC: [...NOMBRE_PC_PRESETS],
     };
-  }, [registros, catPCs]);
+  }, [registros]);
 
   const anyFilterActive = useMemo(
     () => Object.values(filters).some((v) => v && v.trim() !== ""),
@@ -414,12 +693,15 @@ export default function HojaVidaEquipos() {
 
   const contains = (src, f) => {
     if (!f) return true;
-    return String(src || "").toLowerCase().includes(String(f).toLowerCase());
+    return String(src || "")
+      .toLowerCase()
+      .includes(String(f).toLowerCase());
   };
 
   const filteredRegistros = useMemo(() => {
-    // filtra por vista (activos o baja) y por filtros de cabecera
-    const base = registros.filter((r) => (vista === "activos" ? !r.dadoDeBaja : !!r.dadoDeBaja));
+    const base = registros.filter((r) =>
+      vista === "activos" ? !r.dadoDeBaja : !!r.dadoDeBaja
+    );
     if (!anyFilterActive) return base;
 
     return base.filter((r) => {
@@ -437,7 +719,10 @@ export default function HojaVidaEquipos() {
       procesador: r.procesador || "",
       ip: r.ip || "",
       ram: r.ram || "",
-      disco: r.discoTipo === "solido" ? `Sólido - ${r.discoSolido || ""}` : `Mecánico - ${r.discoMecanico || ""}`,
+      disco:
+        r.discoTipo === "solido"
+          ? `Sólido - ${r.discoSolido || ""}`
+          : `Mecánico - ${r.discoMecanico || ""}`,
       windows: `${r.windowsVersion || ""} / ${r.windowsSerie || ""}`,
       office: `${r.officeVersion || ""} / ${r.officeSerie || ""}`,
       serial: r.serial || "",
@@ -449,12 +734,18 @@ export default function HojaVidaEquipos() {
     }));
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, vista === "activos" ? "Activos" : "Baja");
+    XLSX.utils.book_append_sheet(
+      wb,
+      ws,
+      vista === "activos" ? "Activos" : "Baja"
+    );
     XLSX.writeFile(wb, `equipos_${vista}.xlsx`);
   };
 
   return (
-    <div style={{ padding: 20, fontFamily: "Arial, sans-serif" }}>
+    <LayoutWithSidebar>
+      <PageHeader titulo="Hoja de Vida de Equipos" />
+    <div style={{ fontFamily: "Arial, sans-serif" }}>
       {/* Encabezado */}
       <div
         style={{
@@ -512,9 +803,19 @@ export default function HojaVidaEquipos() {
         {/* Tarjeta Importar Excel */}
         <div style={{ ...styles.card, width: "100%" }}>
           <div style={styles.cardHeader}>
-            <h3 style={{ margin: 0, fontSize: 18, color: "#111827" }}>Importar desde Excel</h3>
+            <h3 style={{ margin: 0, fontSize: 18, color: "#111827" }}>
+              Importar desde Excel
+            </h3>
           </div>
-          <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
+          <div
+            style={{
+              display: "flex",
+              gap: 12,
+              alignItems: "center",
+              marginTop: 8,
+              flexWrap: "wrap",
+            }}
+          >
             <input type="file" accept=".xlsx,.xls" onChange={handleImportarExcel} />
           </div>
         </div>
@@ -531,15 +832,32 @@ export default function HojaVidaEquipos() {
 
         <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
           <div style={styles.rowGrid3}>
-            <AutoFilter label="Número de activo" options={options.numeroActivo} value={filters.numeroActivo} onChange={(v) => setFilter("numeroActivo", v)} />
-            <AutoFilter label="Nombre PC" options={options.nombrePC} value={filters.nombrePC} onChange={(v) => setFilter("nombrePC", v)} />
+            <AutoFilter
+              label="Número de activo"
+              options={options.numeroActivo}
+              value={filters.numeroActivo}
+              onChange={(v) => setFilter("numeroActivo", v)}
+            />
+            <AutoFilter
+              label="Nombre PC"
+              options={options.nombrePC}
+              value={filters.nombrePC}
+              onChange={(v) => setFilter("nombrePC", v)}
+            />
           </div>
 
-          {!anyFilterActive && (
-            <div style={{ ...styles.alert, background: "#fff", borderColor: "#e5e7eb", color: "#6b7280" }}>
-              Puedes filtrar por número de activo o nombre del PC.
-            </div>
-          )}
+        {!anyFilterActive && (
+          <div
+            style={{
+              ...styles.alert,
+              background: "#fff",
+              borderColor: "#e5e7eb",
+              color: "#6b7280",
+            }}
+          >
+            Puedes filtrar por número de activo o nombre del PC.
+          </div>
+        )}
         </div>
       </div>
 
@@ -547,7 +865,9 @@ export default function HojaVidaEquipos() {
       <div style={{ marginTop: 16 }}>
         <div style={styles.card}>
           <div style={styles.cardHeader}>
-            <h3 style={{ margin: 0, fontSize: 20, color: "#111827" }}>{editandoId ? "Editar equipo" : "Nuevo equipo"}</h3>
+            <h3 style={{ margin: 0, fontSize: 20, color: "#111827" }}>
+              {editandoId ? "Editar equipo" : "Nuevo equipo"}
+            </h3>
           </div>
 
           <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
@@ -562,48 +882,93 @@ export default function HojaVidaEquipos() {
                   onChange={(e) => handleChange("cargo", e.target.value)}
                 />
               </div>
+
               <div>
                 <label style={styles.label}>Nombre PC</label>
                 <input
                   type="text"
-                  list="pcOptions"
                   style={styles.input}
+                  placeholder="Escribe el nombre del PC"
                   value={formData.nombrePC}
                   onChange={(e) => handleChange("nombrePC", e.target.value)}
                 />
               </div>
+
               <div>
                 <label style={styles.label}>Procesador</label>
-                <input type="text" style={styles.input} value={formData.procesador} onChange={(e) => handleChange("procesador", e.target.value)} />
+                <input
+                  type="text"
+                  style={styles.input}
+                  value={formData.procesador}
+                  onChange={(e) => handleChange("procesador", e.target.value)}
+                />
               </div>
             </div>
 
             <div style={styles.rowGrid3}>
               <div>
                 <label style={styles.label}>IP</label>
-                <input type="text" style={styles.input} value={formData.ip} onChange={(e) => handleChange("ip", e.target.value)} />
+                <input
+                  type="text"
+                  style={styles.input}
+                  value={formData.ip}
+                  onChange={(e) => handleChange("ip", e.target.value)}
+                />
               </div>
               <div>
                 <label style={styles.label}>Memoria RAM</label>
-                <input type="text" style={styles.input} value={formData.ram} onChange={(e) => handleChange("ram", e.target.value)} />
+                <input
+                  type="text"
+                  style={styles.input}
+                  value={formData.ram}
+                  onChange={(e) => handleChange("ram", e.target.value)}
+                />
               </div>
               <div>
                 <label style={styles.label}>Disco</label>
                 <div style={{ display: "grid", gap: 6 }}>
                   <label style={styles.radioLabel}>
-                    <input type="radio" name="discoTipo" value="solido" checked={formData.discoTipo === "solido"} onChange={(e) => handleChange("discoTipo", e.target.value)} />
+                    <input
+                      type="radio"
+                      name="discoTipo"
+                      value="solido"
+                      checked={formData.discoTipo === "solido"}
+                      onChange={(e) => handleChange("discoTipo", e.target.value)}
+                    />
                     Sólido
                   </label>
                   {formData.discoTipo === "solido" && (
-                    <input type="text" style={styles.input} placeholder="Tamaño" value={formData.discoSolido} onChange={(e) => handleChange("discoSolido", e.target.value)} />
+                    <input
+                      type="text"
+                      style={styles.input}
+                      placeholder="Tamaño"
+                      value={formData.discoSolido}
+                      onChange={(e) =>
+                        handleChange("discoSolido", e.target.value)
+                      }
+                    />
                   )}
 
                   <label style={styles.radioLabel}>
-                    <input type="radio" name="discoTipo" value="mecanico" checked={formData.discoTipo === "mecanico"} onChange={(e) => handleChange("discoTipo", e.target.value)} />
+                    <input
+                      type="radio"
+                      name="discoTipo"
+                      value="mecanico"
+                      checked={formData.discoTipo === "mecanico"}
+                      onChange={(e) => handleChange("discoTipo", e.target.value)}
+                    />
                     Mecánico
                   </label>
                   {formData.discoTipo === "mecanico" && (
-                    <input type="text" style={styles.input} placeholder="Tamaño" value={formData.discoMecanico} onChange={(e) => handleChange("discoMecanico", e.target.value)} />
+                    <input
+                      type="text"
+                      style={styles.input}
+                      placeholder="Tamaño"
+                      value={formData.discoMecanico}
+                      onChange={(e) =>
+                        handleChange("discoMecanico", e.target.value)
+                      }
+                    />
                   )}
                 </div>
               </div>
@@ -613,21 +978,42 @@ export default function HojaVidaEquipos() {
             <div style={styles.rowGrid3}>
               <div>
                 <label style={styles.label}>Serial</label>
-                <input type="text" style={styles.input} value={formData.serial} onChange={(e) => handleChange("serial", e.target.value)} />
+                <input
+                  type="text"
+                  style={styles.input}
+                  value={formData.serial}
+                  onChange={(e) => handleChange("serial", e.target.value)}
+                />
               </div>
               <div>
                 <label style={styles.label}>Número de activo</label>
-                <input type="text" style={styles.input} value={formData.numeroActivo} onChange={(e) => handleChange("numeroActivo", e.target.value)} />
+                <input
+                  type="text"
+                  style={styles.input}
+                  value={formData.numeroActivo}
+                  onChange={(e) => handleChange("numeroActivo", e.target.value)}
+                />
               </div>
               <div>
                 <label style={styles.label}>Marca</label>
-                <input type="text" style={styles.input} value={formData.marca} onChange={(e) => handleChange("marca", e.target.value)} />
+                <input
+                  type="text"
+                  style={styles.input}
+                  value={formData.marca}
+                  onChange={(e) => handleChange("marca", e.target.value)}
+                />
               </div>
             </div>
+
             <div style={styles.rowGrid3}>
               <div>
                 <label style={styles.label}>Modelo</label>
-                <input type="text" style={styles.input} value={formData.modelo} onChange={(e) => handleChange("modelo", e.target.value)} />
+                <input
+                  type="text"
+                  style={styles.input}
+                  value={formData.modelo}
+                  onChange={(e) => handleChange("modelo", e.target.value)}
+                />
               </div>
               <div>
                 <label style={styles.label}>Equipo dado de baja</label>
@@ -635,15 +1021,23 @@ export default function HojaVidaEquipos() {
                   <input
                     type="checkbox"
                     checked={!!formData.dadoDeBaja}
-                    onChange={(e) => handleChange("dadoDeBaja", e.target.checked)}
+                    onChange={(e) =>
+                      handleChange("dadoDeBaja", e.target.checked)
+                    }
                   />
-                  <span style={{ color: formData.dadoDeBaja ? "#dc2626" : "#111827", fontWeight: 700 }}>
+                  <span
+                    style={{
+                      color: formData.dadoDeBaja ? "#dc2626" : "#111827",
+                      fontWeight: 700,
+                    }}
+                  >
                     {formData.dadoDeBaja ? "Sí" : "No"}
                   </span>
                 </div>
               </div>
             </div>
 
+            {/* Windows / Office */}
             <div style={styles.rowGrid2}>
               <div>
                 <label style={styles.label}>Windows</label>
@@ -654,9 +1048,19 @@ export default function HojaVidaEquipos() {
                     style={styles.input}
                     placeholder="Versión"
                     value={formData.windowsVersion}
-                    onChange={(e) => handleChange("windowsVersion", e.target.value)}
+                    onChange={(e) =>
+                      handleChange("windowsVersion", e.target.value)
+                    }
                   />
-                  <input type="text" style={styles.input} placeholder="# Serie" value={formData.windowsSerie} onChange={(e) => handleChange("windowsSerie", e.target.value)} />
+                  <input
+                    type="text"
+                    style={styles.input}
+                    placeholder="# Serie"
+                    value={formData.windowsSerie}
+                    onChange={(e) =>
+                      handleChange("windowsSerie", e.target.value)
+                    }
+                  />
                 </div>
               </div>
               <div>
@@ -668,9 +1072,19 @@ export default function HojaVidaEquipos() {
                     style={styles.input}
                     placeholder="Versión"
                     value={formData.officeVersion}
-                    onChange={(e) => handleChange("officeVersion", e.target.value)}
+                    onChange={(e) =>
+                      handleChange("officeVersion", e.target.value)
+                    }
                   />
-                  <input type="text" style={styles.input} placeholder="# Serie" value={formData.officeSerie} onChange={(e) => handleChange("officeSerie", e.target.value)} />
+                  <input
+                    type="text"
+                    style={styles.input}
+                    placeholder="# Serie"
+                    value={formData.officeSerie}
+                    onChange={(e) =>
+                      handleChange("officeSerie", e.target.value)
+                    }
+                  />
                 </div>
               </div>
             </div>
@@ -695,30 +1109,235 @@ export default function HojaVidaEquipos() {
               <div
                 style={{
                   ...styles.alert,
-                  background: tipoMensaje === "success" ? "#ecfccb" : "#fee2e2",
+                  background:
+                    tipoMensaje === "success" ? "#ecfccb" : "#fee2e2",
                   color: tipoMensaje === "success" ? "#3f6212" : "#991b1b",
-                  borderColor: tipoMensaje === "success" ? "#a3e635" : "#fca5a5",
+                  borderColor:
+                    tipoMensaje === "success" ? "#a3e635" : "#fca5a5",
                 }}
               >
                 {mensaje}
               </div>
             )}
 
-            <div style={{ display: "flex", gap: 12, justifyContent: "center", marginTop: 4 }}>
+          {/* SECCIÓN DE FOTOS */}
+          <div style={{
+            gridColumn: "1 / -1",
+            padding: "20px",
+            background: "#f3f4f6",
+            borderRadius: "8px",
+            marginTop: "20px"
+          }}>
+            <h3 style={{
+              fontSize: "18px",
+              fontWeight: "700",
+              color: "#111827",
+              marginBottom: "16px",
+              borderBottom: "2px solid #3b82f6",
+              paddingBottom: "8px"
+            }}>
+              📸 Fotos del Equipo
+            </h3>
+            
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+              gap: "20px"
+            }}>
+              {/* FOTO 1 */}
+              <div style={{
+                background: "white",
+                padding: "16px",
+                borderRadius: "8px",
+                border: "2px dashed #d1d5db"
+              }}>
+                <label style={{
+                  display: "block",
+                  fontSize: "14px",
+                  fontWeight: "600",
+                  color: "#374151",
+                  marginBottom: "8px"
+                }}>
+                  Foto 1
+                </label>
+                
+                {foto1Preview ? (
+                  <div>
+                    <img
+                      src={foto1Preview}
+                      alt="Preview Foto 1"
+                      style={{
+                        width: "100%",
+                        height: "200px",
+                        objectFit: "cover",
+                        borderRadius: "8px",
+                        marginBottom: "8px"
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => eliminarFoto(1)}
+                      style={{
+                        width: "100%",
+                        padding: "8px",
+                        background: "#ef4444",
+                        color: "white",
+                        border: "none",
+                        borderRadius: "6px",
+                        cursor: "pointer",
+                        fontWeight: "600"
+                      }}
+                    >
+                      ✕ Eliminar Foto 1
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleFoto1Change}
+                      disabled={uploadingFoto1}
+                      style={{
+                        width: "100%",
+                        padding: "8px",
+                        border: "1px solid #d1d5db",
+                        borderRadius: "6px",
+                        cursor: "pointer"
+                      }}
+                    />
+                    {uploadingFoto1 && (
+                      <p style={{ marginTop: "8px", color: "#3b82f6", fontSize: "14px" }}>
+                        Subiendo foto 1...
+                      </p>
+                    )}
+                    <p style={{ marginTop: "8px", fontSize: "12px", color: "#6b7280" }}>
+                      Máximo 5MB • JPG, PNG, GIF
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* FOTO 2 */}
+              <div style={{
+                background: "white",
+                padding: "16px",
+                borderRadius: "8px",
+                border: "2px dashed #d1d5db"
+              }}>
+                <label style={{
+                  display: "block",
+                  fontSize: "14px",
+                  fontWeight: "600",
+                  color: "#374151",
+                  marginBottom: "8px"
+                }}>
+                  Foto 2
+                </label>
+                
+                {foto2Preview ? (
+                  <div>
+                    <img
+                      src={foto2Preview}
+                      alt="Preview Foto 2"
+                      style={{
+                        width: "100%",
+                        height: "200px",
+                        objectFit: "cover",
+                        borderRadius: "8px",
+                        marginBottom: "8px"
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => eliminarFoto(2)}
+                      style={{
+                        width: "100%",
+                        padding: "8px",
+                        background: "#ef4444",
+                        color: "white",
+                        border: "none",
+                        borderRadius: "6px",
+                        cursor: "pointer",
+                        fontWeight: "600"
+                      }}
+                    >
+                      ✕ Eliminar Foto 2
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleFoto2Change}
+                      disabled={uploadingFoto2}
+                      style={{
+                        width: "100%",
+                        padding: "8px",
+                        border: "1px solid #d1d5db",
+                        borderRadius: "6px",
+                        cursor: "pointer"
+                      }}
+                    />
+                    {uploadingFoto2 && (
+                      <p style={{ marginTop: "8px", color: "#3b82f6", fontSize: "14px" }}>
+                        Subiendo foto 2...
+                      </p>
+                    )}
+                    <p style={{ marginTop: "8px", fontSize: "12px", color: "#6b7280" }}>
+                      Máximo 5MB • JPG, PNG, GIF
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+            {/* Botones de acción */}
+            <div style={{ 
+              display: "flex", 
+              gap: 8, 
+              justifyContent: "flex-start",
+              marginTop: 12 
+            }}>
               <button
                 onClick={handleSave}
                 disabled={!formularioValido}
                 style={{
-                  ...styles.primaryBtn,
-                  opacity: formularioValido ? 1 : 0.5,
+                  background: "#007acc",
+                  color: "white",
+                  padding: "8px 16px",
+                  border: "none",
+                  borderRadius: 6,
                   cursor: formularioValido ? "pointer" : "not-allowed",
+                  fontWeight: 600,
+                  fontSize: 14,
+                  opacity: formularioValido ? 1 : 0.5,
+                  transition: "all 0.2s",
+                  whiteSpace: "nowrap",
                 }}
               >
-                {editandoId ? "ACTUALIZAR" : "GUARDAR"}
+                {editandoId ? "✓ Actualizar" : "💾 Guardar"}
               </button>
               {editandoId && (
-                <button type="button" onClick={resetForm} style={styles.secondaryBtn}>
-                  Cancelar edición
+                <button 
+                  type="button" 
+                  onClick={resetForm} 
+                  style={{
+                    background: "#64748b",
+                    color: "white",
+                    padding: "8px 16px",
+                    border: "none",
+                    borderRadius: 6,
+                    cursor: "pointer",
+                    fontWeight: 600,
+                    fontSize: 14,
+                    transition: "all 0.2s",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  ❌ Cancelar
                 </button>
               )}
             </div>
@@ -728,16 +1347,20 @@ export default function HojaVidaEquipos() {
 
       {/* datalist para sugerencias */}
       <datalist id="cargoOptions">
-        {[...new Set([...CARGO_PRESETS, ...catCargos])].map((o) => <option key={o} value={o} />)}
+        {opcionesCargos.map((o) => (
+          <option key={o} value={o} />
+        ))}
       </datalist>
-      <datalist id="pcOptions">
-        {[...new Set([...NOMBRE_PC_PRESETS, ...catPCs])].map((o) => <option key={o} value={o} />)}
-      </datalist>
+      {/* PC ahora es <select>; no usamos datalist para PC */}
       <datalist id="officeOptions">
-        {OFFICE_PRESETS.map((o) => <option key={o} value={o} />)}
+        {OFFICE_PRESETS.map((o) => (
+          <option key={o} value={o} />
+        ))}
       </datalist>
       <datalist id="windowsOptions">
-        {WINDOWS_PRESETS.map((o) => <option key={o} value={o} />)}
+        {WINDOWS_PRESETS.map((o) => (
+          <option key={o} value={o} />
+        ))}
       </datalist>
 
       {/* Registros según vista */}
@@ -755,53 +1378,228 @@ export default function HojaVidaEquipos() {
       >
         {filteredRegistros.length === 0 ? (
           <div style={{ ...styles.card, color: "#6b7280", fontWeight: 700 }}>
-            {anyFilterActive ? "Sin resultados para los filtros seleccionados." : "No hay registros."}
+            {anyFilterActive
+              ? "Sin resultados para los filtros seleccionados."
+              : "No hay registros."}
           </div>
         ) : (
           filteredRegistros.map((registro) => (
-            <div key={registro.id} style={{ ...styles.card, background: registro.dadoDeBaja ? "#fee2e2" : "white" }}>
-              <div style={styles.cardHeader}>
-                <h3 style={{ margin: 0, fontSize: 18, color: "#111827" }}>{registro.nombrePC || "Equipo"}</h3>
-                <span
+            <div
+              key={registro.id}
+              style={{
+                ...styles.equipoCard,
+                background: registro.dadoDeBaja ? "#fef2f2" : "#ffffff",
+                borderColor: registro.dadoDeBaja ? "#fca5a5" : "#e5e7eb",
+              }}
+            >
+              {/* Header con nombre y estado */}
+              <div style={{
+                background: registro.dadoDeBaja ? "#dc2626" : "#007acc",
+                padding: "16px",
+                borderRadius: "12px 12px 0 0",
+                marginBottom: "16px"
+              }}>
+                <div style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                  gap: "8px"
+                }}>
+                  <h3 style={{ 
+                    margin: 0, 
+                    fontSize: 20, 
+                    color: "#ffffff", 
+                    fontWeight: 800,
+                    letterSpacing: 0.5
+                  }}>
+                    🖥️ {registro.nombrePC || "Equipo"}
+                  </h3>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <span style={{
+                      ...styles.badge,
+                      background: "#ffffff",
+                      color: registro.dadoDeBaja ? "#dc2626" : "#007acc",
+                      borderColor: "#ffffff",
+                    }}>
+                      {registro.dadoDeBaja ? "❌ DADO DE BAJA" : "✅ ACTIVO"}
+                    </span>
+                    <span style={{
+                      ...styles.badge,
+                      background: registro.discoTipo === "solido" ? "#dcfce7" : "#dbeafe",
+                      color: registro.discoTipo === "solido" ? "#166534" : "#1e40af",
+                      borderColor: registro.discoTipo === "solido" ? "#86efac" : "#93c5fd",
+                    }}>
+                      {registro.discoTipo === "solido" ? "💾 SSD" : "💿 HDD"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Información del equipo en secciones */}
+              <div style={{ padding: "0 16px 16px 16px" }}>
+                {/* Sección: Información General */}
+                <div style={styles.section}>
+                  <div style={styles.sectionTitle}>📋 Información General</div>
+                  <div style={styles.infoGrid}>
+                    <Row label="👤 Cargo" value={registro.cargo} />
+                    <Row label="🏢 N° Activo" value={registro.numeroActivo} />
+                    <Row label="🔖 Marca" value={registro.marca} />
+                    <Row label="📦 Modelo" value={registro.modelo} />
+                  </div>
+                </div>
+
+                {/* Sección: Especificaciones Técnicas */}
+                <div style={styles.section}>
+                  <div style={styles.sectionTitle}>⚙️ Especificaciones Técnicas</div>
+                  <div style={styles.infoGrid}>
+                    <Row label="💻 Procesador" value={registro.procesador} />
+                    <Row label="🧠 RAM" value={registro.ram} />
+                    <Row 
+                      label="💾 Disco" 
+                      value={
+                        registro.discoTipo === "solido"
+                          ? `SSD - ${registro.discoSolido || "—"}`
+                          : `HDD - ${registro.discoMecanico || "—"}`
+                      }
+                    />
+                    <Row label="🌐 IP" value={registro.ip} />
+                    <Row label="#️⃣ Serial" value={registro.serial} />
+                  </div>
+                </div>
+
+                {/* Sección: Software */}
+                <div style={styles.section}>
+                  <div style={styles.sectionTitle}>💿 Software</div>
+                  <div style={styles.infoGrid}>
+                    <Row
+                      label="🪟 Windows"
+                      value={`${registro.windowsVersion || "—"} / ${registro.windowsSerie || "—"}`}
+                    />
+                    <Row
+                      label="📊 Office"
+                      value={`${registro.officeVersion || "—"} / ${registro.officeSerie || "—"}`}
+                    />
+                  </div>
+                  {registro.apps?.filter((a) => a && a.trim()).length > 0 && (
+                    <div style={{ marginTop: 8 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#6b7280", marginBottom: 4 }}>Apps Instaladas:</div>
+                      <div style={{ 
+                        display: "flex", 
+                        flexWrap: "wrap", 
+                        gap: 4 
+                      }}>
+                        {registro.apps.filter((a) => a && a.trim()).map((app, idx) => (
+                          <span key={idx} style={{
+                            background: "#f3f4f6",
+                            padding: "4px 8px",
+                            borderRadius: 6,
+                            fontSize: 11,
+                            color: "#374151",
+                            border: "1px solid #e5e7eb"
+                          }}>
+                            {app}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+              </div>
+
+                {/* Sección: Fotos */}
+                {(registro.foto1URL || registro.foto2URL) && (
+                  <div style={styles.section}>
+                    <div style={styles.sectionTitle}>📸 Fotos del Equipo</div>
+                    <div style={{
+                      display: "grid",
+                      gridTemplateColumns: registro.foto1URL && registro.foto2URL ? "1fr 1fr" : "1fr",
+                      gap: 12
+                    }}>
+                      {registro.foto1URL && (
+                        <div>
+                          <img
+                            src={registro.foto1URL}
+                            alt="Foto 1"
+                            style={{
+                              width: "100%",
+                              height: "160px",
+                              objectFit: "cover",
+                              borderRadius: 8,
+                              border: "2px solid #e5e7eb",
+                              cursor: "pointer",
+                              transition: "transform 0.2s"
+                            }}
+                            onClick={() => window.open(registro.foto1URL, '_blank')}
+                            onMouseOver={(e) => e.target.style.transform = "scale(1.02)"}
+                            onMouseOut={(e) => e.target.style.transform = "scale(1)"}
+                          />
+                        </div>
+                      )}
+                      {registro.foto2URL && (
+                        <div>
+                          <img
+                            src={registro.foto2URL}
+                            alt="Foto 2"
+                            style={{
+                              width: "100%",
+                              height: "160px",
+                              objectFit: "cover",
+                              borderRadius: 8,
+                              border: "2px solid #e5e7eb",
+                              cursor: "pointer",
+                              transition: "transform 0.2s"
+                            }}
+                            onClick={() => window.open(registro.foto2URL, '_blank')}
+                            onMouseOver={(e) => e.target.style.transform = "scale(1.02)"}
+                            onMouseOut={(e) => e.target.style.transform = "scale(1)"}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Botones de acción */}
+              <div style={{
+                padding: "16px",
+                display: "flex",
+                gap: 12,
+                borderTop: "2px solid #f3f4f6",
+                background: "#fafafa",
+                borderRadius: "0 0 12px 12px"
+              }}>
+                <button 
+                  onClick={() => handleEdit(registro)} 
                   style={{
-                    ...styles.badge,
-                    background: registro.discoTipo === "solido" ? "#ecfccb" : "#e0f2fe",
-                    color: registro.discoTipo === "solido" ? "#3f6212" : "#075985",
+                    ...styles.warnBtn,
+                    flex: 1,
+                    padding: "12px",
+                    fontSize: 14,
+                    fontWeight: 700,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 6
                   }}
                 >
-                  {registro.discoTipo === "solido" ? "Disco Sólido" : "Disco Mecánico"}
-                </span>
-              </div>
-
-              <div style={{ display: "grid", gap: 6, marginTop: 8 }}>
-                <Row label="Cargo" value={registro.cargo} />
-                <Row label="Procesador" value={registro.procesador} />
-                <Row label="IP" value={registro.ip} />
-                <Row label="RAM" value={registro.ram} />
-                <Row label="Serial" value={registro.serial} />
-                <Row label="N° Activo" value={registro.numeroActivo} />
-                <Row label="Marca" value={registro.marca} />
-                <Row label="Modelo" value={registro.modelo} />
-                <Row
-                  label="Disco"
-                  value={
-                    registro.discoTipo === "solido"
-                      ? `Sólido - ${registro.discoSolido || "—"}`
-                      : `Mecánico - ${registro.discoMecanico || "—"}`
-                  }
-                />
-                <Row label="Windows" value={`${registro.windowsVersion || "—"} / ${registro.windowsSerie || "—"}`} />
-                <Row label="Office" value={`${registro.officeVersion || "—"} / ${registro.officeSerie || "—"}`} />
-                <Row label="Apps" value={registro.apps?.filter((a) => a && a.trim()).join(", ") || "Ninguna"} />
-                <Row label="Estado" value={registro.dadoDeBaja ? "Dado de baja" : "Activo"} />
-              </div>
-
-              <div style={{ marginTop: 12, display: "flex", justifyContent: "space-between" }}>
-                <button onClick={() => handleEdit(registro)} style={styles.warnBtn}>
-                  Editar
+                  ✏️ Editar
                 </button>
-                <button onClick={() => handleDelete(registro.id)} style={styles.dangerBtn}>
-                  Eliminar
+                <button 
+                  onClick={() => handleDelete(registro.id)} 
+                  style={{
+                    ...styles.dangerBtn,
+                    flex: 1,
+                    padding: "12px",
+                    fontSize: 14,
+                    fontWeight: 700,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 6
+                  }}
+                >
+                  🗑️ Eliminar
                 </button>
               </div>
             </div>
@@ -809,15 +1607,8 @@ export default function HojaVidaEquipos() {
         )}
       </div>
 
-      {/* Botón fijo Regresar */}
-      <button
-        style={{ ...styles.backBtn, left: 40 }} // ← si quieres moverlo más a la derecha, aumenta este valor
-        onClick={() => router.push("/")}
-        title="Volver al inicio"
-      >
-        ⬅ Regresar
-      </button>
     </div>
+    </LayoutWithSidebar>
   );
 }
 
@@ -833,14 +1624,39 @@ function Row({ label, value }) {
 
 /* ------------------------ Estilos ------------------------ */
 const styles = {
-  filterBar: {
-    background: "#ffffff",
-    border: "1px solid #e5e7eb",
-    borderRadius: 10,
-    padding: 12,
+  equipoCard: {
+    border: "2px solid",
+    borderRadius: 12,
+    background: "white",
+    boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+    overflow: "hidden",
+    transition: "transform 0.2s, box-shadow 0.2s",
+  },
+  section: {
+    marginBottom: 16,
+  },
+  sectionTitle: {
+    fontSize: 13,
+    fontWeight: 800,
+    color: "#374151",
+    marginBottom: 10,
+    paddingBottom: 6,
+    borderBottom: "2px solid #e5e7eb",
+    letterSpacing: 0.3,
+  },
+  infoGrid: {
     display: "grid",
-    gap: 6,
-    boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
+    gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+    gap: 8,
+  },
+  filterBar: {
+    background: "white",
+    border: "1px solid #e5e7eb",
+    borderRadius: 12,
+    padding: 16,
+    display: "grid",
+    gap: 12,
+    boxShadow: "0 2px 6px rgba(0,0,0,0.06)",
   },
   suggestList: {
     position: "absolute",
@@ -858,10 +1674,11 @@ const styles = {
     zIndex: 50,
   },
   chip: {
-    background: "#1e40af",
+    background: "#007acc",
     color: "#ffffff",
+    border: "none",
     borderRadius: 999,
-    padding: "4px 10px",
+    padding: "4px 8px",
     fontSize: 12,
     fontWeight: 800,
   },
@@ -872,13 +1689,16 @@ const styles = {
     padding: 12,
     background: "white",
     boxShadow: "0 2px 6px rgba(0,0,0,0.06)",
+    overflow: "hidden",
   },
   cardHeader: {
+    background: "transparent",
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
     borderBottom: "1px solid #f3f4f6",
     paddingBottom: 6,
+    marginBottom: 12,
   },
 
   label: {
@@ -886,7 +1706,7 @@ const styles = {
     fontSize: 12,
     color: "#6b7280",
     fontWeight: 700,
-    marginBottom: 4,
+    marginBottom: 6,
   },
   input: {
     width: "100%",
@@ -934,15 +1754,18 @@ const styles = {
     fontWeight: 700,
   },
   secondaryBtn: {
-    background: "#6b7280",
+    background: "#64748b",
     color: "white",
-    padding: "8px 12px",
-    border: "none",
-    borderRadius: 8,
+    padding: "16px 32px",
+    border: "2px solid #475569",
+    borderRadius: 10,
     cursor: "pointer",
     fontWeight: 700,
+    fontSize: 16,
+    transition: "all 0.3s ease",
   },
   warnBtn: {
+    flex: 1,
     background: "#f39c12",
     color: "white",
     padding: "8px 12px",
@@ -952,19 +1775,24 @@ const styles = {
     fontWeight: 700,
   },
   dangerBtn: {
-    background: "#c0392b",
+    flex: 1,
+    background: "#dc2626",
     color: "white",
-    padding: "8px 12px",
-    border: "none",
+    padding: "12px 16px",
+    border: "2px solid #b91c1c",
     borderRadius: 8,
     cursor: "pointer",
     fontWeight: 700,
+    fontSize: 14,
+    transition: "all 0.3s ease",
   },
   badge: {
-    padding: "4px 8px",
+    padding: "6px 12px",
+    border: "2px solid",
     borderRadius: 999,
     fontSize: 12,
     fontWeight: 800,
+    boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
   },
   alert: {
     border: "1px solid",
@@ -976,7 +1804,7 @@ const styles = {
   btn: {
     background: "#007acc",
     color: "white",
-    padding: "6px 10px",
+    padding: "8px 12px",
     border: "none",
     borderRadius: 8,
     cursor: "pointer",
@@ -985,7 +1813,7 @@ const styles = {
   backBtn: {
     position: "fixed",
     bottom: 20,
-    left: 40,
+    left: 20,
     backgroundColor: "#007acc",
     color: "white",
     padding: "10px 16px",
@@ -998,3 +1826,4 @@ const styles = {
     cursor: "pointer",
   },
 };
+

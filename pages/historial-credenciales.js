@@ -11,6 +11,8 @@ import {
   getDoc,
   serverTimestamp,
 } from "firebase/firestore";
+import LayoutWithSidebar from "@/components/LayoutWithSidebar";
+import PageHeader from "@/components/PageHeader";
 
 // ====== Módulos → colecciones en Firestore ======
 const MODULES = [

@@ -463,6 +463,22 @@ service cloud.firestore {
       allow delete: if isNominaAdmin();
     }
 
+    // Mini cuadrillas (subconjunto de cuadrilla principal para jornada parcial)
+    match /nomina_mini_cuadrillas/{id} {
+      allow read: if isNominaRRHH();
+      allow create, update: if isNominaAdmin();
+      allow delete: if isNominaAdmin();
+    }
+
+    // Snapshot de composición diaria de cuadrilla
+    // Guarda quiénes estaban en cada cuadrilla en cada fecha concreta.
+    // Permite que editar una cuadrilla semanal NO afecte días ya trabajados.
+    match /nomina_cuadrilla_snapshot/{id} {
+      allow read: if isNominaRRHH();
+      allow create, update: if isNominaAdmin();
+      allow delete: if isNominaAdmin();
+    }
+
     // Permisos por usuario y módulo del Control Operativo
     // Solo el admin puede escribir; cada usuario solo puede leer su propio documento
     match /nomina_permisos_usuario/{uid} {

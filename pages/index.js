@@ -1,450 +1,273 @@
-// Archivo completo: pages/index.js – Hover menú de pendientes + Acceso a nube (nueva pestaña)
-// Mantiene tu lógica y estilos. Solo:
-// 1) El tooltip de pendientes muestra lista (usuario + descripción)
-// 2) Botón "Acceso a nube" abre https://192.168.1.244/cgi-bin/ en nueva pestaña, azul oscuro
-
+// pages/index.js - Dashboard LOGISPORT con sidebar y servicios pendientes
+import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
-import { useEffect, useRef, useState } from "react";
-import {
-  collection,
-  onSnapshot,
-  addDoc,
-  serverTimestamp,
-} from "firebase/firestore";
-import { getAuth, onAuthStateChanged, signOut } from "firebase/auth";
+import { getAuth, onAuthStateChanged } from "firebase/auth";
+import { collection, onSnapshot, addDoc, serverTimestamp, doc, getDoc } from "firebase/firestore";
 import { db } from "@/firebase/firebaseConfig";
 import { getUserRoleByUid } from "@/utils/getUserRole";
+import { BRAND } from "@/utils/branding";
+import LayoutWithSidebar from "@/components/LayoutWithSidebar";
+import PageHeader from "@/components/PageHeader";
+import ModalContrasena from "@/components/ModalContrasena";
+import { 
+  FileText, Wrench, HardDrive, Book, BarChart3, 
+  Settings, Package, Lock, AlertCircle, CheckCircle,
+  Clock, TrendingUp, FileCheck, DollarSign
+} from "lucide-react";
 
-// === Fallback robusto para BRAND ===
-let BRAND = { appName: "Nexo TI", subtitle: "Control Tecnológico", logoUrl: "/nexoti-logo.png?v=2" };
-try {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const Branding = require("@/utils/branding");
-  const candidate = Branding?.BRAND || Branding?.default || Branding;
-  if (candidate && typeof candidate === "object") {
-    BRAND = {
-      appName: candidate.appName || BRAND.appName,
-      subtitle: candidate.subtitle || BRAND.subtitle,
-      logoUrl: candidate.logoUrl || BRAND.logoUrl,
-      tenants: candidate.tenants || BRAND.tenants,
-    };
-  }
-} catch {}
+// Destino según rol: nomina va directo a liquidar, admin/admin_nomina al dashboard
+const destinoNomina = (rol) =>
+  rol === "nomina" ? "/nomina/liquidar" : "/nomina";
 
-const contenedorStyle = {
-  maxWidth: 1100,
-  margin: "0 auto",
-  padding: 16,
-  position: "relative",
-  zIndex: 1,
-};
-
-const headerStyle = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  marginBottom: 20,
-};
-
-const gridStyle = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-  gap: 16,
-  paddingTop: 24,
-};
-
-const cardStyle = {
-  background: "#fff",
-  borderRadius: 12,
-  padding: 20,
-  boxShadow: "0 10px 24px rgba(0,0,0,0.08)",
-};
-
-const infoStyle = { fontSize: 14, color: "#555" };
-
-const footerStyle = {
-  position: "fixed",
-  left: 0,
-  right: 0,
-  bottom: 0,
-  background: "#fff",
-  borderTop: "1px solid rgba(0,0,0,0.06)",
-  padding: "10px 16px",
-  display: "flex",
-  justifyContent: "center",
-  zIndex: 2,
-};
-
-export default function ControlTecnologico() {
+export default function Dashboard() {
   const router = useRouter();
-
   const [rol, setRol] = useState("");
-  const [cargandoRol, setCargandoRol] = useState(true);
-
   const [pendientes, setPendientes] = useState([]);
-  const [mostrarTooltip, setMostrarTooltip] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  const [companyLogoUrl, setCompanyLogoUrl] = useState("");
+  // Modal contraseña
+  const [modalAbierto, setModalAbierto] = useState(false);
+  const [errorContrasena, setErrorContrasena] = useState("");
 
-  const spokePendingRef = useRef(false);
-  useEffect(() => {
-    spokePendingRef.current = false;
-  }, []);
-  useEffect(() => {
-    if (pendientes.length > 0 && !spokePendingRef.current) {
-      const t = setTimeout(() => {
-        try {
-          if (typeof window !== "undefined" && "speechSynthesis" in window) {
-            const msg = new SpeechSynthesisUtterance("Hay servicios pendientes por finalizar");
-            const voices = window.speechSynthesis.getVoices();
-            const es = voices.find((v) => (v.lang || "").toLowerCase().startsWith("es"));
-            if (es) msg.voice = es;
-            msg.rate = 1;
-            window.speechSynthesis.cancel();
-            window.speechSynthesis.speak(msg);
-          }
-        } catch {}
-        spokePendingRef.current = true;
-      }, 5000);
-      return () => clearTimeout(t);
-    }
-  }, [pendientes]);
-
-  const cerrarSesion = async () => {
-    const auth = getAuth();
-    await signOut(auth);
-    router.push("/login");
-  };
-
-  const guessCompanyLogo = (email) => {
-    if (!email) return "";
-    const domain = String(email.split("@")[1] || "").toLowerCase().trim();
-    if (!domain) return "";
-    const t = BRAND?.tenants?.[domain];
-    if (t?.logoUrl) return t.logoUrl;
-    return `/logos/${domain}.png`;
-  };
-
+  // Autenticación
   useEffect(() => {
     const auth = getAuth();
-    const unsubscribe = onAuthStateChanged(auth, async (u) => {
-      if (!u) {
-        setCompanyLogoUrl("");
-        router.push("/login");
-        return;
-      }
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (!user) { router.push("/login"); return; }
       try {
-        const r = await getUserRoleByUid(u.uid);
-        setRol(r);
-        setCargandoRol(false);
-        setCompanyLogoUrl(guessCompanyLogo(u.email));
-
-        try {
-          await addDoc(collection(db, "logins"), {
-            uid: u.uid,
-            email: u.email || "",
-            rol: r,
-            fecha: serverTimestamp(),
-          });
-        } catch {}
-      } catch (e) {
+        const userRole = await getUserRoleByUid(user.uid);
+        setRol(userRole);
+        await addDoc(collection(db, "logins"), {
+          uid: user.uid, email: user.email || "",
+          rol: userRole, fecha: serverTimestamp(),
+        });
+      } catch (error) {
+        console.error("Error:", error);
         setRol("usuario");
-        setCargandoRol(false);
+      } finally {
+        setLoading(false);
       }
     });
     return () => unsubscribe();
   }, [router]);
 
+  // Escuchar servicios pendientes
   useEffect(() => {
-    let timeoutId;
-    const logout = async () => {
-      try {
-        const auth = getAuth();
-        await signOut(auth);
-      } finally {
-        router.push("/login");
-      }
-    };
-    const resetTimer = () => {
-      if (timeoutId) clearTimeout(timeoutId);
-      timeoutId = setTimeout(logout, 5 * 60 * 1000);
-    };
-    const eventos = ["mousemove", "keydown", "click", "scroll"];
-    eventos.forEach((e) => window.addEventListener(e, resetTimer));
-    resetTimer();
-    return () => {
-      clearTimeout(timeoutId);
-      eventos.forEach((e) => window.removeEventListener(e, resetTimer));
-    };
-  }, [router]);
-
-  useEffect(() => {
-    const unsub = onSnapshot(collection(db, "solicitudes"), (snapshot) => {
-      const activos = snapshot.docs
+    const unsubscribe = onSnapshot(collection(db, "solicitudes"), (snapshot) => {
+      const solicitudes = snapshot.docs
         .map((d) => ({ id: d.id, ...d.data() }))
-        .filter(
-          (doc) =>
-            !doc.finalizado ||
-            String(doc.finalizado).toLowerCase().trim() !== "si"
-        );
-      setPendientes(activos);
+        .filter((d) => {
+          const finalizado = String(d.finalizado || "").toLowerCase().trim();
+          return finalizado !== "si" && finalizado !== "sí";
+        });
+      setPendientes(solicitudes);
     });
-    return () => unsub();
+    return () => unsubscribe();
   }, []);
 
-  const rutasAdmin = [
-    { ruta: "/servicios-tecnicos", label: "Servicios técnicos" },
-    { ruta: "/solicitudserviciotecnico", label: "Solicitud de servicio técnico" },
-    { ruta: "/hoja-vida", label: "Hoja de vida de equipos" },
-    { ruta: "/licencias", label: "Licencias / Software" },
-    { ruta: "/estadisticas", label: "Estadísticas" },
-    { ruta: "/capsulas-admin", label: "Cápsulas (admin)" },
-    { ruta: "/trazabilidad-logins", label: "Trazabilidad de logins" },
-    { ruta: "/control-de-contrasenas", label: "control de contraseñas" },
-    { ruta: "/inventario", label: "Inventario tecnologico" },
-    { ruta: "/registro-fotografico", label: "Registro fotografico" },
-    { ruta: "/usuario-aplicaciones-licencias", label: "TI Implementado" },
-  ];
-  const rutasUsuario = [{ ruta: "/solicitudserviciotecnico", label: "Solicitud de servicio técnico" }];
+  // Voz
+  useEffect(() => {
+    if (pendientes.length > 0) {
+      const timer = setTimeout(() => {
+        try {
+          if (typeof window !== "undefined" && "speechSynthesis" in window) {
+            const msg = new SpeechSynthesisUtterance(
+              `Hay ${pendientes.length} servicio${pendientes.length > 1 ? "s" : ""} pendiente${pendientes.length > 1 ? "s" : ""} por finalizar`
+            );
+            const voices = window.speechSynthesis.getVoices();
+            const esVoice = voices.find((v) => v.lang.toLowerCase().startsWith("es"));
+            if (esVoice) msg.voice = esVoice;
+            msg.rate = 1;
+            window.speechSynthesis.cancel();
+            window.speechSynthesis.speak(msg);
+          }
+        } catch (error) { console.error(error); }
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [pendientes.length]);
 
-  const rutasMostrar = rol === "admin" ? rutasAdmin : rutasUsuario;
-
-  const manejarNavegacion = (ruta) => router.push(ruta);
-
-  const handleLogoError = (e) => {
-    const curr = e.currentTarget.getAttribute("src") || "";
-    if (!curr.includes("nexoti-logo.png")) {
-      e.currentTarget.src = "/nexoti-logo.png?v=2";
-    } else if (!curr.includes("nexoti-logo.svg")) {
-      e.currentTarget.src = "/nexoti-logo.svg?v=2";
-    } else {
-      e.currentTarget.src = "/logo1.png";
+  // ── Clic en "Abrir Liquidación" ──────────────────────────────────────────
+  const abrirLiquidacion = async () => {
+    try {
+      const snap = await getDoc(doc(db, "configuracion", "accesos_modulos"));
+      const cfg = snap.exists() ? (snap.data()?.modulos?.["nomina-liquidar"] || {}) : {};
+      if (cfg.requiereContrasena && cfg.contrasena) {
+        setErrorContrasena("");
+        setModalAbierto(true);
+      } else {
+        router.push(destinoNomina(rol));
+      }
+    } catch {
+      setErrorContrasena("Error al verificar. Inténtalo de nuevo.");
     }
   };
 
-  const headerLogoSrc = BRAND.logoUrl || "/nexoti-logo.png?v=2";
-  const watermarkUrl = headerLogoSrc;
-
-  const watermarkStyle = {
-    position: "fixed",
-    inset: 0,
-    backgroundImage: `url(${watermarkUrl})`,
-    backgroundSize: "min(70vw, 900px)",
-    backgroundPosition: "center",
-    backgroundRepeat: "no-repeat",
-    backgroundAttachment: "fixed",
-    opacity: 0.06,
-    filter: "grayscale(100%)",
-    pointerEvents: "none",
-    zIndex: 0,
+  const confirmarContrasena = async (intento) => {
+    try {
+      const snap = await getDoc(doc(db, "configuracion", "accesos_modulos"));
+      const cfg = snap.exists() ? (snap.data()?.modulos?.["nomina-liquidar"] || {}) : {};
+      if (String(cfg.contrasena || "") === String(intento)) {
+        setModalAbierto(false);
+        setErrorContrasena("");
+        router.push(destinoNomina(rol));
+      } else {
+        setErrorContrasena("Contraseña incorrecta. Inténtalo de nuevo.");
+      }
+    } catch {
+      router.push(DESTINO_NOMINA);
+    }
   };
 
-  return (
-    <>
-      <div aria-hidden style={watermarkStyle} />
+  // Accesos rápidos
+  const todasLasRutas = [
+    { icon: Wrench,    label: "Servicios técnicos",   path: "/servicios-tecnicos",            color: "#0B3D91", roles: ["admin", "tecnico"] },
+    { icon: FileText,  label: "Solicitar servicio",    path: "/solicitudserviciotecnico",       color: "#00AEEF", roles: ["admin", "tecnico", "usuario", "nomina"] },
+    { icon: FileCheck, label: "Seguimiento códigos",  path: "/seguimiento-codigos-asociados",  color: "#06b6d4", roles: ["admin", "tecnico"] },
+    { icon: HardDrive, label: "Hoja de vida equipos", path: "/hoja-vida",                      color: "#10b981", roles: ["admin"] },
+    { icon: Book,      label: "Documentación TI",     path: "/documentacionti",                color: "#f59e0b", roles: ["admin", "auditor"] },
+    { icon: BarChart3, label: "Estadísticas",          path: "/estadisticas",                   color: "#8b5cf6", roles: ["admin", "auditor"] },
+    { icon: BarChart3, label: "Indicadores",           path: "/indicadores-gestion",            color: "#ec4899", roles: ["admin", "auditor"] },
+    { icon: BarChart3, label: "Informe de Gestión",    path: "/informe-gestion",                color: "#0ea5e9", roles: ["admin", "auditor"] },
+    { icon: Settings,  label: "Cápsulas",              path: "/capsulas-admin",                 color: "#ef4444", roles: ["admin"] },
+    { icon: Package,   label: "Licencias",             path: "/licencias",                      color: "#06b6d4", roles: ["admin"] },
+    { icon: Lock,      label: "Contraseñas",           path: "/control-de-contrasenas",         color: "#f97316", roles: ["admin"] },
+  ];
+  const rutasRapidas = todasLasRutas.filter(r => r.roles.includes(rol));
 
-      <div style={contenedorStyle}>
-        <header style={headerStyle}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            {/* <img src={headerLogoSrc} onError={handleLogoError} alt="Logo" style={{ height: 48 }} /> */}
-            <div>
-              <div
-                style={{
-                  fontSize: 24,
-                  fontWeight: 800,
-                  color: "#2c3e9e",
-                  lineHeight: "1.1",
-                }}
-              >
-                {BRAND.appName}
-              </div>
-              <div
-                style={{ fontSize: 14, color: "#4b5563", marginTop: 4 }}
-              >
-                {BRAND.subtitle}
-              </div>
-            </div>
-          </div>
-
-          {/* Botones: Acceso a nube (nueva pestaña) + Cerrar sesión */}
-          <div style={{ display: "flex", gap: 8 }}>
-            <a
-              href="http://logisportsas.ddns.net:5000/"
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                background: "#1e3a8a",
-                color: "#fff",
-                border: "none",
-                borderRadius: 8,
-                padding: "10px 14px",
-                cursor: "pointer",
-                display: "inline-block",
-                textDecoration: "none",
-              }}
-            >
-              Acceso a nube
-            </a>
-            <button
-              onClick={cerrarSesion}
-              style={{
-                background: "#ef4444",
-                color: "#fff",
-                border: "none",
-                borderRadius: 8,
-                padding: "10px 14px",
-                cursor: "pointer",
-              }}
-            >
-              Cerrar sesión
-            </button>
-          </div>
-        </header>
-
-        <div style={cardStyle}>
-          <div style={infoStyle}>
-            Bienvenido al panel principal. Selecciona una opción para continuar.
-          </div>
-
-          <div style={gridStyle}>
-            {rutasMostrar.map((item, i) => (
-              <button key={i} style={botonStyle} onClick={() => manejarNavegacion(item.ruta)}>
-                {item.label}
-              </button>
-            ))}
+  if (loading) {
+    return (
+      <LayoutWithSidebar>
+        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: "60vh" }}>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ width: "60px", height: "60px", border: "4px solid #e5e7eb", borderTop: "4px solid #0B3D91", borderRadius: "50%", animation: "spin 1s linear infinite", margin: "0 auto 1rem" }} />
+            <p style={{ color: "#6b7280", fontWeight: "600" }}>Cargando dashboard...</p>
           </div>
         </div>
+        <style jsx>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </LayoutWithSidebar>
+    );
+  }
 
-        {pendientes.length > 0 && (
-          <div
-            onMouseEnter={() => setMostrarTooltip(true)}
-            onMouseLeave={() => setMostrarTooltip(false)}
-            style={{
-              position: "fixed",
-              bottom: 54,
-              left: "50%",
-              transform: "translateX(-50%)",
-              zIndex: 1000,
-            }}
-          >
-            <div style={{ position: "relative", display: "inline-block" }}>
-              {mostrarTooltip && (
-                <div
-                  style={{
-                    position: "absolute",
-                    bottom: "calc(100% + 10px)",
-                    left: "50%",
-                    transform: "translateX(-50%)",
-                    background: "#111827",
-                    color: "#fff",
-                    padding: "6px 10px",
-                    borderRadius: 8,
-                    fontSize: 12,
-                    whiteSpace: "nowrap",
-                    boxShadow: "0 6px 16px rgba(0,0,0,0.2)",
-                  }}
-                >
-                  Servicios pendientes: coloca el cursor para ver detalles.
-                </div>
-              )}
+  return (
+    <LayoutWithSidebar>
+      <PageHeader 
+        titulo={`Bienvenido${rol === "admin" ? " - Administrador" : ""}`}
+        subtitulo="Panel de control tecnológico LOGISPORT"
+      />
 
-              <button
-                id="btn-pendientes"
-                style={{
-                  padding: "12px 20px",
-                  background: "#f59e0b",
-                  color: "#111827",
-                  border: "none",
-                  borderRadius: 10,
-                  fontWeight: "bold",
-                  cursor: "pointer",
-                  boxShadow: "0 8px 18px rgba(0,0,0,0.15)",
-                }}
-              >
-                🔔 {pendientes.length} Pendientes
-              </button>
-
-              {mostrarTooltip && (
-                <div
-                  style={{
-                    position: "absolute",
-                    bottom: "calc(100% + 12px)",
-                    left: "50%",
-                    transform: "translateX(-50%)",
-                    background: "#ffffff",
-                    color: "#111827",
-                    width: 320,
-                    maxHeight: 360,
-                    overflow: "auto",
-                    borderRadius: 10,
-                    border: "1px solid #e5e7eb",
-                    boxShadow: "0 12px 28px rgba(0,0,0,0.18)",
-                    padding: 10,
-                    fontSize: 13,
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                    <strong>Servicios pendientes</strong>
-                    <span
-                      style={{
-                        background: "#ef4444",
-                        color: "#fff",
-                        borderRadius: 999,
-                        padding: "0 8px",
-                        height: 22,
-                        minWidth: 22,
-                        display: "grid",
-                        placeItems: "center",
-                        fontSize: 12,
-                      }}
-                    >
-                      {pendientes.length}
-                    </span>
-                  </div>
-
-                  <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 8 }}>
-                    {pendientes.length === 0 && (
-                      <li style={{ color: "#6b7280" }}>No hay pendientes.</li>
-                    )}
-                    {pendientes.map((p) => (
-                      <li
-                        key={p.id}
-                        style={{
-                          background: "#f9fafb",
-                          border: "1px solid #eef2f7",
-                          borderRadius: 8,
-                          padding: "8px 10px",
-                        }}
-                      >
-                        <div style={{ fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                          {p?.nombre || p?.usuario || p?.cliente || "—"}
-                        </div>
-                        <div style={{ color: "#374151", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={p?.descripcion || p?.detalle || p?.asunto || ""}>
-                          {p?.descripcion || p?.detalle || p?.asunto || "(Sin descripción)"}
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
+      {/* ALERTAS PENDIENTES */}
+      {pendientes.length > 0 && ["admin", "tecnico"].includes(rol) && (
+        <div style={{ background: "linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)", border: "2px solid #f59e0b", borderRadius: "12px", padding: "1.25rem", marginBottom: "2rem", display: "flex", alignItems: "center", gap: "1rem", boxShadow: "0 4px 12px rgba(245,158,11,0.2)" }}>
+          <AlertCircle size={32} style={{ color: "#f59e0b", flexShrink: 0 }} />
+          <div style={{ flex: 1 }}>
+            <h3 style={{ margin: 0, fontSize: "1.25rem", fontWeight: "800", color: "#92400e" }}>
+              {pendientes.length} Servicio{pendientes.length > 1 ? "s" : ""} Pendiente{pendientes.length > 1 ? "s" : ""}
+            </h3>
+            <p style={{ margin: "0.25rem 0 0 0", color: "#78350f", fontWeight: "600" }}>Hay solicitudes que requieren atención</p>
           </div>
-        )}
+          <button onClick={() => router.push("/servicios-tecnicos")}
+            style={{ padding: "0.75rem 1.5rem", background: "#f59e0b", color: "#fff", border: "none", borderRadius: "8px", fontWeight: "700", cursor: "pointer" }}>
+            Ver Pendientes
+          </button>
+        </div>
+      )}
+
+      {/* STATS */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "1.5rem", marginBottom: "2rem" }}>
+        <StatCard icon={Clock}       label="Pendientes"     value={pendientes.length} color="#f59e0b" bgColor="#fef3c7" />
+        <StatCard icon={CheckCircle} label="Sistema Activo" value="Operativo"         color="#10b981" bgColor="#d1fae5" isText />
+        <StatCard icon={TrendingUp}  label="Estado"         value="Óptimo"            color="#0B3D91" bgColor="#dbeafe" isText />
       </div>
 
-      <footer style={footerStyle}>
-        <span translate="no">© 2025 Derechos reservados - Alexander Borrero</span>
-      </footer>
-    </>
+      {/* ── ACCESO DIRECTO LIQUIDAR NÓMINA ── visible para admin */}
+      {["admin", "admin_nomina", "nomina"].includes(rol) && (
+        <div style={{
+          marginBottom: "1.5rem",
+          background: "linear-gradient(135deg, #0B3D91 0%, #00AEEF 100%)",
+          borderRadius: "16px", padding: "1.5rem 2rem",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          flexWrap: "wrap", gap: "1rem",
+          boxShadow: "0 8px 24px rgba(11,61,145,0.3)",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+            <div style={{ width: "56px", height: "56px", borderRadius: "14px", background: "rgba(255,255,255,0.2)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <DollarSign size={30} color="#fff"/>
+            </div>
+            <div>
+              <h3 style={{ margin: 0, color: "#fff", fontWeight: "800", fontSize: "1.2rem" }}>💰 Liquidar Nómina</h3>
+              <p style={{ margin: 0, color: "rgba(255,255,255,0.8)", fontSize: "0.85rem" }}>
+                {rol === "nomina" ? "Ir directamente al módulo de liquidación" : "Módulo de liquidación y cálculo de nómina LOGISPORT"}
+              </p>
+            </div>
+          </div>
+          <button onClick={abrirLiquidacion}
+            style={{
+              padding: "0.9rem 2rem", background: "#fff",
+              color: "#0B3D91", border: "none", borderRadius: "12px",
+              fontWeight: "800", cursor: "pointer", fontSize: "1rem",
+              boxShadow: "0 4px 12px rgba(0,0,0,0.2)", transition: "transform 0.15s",
+            }}
+            onMouseEnter={e => e.currentTarget.style.transform = "scale(1.04)"}
+            onMouseLeave={e => e.currentTarget.style.transform = "scale(1)"}
+          >
+            Abrir Liquidación →
+          </button>
+        </div>
+      )}
+
+      {/* ACCESOS RÁPIDOS */}
+      <div style={{ background: "#fff", borderRadius: "16px", padding: "2rem", boxShadow: "0 4px 12px rgba(0,0,0,0.05)", border: "1px solid #e5e7eb" }}>
+        <h2 style={{ margin: "0 0 1.5rem 0", fontSize: "1.5rem", fontWeight: "800", color: "#0B3D91" }}>Accesos Rápidos</h2>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "1rem" }}>
+          {rutasRapidas.map((ruta, index) => (
+            <button key={index} onClick={() => router.push(ruta.path)}
+              style={{ padding: "1.25rem", background: "#fff", border: `2px solid ${ruta.color}15`, borderRadius: "12px", cursor: "pointer", transition: "all 0.2s", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.75rem", textAlign: "center", boxShadow: "0 2px 8px rgba(0,0,0,0.05)" }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = ruta.color; e.currentTarget.style.background = `${ruta.color}08`; e.currentTarget.style.transform = "translateY(-4px)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = `${ruta.color}15`; e.currentTarget.style.background = "#fff"; e.currentTarget.style.transform = "translateY(0)"; }}
+            >
+              <div style={{ width: "48px", height: "48px", borderRadius: "12px", background: `${ruta.color}15`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <ruta.icon size={24} style={{ color: ruta.color }} />
+              </div>
+              <span style={{ fontWeight: "700", color: "#1f2937", fontSize: "0.95rem", lineHeight: 1.3 }}>{ruta.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* INFORMACIÓN */}
+      <div style={{ marginTop: "2rem", background: "linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)", borderRadius: "12px", padding: "1.5rem", border: "1px solid #0B3D9130" }}>
+        <p style={{ margin: 0, color: "#0B3D91", fontWeight: "600", textAlign: "center" }}>
+          Sistema de Control Tecnológico · {BRAND.clientName} · {new Date().getFullYear()}
+        </p>
+      </div>
+
+      {/* MODAL CONTRASEÑA */}
+      <ModalContrasena
+        abierto={modalAbierto}
+        modulo="Liquidar Nómina"
+        onConfirmar={confirmarContrasena}
+        onCancelar={() => { setModalAbierto(false); setErrorContrasena(""); }}
+        error={errorContrasena}
+      />
+
+      <style jsx>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </LayoutWithSidebar>
   );
 }
 
-const botonStyle = {
-  backgroundColor: "#3498db",
-  color: "white",
-  padding: "12px",
-  borderRadius: "8px",
-  border: "none",
-  boxShadow: "0 2px 8px rgba(0, 0, 0, 0.2)",
-  cursor: "pointer",
-};
+function StatCard({ icon: Icon, label, value, color, bgColor, isText = false }) {
+  return (
+    <div style={{ background: "#fff", borderRadius: "12px", padding: "1.5rem", border: `1px solid ${color}20`, boxShadow: "0 2px 8px rgba(0,0,0,0.05)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+        <div style={{ width: "48px", height: "48px", borderRadius: "10px", background: bgColor, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <Icon size={24} style={{ color }} />
+        </div>
+        <div>
+          <div style={{ fontSize: isText ? "1.25rem" : "2rem", fontWeight: "800", color: "#1f2937", lineHeight: 1 }}>{value}</div>
+          <div style={{ fontSize: "0.875rem", color: "#6b7280", marginTop: "0.25rem", fontWeight: "600" }}>{label}</div>
+        </div>
+      </div>
+    </div>
+  );
+}

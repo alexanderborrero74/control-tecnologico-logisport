@@ -3,6 +3,8 @@ import { useState, useEffect, useMemo } from "react";
 import { db } from "@/firebase/firebaseConfig";
 import { collection, addDoc, getDocs, updateDoc, deleteDoc, doc } from "firebase/firestore";
 import { USUARIOS_BASE } from "@/utils/usuarios-base";
+import LayoutWithSidebar from "@/components/LayoutWithSidebar";
+import PageHeader from "@/components/PageHeader";
 
 // Presets como en Hoja de Vida
 const CARGO_PRESETS = [
@@ -158,7 +160,9 @@ export default function UsuarioAplicacionesLicencias() {
   const todosLosCamposCompletos = headers.every((key) => formData[key] && String(formData[key]).trim() !== "");
 
   return (
-    <div style={{ padding: 20, fontFamily: "Arial, sans-serif" }}>
+    <LayoutWithSidebar>
+      <PageHeader titulo="Usuario Aplicaciones y Licencias" />
+      <div style={{ padding: 20, fontFamily: "Arial, sans-serif" }}>
       {/* Encabezado estilo Hoja de Vida */}
       <div
         style={{
@@ -327,6 +331,7 @@ export default function UsuarioAplicacionesLicencias() {
         ⬅ Regresar
       </button>
     </div>
+    </LayoutWithSidebar>
   );
 }
 

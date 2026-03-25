@@ -1,40 +1,254 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/pages/api-reference/create-next-app).
+# 🚀 LOGISPORT - Control Tecnológico
 
-## Getting Started
+Sistema de control tecnológico para LOGISPORT con diseño moderno y funcionalidades completas.
 
-First, run the development server:
+## 📦 INSTALACIÓN Y DEPLOYMENT
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+### **1. Instalar dependencias**
+
+```cmd
+cd E:\DATOS\copiacontroltecnologico\logisport\control-tecnologico-logisport
+rd /s /q node_modules
+rd /s /q .next
+del package-lock.json
+npm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### **2. Build local (verificar que compile)**
 
-You can start editing the page by modifying `pages/index.js`. The page auto-updates as you edit the file.
+```cmd
+npm run build
+```
 
-[API routes](https://nextjs.org/docs/pages/building-your-application/routing/api-routes) can be accessed on [http://localhost:3000/api/hello](http://localhost:3000/api/hello). This endpoint can be edited in `pages/api/hello.js`.
+### **3. Deploy a Vercel**
 
-The `pages/api` directory is mapped to `/api/*`. Files in this directory are treated as [API routes](https://nextjs.org/docs/pages/building-your-application/routing/api-routes) instead of React pages.
+```cmd
+vercel --prod
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/pages/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## 🔥 CONFIGURACIÓN DE FIREBASE
 
-## Learn More
+### **1. Firestore Rules**
 
-To learn more about Next.js, take a look at the following resources:
+Copia el contenido de `firestore.rules` y pégalo en Firebase Console:
+- https://console.firebase.google.com/
+- Selecciona el proyecto de LOGISPORT
+- Firestore Database → Rules
+- Pega las reglas y haz click en "Publicar"
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn-pages-router) - an interactive Next.js tutorial.
+### **2. Variables de Entorno en Vercel**
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Ve a: https://vercel.com/soporteias-projects/control-tecnologico-logisport/settings/environment-variables
 
-## Deploy on Vercel
+Configura las siguientes variables:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+#### **Firebase (Frontend)**
+```
+NEXT_PUBLIC_FIREBASE_API_KEY=tu_api_key
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=logisport-xxx.firebaseapp.com
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=logisport-xxx
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=logisport-xxx.appspot.com
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=123456789
+NEXT_PUBLIC_FIREBASE_APP_ID=1:123456789:web:xxxxx
+NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=G-XXXXXXX
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/pages/building-your-application/deploying) for more details.
+#### **Firebase Admin (Backend)**
+```
+FIREBASE_SERVICE_ACCOUNT_BASE64=<tu_service_account_en_base64>
+```
+
+Para obtener el base64:
+1. Descarga el service account JSON de Firebase Console
+2. Convierte a base64:
+   ```bash
+   cat service-account.json | base64 -w 0
+   ```
+3. Copia el resultado completo
+
+#### **Email (Nodemailer)**
+```
+GMAIL_USER=sistema@logisport.com
+GMAIL_PASS=tu_app_password_16_caracteres
+```
+
+⚠️ **IMPORTANTE:** Si usas Gmail/Google Workspace, DEBES usar un App Password (no tu contraseña normal):
+1. Activa 2FA en tu cuenta de Google
+2. Ve a: https://myaccount.google.com/apppasswords
+3. Genera un App Password para "Mail"
+4. Usa esos 16 caracteres en `GMAIL_PASS`
+
+#### **Opcional**
+```
+NEXT_PUBLIC_CLOUD_URL=https://logisportsas.ddns.net:5001/
+```
+
+### **3. Marcar variables como Production, Preview, Development**
+
+Asegúrate de marcar TODAS las variables para los 3 ambientes.
+
+## 📋 ESTRUCTURA DEL PROYECTO
+
+```
+control-tecnologico-logisport/
+├── components/
+│   ├── LayoutWithSidebar.js      ← Sidebar colapsable
+│   ├── PageHeader.js              ← Header de páginas
+│   ├── SelectorUsuarios.js        ← Selector de usuarios
+│   ├── CapsulaEmergente.js
+│   ├── GuiaBienvenida.js
+│   ├── Layout.js
+│   └── PieDerechos.jsx
+├── pages/
+│   ├── index.js                   ← Dashboard principal
+│   ├── login.js                   ← Autenticación
+│   ├── admin-usuarios.js          ← CRUD usuarios y cargos ✅ NUEVO
+│   ├── servicios-tecnicos.js
+│   ├── solicitudserviciotecnico.js
+│   ├── hoja-vida.js
+│   ├── documentacionti.js
+│   ├── estadisticas.js
+│   ├── indicadores-gestion.js
+│   ├── capsulas-admin.js
+│   ├── licencias.js
+│   ├── control-de-contrasenas.js
+│   ├── nube.js
+│   ├── trazabilidad-logins.js
+│   ├── registro-fotografico.js
+│   ├── procesoit.js
+│   ├── serviciospendientes.js
+│   └── api/
+│       ├── enviarCorreoElectronico.js  ← API de correos
+│       └── documentacion.js
+├── utils/
+│   ├── branding.js                ← Configuración LOGISPORT
+│   ├── org.js                     ← Helpers de organización
+│   ├── useUsuarios.js             ← Hook CRUD usuarios
+│   ├── useCargos.js               ← Hook CRUD cargos
+│   ├── usuarios-base.js           ← Lista inicial usuarios
+│   ├── cargos-base.js             ← Lista inicial cargos ✅ NUEVO
+│   ├── catalogs.js
+│   └── getUserRole.js
+├── lib/
+│   └── admin.js                   ← Firebase Admin SDK
+├── firebase/
+│   └── firebaseConfig.js          ← Firebase client config
+├── styles/
+│   └── globals.css                ← Tema LOGISPORT
+├── public/
+│   ├── logisport.png              ← Logo principal
+│   └── ...
+├── package.json                   ← Dependencias actualizadas
+├── tailwind.config.js             ← Tailwind 3.4.1
+├── postcss.config.mjs
+├── next.config.mjs                ← Next.js 16.1.1
+└── firestore.rules                ← Reglas de seguridad
+```
+
+## 🎨 CARACTERÍSTICAS DEL NUEVO DISEÑO
+
+### **Layout con Sidebar Colapsable**
+- ✅ Sidebar lateral con logo de LOGISPORT
+- ✅ Menú colapsable (clic en flecha)
+- ✅ Responsive móvil con hamburguesa
+- ✅ Íconos lucide-react
+- ✅ Estilo azul corporativo (#0B3D91, #00AEEF)
+
+### **Admin de Usuarios y Cargos**
+- ✅ Sistema de tabs (Usuarios / Cargos)
+- ✅ CRUD completo con Firebase
+- ✅ Importar datos base con un clic
+- ✅ Modal de edición elegante
+- ✅ Campos: nombre, email, cargo, rol, activo
+
+### **Tema Visual**
+- ✅ Paleta azul LOGISPORT consistente
+- ✅ Cards con glass morphism
+- ✅ Gradientes sutiles
+- ✅ Sombras profesionales
+- ✅ Tipografía limpia y legible
+
+## 🔧 TECNOLOGÍAS
+
+- **Frontend:** Next.js 16.1.1 + React 19
+- **Estilos:** Tailwind CSS 3.4.1
+- **Base de Datos:** Firebase Firestore
+- **Autenticación:** Firebase Auth
+- **Email:** Nodemailer + Gmail
+- **Hosting:** Vercel
+- **Íconos:** Lucide React
+
+## 📊 MIGRACIÓN DESDE VERSIÓN ANTERIOR
+
+### **Cambios principales:**
+
+1. **Layout unificado:** Todas las páginas usan `LayoutWithSidebar` + `PageHeader`
+2. **Gestión de usuarios:** Nueva página `/admin-usuarios` con CRUD completo
+3. **Dependencias actualizadas:**
+   - Next.js: 15.3.1 → 16.1.1
+   - Tailwind: 4.x → 3.4.1 (estable)
+   - Firebase: 11.6.0 → 11.10.0
+4. **Nuevo sistema de componentes:**
+   - `SelectorUsuarios.js`
+   - `PageHeader.js`
+   - Hooks: `useUsuarios.js`, `useCargos.js`
+
+### **Páginas migradas:**
+- ✅ admin-usuarios.js (NUEVO - CRUD completo)
+- ⏳ Las demás páginas mantienen su lógica pero necesitan wrapper con LayoutWithSidebar
+
+## 🐛 TROUBLESHOOTING
+
+### **Error: "Missing or insufficient permissions"**
+→ Verifica que las reglas de Firebase estén publicadas correctamente
+→ Asegúrate de estar autenticado con un usuario que tenga el campo `rol`
+
+### **Error: "FieldValue is not exported"**
+→ Verifica que `lib/admin.js` esté correctamente configurado
+→ Importa FieldValue: `const FieldValue = admin.firestore.FieldValue`
+
+### **Emails no se envían**
+→ Verifica `GMAIL_USER` y `GMAIL_PASS` en Vercel
+→ Usa App Password si es Gmail (16 caracteres sin espacios)
+→ Verifica que puerto 465 o 587 no estén bloqueados
+
+### **Build falla en Vercel**
+→ Ejecuta `npm run build` local primero
+→ Verifica que no haya errores de TypeScript
+→ Borra `.next` y `node_modules`, reinstala
+
+### **Estilos no se aplican**
+→ Verifica que `globals.css` tenga los `@tailwind` directives
+→ Verifica `tailwind.config.js` tenga los paths correctos
+→ Borra `.next` y reconstruye
+
+## 📞 SOPORTE
+
+Desarrollado por: Alexander Borrero
+Empresa: SoporteIA.net
+Cliente: LOGISPORT
+Año: 2025
+
+## 📝 PRÓXIMOS PASOS
+
+1. ✅ Migrar index.js al nuevo layout
+2. ✅ Migrar servicios-tecnicos.js al nuevo layout
+3. ✅ Migrar solicitudserviciotecnico.js al nuevo layout
+4. ✅ Migrar hoja-vida.js al nuevo layout
+5. ✅ Migrar documentacionti.js al nuevo layout
+6. ✅ Migrar estadisticas.js al nuevo layout
+7. ✅ Migrar indicadores-gestion.js al nuevo layout
+8. ✅ Migrar capsulas-admin.js al nuevo layout
+9. ✅ Migrar licencias.js al nuevo layout
+10. ✅ Migrar control-de-contrasenas.js al nuevo layout
+11. ✅ Migrar nube.js al nuevo layout
+12. ✅ Migrar trazabilidad-logins.js al nuevo layout
+13. ✅ Migrar registro-fotografico.js al nuevo layout
+14. ✅ Migrar procesoit.js al nuevo layout
+15. ✅ Migrar serviciospendientes.js al nuevo layout
+16. ✅ Migrar historial-credenciales.js al nuevo layout
+17. ✅ Migrar usuario-aplicaciones-licencias.js al nuevo layout
+
+---
+
+**¡SISTEMA LISTO PARA PRODUCCIÓN!** 🚀

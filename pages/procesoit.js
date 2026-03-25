@@ -1,5 +1,7 @@
 import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
+import LayoutWithSidebar from "@/components/LayoutWithSidebar";
+import PageHeader from "@/components/PageHeader";
 
 // Función para parsear la tabla desde el HTML
 const parseHTMLTable = (htmlString) => {
@@ -31,7 +33,9 @@ export default function Procesoit() {
   }, []);
 
   return (
-    <div style={{ padding: "24px", paddingBottom: "80px" }}>
+    <LayoutWithSidebar>
+      <PageHeader titulo="parse H T M L Table" />
+  <div style={{ padding: "24px", paddingBottom: "80px" }}>
       {/* Título fijo */}
       <div style={{
         position: "sticky",
@@ -77,25 +81,9 @@ export default function Procesoit() {
         <p style={{ marginTop: "20px" }}>Cargando datos de implementación...</p>
       )}
 
-      {/* Botón fijo en esquina inferior izquierda */}
-      <button
-        style={{
-          position: "fixed",
-          bottom: "20px",
-          left: "20px",
-          backgroundColor: "#2980b9",
-          color: "white",
-          padding: "10px 20px",
-          border: "none",
-          borderRadius: "5px",
-          cursor: "pointer",
-          zIndex: 1000
-        }}
-        onClick={() => router.push("/")}
-      >
-        ⬅ Regresar
-      </button>
+
     </div>
+  </LayoutWithSidebar>
   );
 }
 

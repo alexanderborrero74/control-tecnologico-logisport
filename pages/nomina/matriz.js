@@ -10,6 +10,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@/firebase/firebaseConfig";
 import { getUserRoleByUid } from "@/utils/getUserRole";
+import { usePermisosNomina } from "@/utils/usePermisosNomina";
 import LayoutWithSidebar from "@/components/LayoutWithSidebar";
 import { calcularNetoOperacion, formatCOP } from "@/utils/nominaCalculos";
 import {
@@ -38,7 +39,8 @@ const CLIENTES_BASE = [
 const novLabelStatic = (cod) => cod; // fallback minimal — se sobreescribe en render con novMapState
 
 const hoy         = () => new Date().toISOString().split("T")[0];
-const primerDiaMes= () => { const d=new Date(); return new Date(d.getFullYear(),d.getMonth(),1).toISOString().split("T")[0]; };
+const primerDiaMes  = () => { const d=new Date(); return new Date(d.getFullYear(),d.getMonth(),1).toISOString().split("T")[0]; };
+const ultimoDiaMes  = () => { const d=new Date(); return new Date(d.getFullYear(),d.getMonth()+1,0).toISOString().split("T")[0]; };
 const docIdReg    = (cId,a,m) => `${cId}_${a}_${String(m).padStart(2,"0")}`;
 
 // ── Fallback mínimo — solo se usa si Firestore está vacío
@@ -52,7 +54,7 @@ const NOVEDADES_DEFAULT = [
 const FORM_INIT = {
   cuadrillaId:"", cuadrillaNombre:"", cuadrillaPersonas:0,
   fecha:hoy(), servicioId:"", servicioNombre:"", servicioValor:0,
-  cantidad:1, personas:1, netoCalculado:0,
+  cantidad:"", personas:1, netoCalculado:0,
   tipoSeleccion:"",
   motivo:"",
   // Campos para modo trabajador individual con horas extras
@@ -85,8 +87,27 @@ const CIAMSA_FORM_INIT = {
   motivo: "",    // novedad del trabajador ese día (opcional)
 };
 
+// Genera los días Lun-Sáb de una cuadrilla semanal como entradas individuales
+function diasDeCuadrillaSemanal(c) {
+  if (c.tipo !== "semanal" || !c.semanaDesde || !c.semanaHasta) return [];
+  const LETRAS = ["Lun","Mar","Mié","Jue","Vie","Sáb"];
+  const MESES_CORTO = ["","Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+  const dias = [];
+  const ini = new Date(c.semanaDesde + "T12:00:00");
+  for (let i = 0; i <= 5; i++) {
+    const d = new Date(ini); d.setDate(ini.getDate() + i);
+    const fecha = d.toISOString().split("T")[0];
+    dias.push({
+      id: `semanal_dia_${c.id}_${fecha.replace(/-/g,"")}`,
+      cuadId: c.id, cuadNombre: c.nombre, fecha,
+      label: `${LETRAS[i]} ${parseInt(fecha.split("-")[2])}/${MESES_CORTO[parseInt(fecha.split("-")[1])]}`,
+    });
+  }
+  return dias;
+}
+
 // ── Selector con búsqueda para Cuadrilla / Trabajador Individual ──
-function SearchableCuadrillaSelect({ cuadrillas, trabajadores, value, onChange, color }) {
+function SearchableCuadrillaSelect({ cuadrillas, trabajadores, value, onChange, color, onFechaChange, diasSeleccionados, onDiasChange }) {
   const [query, setQuery]   = useState("");
   const [open,  setOpen]    = useState(false);
   const wrapRef             = useRef(null);
@@ -100,10 +121,22 @@ function SearchableCuadrillaSelect({ cuadrillas, trabajadores, value, onChange, 
 
   // Etiqueta del valor seleccionado
   const etiqueta = () => {
+    // MODO MULTI-DÍA: mostrar resumen de días seleccionados
+    if (diasSeleccionados?.length > 0) {
+      const cuad = cuadrillas.find(c => c.id === diasSeleccionados[0].cuadId);
+      const labels = diasSeleccionados.map(d => d.label).join(", ");
+      return `📅 ${cuad?.nombre||"Semanal"} · ${labels} (${diasSeleccionados.length} día${diasSeleccionados.length!==1?"s":""})`;    }
     if (!value) return null;
     if (value.startsWith("trab_")) {
       const t = trabajadores.find(x => x.id === value.replace("trab_",""));
       return t ? `👤 ${t.nombre}${t.cedula ? ` · ${t.cedula}` : ""}` : value;
+    }
+    if (value.startsWith("semanal_dia_")) {
+      for (const c of cuadrillas) {
+        const dia = diasDeCuadrillaSemanal(c).find(d => d.id === value);
+        if (dia) return `📅 ${c.nombre} · ${dia.label}`;
+      }
+      return value;
     }
     const c = cuadrillas.find(x => x.id === value);
     return c ? `👥 Cuadrilla ${c.nombre} · ${c.miembros?.length||0} miembros` : value;
@@ -118,11 +151,22 @@ function SearchableCuadrillaSelect({ cuadrillas, trabajadores, value, onChange, 
       )
     : trabajadores;
 
-  const cuadFiltradas = q
-    ? cuadrillas.filter(c => c.nombre?.toLowerCase().includes(q))
-    : cuadrillas;
+  // Cuadrillas normales (no semanales)
+  const cuadNormales = cuadrillas
+    .filter(c => c.tipo !== "semanal")
+    .filter(c => !q || c.nombre?.toLowerCase().includes(q));
 
-  const select = (val) => { onChange(val); setOpen(false); setQuery(""); };
+  // Cuadrillas semanales con sus días
+  const cuadSemanales = cuadrillas
+    .filter(c => c.tipo === "semanal")
+    .filter(c => !q || c.nombre?.toLowerCase().includes(q) ||
+      diasDeCuadrillaSemanal(c).some(d => d.label.toLowerCase().includes(q)));
+
+  const select = (val, fecha) => {
+    onChange(val);
+    if (fecha && onFechaChange) onFechaChange(fecha);
+    setOpen(false); setQuery("");
+  };
 
   return (
     <div ref={wrapRef} style={{position:"relative"}}>
@@ -164,54 +208,159 @@ function SearchableCuadrillaSelect({ cuadrillas, trabajadores, value, onChange, 
                 autoFocus
                 value={query}
                 onChange={e => setQuery(e.target.value)}
-                placeholder="Buscar por nombre o cédula..."
-                style={{
-                  width:"100%",padding:"0.55rem 0.7rem 0.55rem 2rem",
+                placeholder="Buscar cuadrilla, día o trabajador..."
+                style={{width:"100%",padding:"0.55rem 0.7rem 0.55rem 2rem",
                   border:"1.5px solid #e2e8f0",borderRadius:"8px",
-                  fontSize:"0.88rem",outline:"none",boxSizing:"border-box",
-                  background:"#fff",
-                }}
+                  fontSize:"0.88rem",outline:"none",boxSizing:"border-box",background:"#fff"}}
                 onClick={e => e.stopPropagation()}
               />
             </div>
           </div>
 
           {/* Lista */}
-          <div style={{maxHeight:"280px",overflowY:"auto"}}>
+          <div style={{maxHeight:"340px",overflowY:"auto"}}>
             {/* Opción vacía */}
             {!q && (
-              <div
-                onClick={() => select("")}
+              <div onClick={() => select("")}
                 style={{padding:"0.55rem 0.9rem",fontSize:"0.85rem",color:"#94a3b8",cursor:"pointer",
-                  background:value===""?"#eff6ff":"transparent",
-                  borderBottom:"1px solid #f8fafc"}}
-              >
+                  background:value===""?"#eff6ff":"transparent",borderBottom:"1px solid #f8fafc"}}>
                 — Ninguna —
               </div>
             )}
 
-            {/* Cuadrillas */}
-            {cuadFiltradas.length > 0 && (
+            {/* CUADRILLAS SEMANALES — checkboxes multi-selección por día */}
+            {cuadSemanales.length > 0 && (
+              <>
+                <div style={{padding:"0.35rem 0.75rem",fontSize:"0.68rem",fontWeight:"800",
+                  color:"#059669",textTransform:"uppercase",letterSpacing:"0.07em",
+                  background:"#f0fdf4",borderBottom:"1px solid #d1fae5",position:"sticky",top:0,
+                  display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                  <span>📅 CUADRILLAS SEMANALES — marca los días</span>
+                  {diasSeleccionados?.length > 0 && (
+                    <button onClick={e=>{e.stopPropagation();setOpen(false);}}
+                      style={{background:"#059669",color:"#fff",border:"none",borderRadius:"6px",
+                        padding:"2px 10px",cursor:"pointer",fontWeight:"800",fontSize:"0.68rem"}}>
+                      ✔ Confirmar {diasSeleccionados.length} día{diasSeleccionados.length!==1?"s":""}
+                    </button>
+                  )}
+                </div>
+                {cuadSemanales.map(c => {
+                  const todosLosDias = diasDeCuadrillaSemanal(c);
+                  const diasFiltrados = todosLosDias
+                    .filter(d => !q || d.label.toLowerCase().includes(q) || c.nombre.toLowerCase().includes(q));
+                  const diasDeEstaCuad = (diasSeleccionados||[]).filter(d => d.cuadId === c.id);
+                  const todosSelec = todosLosDias.length > 0 && todosLosDias.every(d => (diasSeleccionados||[]).some(s=>s.id===d.id));
+                  const toggleDia = (dia, e) => {
+                    e.stopPropagation();
+                    const yaSelec = (diasSeleccionados||[]).some(s => s.id === dia.id);
+                    let nuevos;
+                    if (yaSelec) {
+                      nuevos = (diasSeleccionados||[]).filter(s => s.id !== dia.id);
+                    } else {
+                      // Limpiar días de OTRAS cuadrillas al seleccionar una nueva
+                      const deOtrasCuad = (diasSeleccionados||[]).filter(s => s.cuadId !== dia.cuadId);
+                      nuevos = [...deOtrasCuad, dia];
+                    }
+                    onDiasChange?.(nuevos);
+                    // Setear cuadrillaId en el form al seleccionar el primer día
+                    if (!yaSelec) onChange(c.id);
+                  };
+                  const toggleTodos = (e) => {
+                    e.stopPropagation();
+                    const deOtrasCuad = (diasSeleccionados||[]).filter(s => s.cuadId !== c.id);
+                    if (todosSelec) {
+                      onDiasChange?.(deOtrasCuad);
+                      if (deOtrasCuad.length === 0) onChange("");
+                    } else {
+                      onDiasChange?.([...deOtrasCuad, ...todosLosDias]);
+                      onChange(c.id);
+                    }
+                  };
+                  return (
+                    <div key={c.id}>
+                      {/* Header cuadrilla con btn Todos/Ninguno */}
+                      <div style={{padding:"0.4rem 0.75rem 0.25rem",fontSize:"0.78rem",fontWeight:"800",
+                        color:"#059669",background:"#f9fafb",borderBottom:"1px solid #f1f5f9",
+                        display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                        <span>👥 {c.nombre}
+                          <span style={{marginLeft:"0.4rem",fontSize:"0.67rem",color:"#94a3b8",fontWeight:"400"}}>
+                            {c.semanaDesde} → {c.semanaHasta}
+                          </span>
+                        </span>
+                        <div style={{display:"flex",gap:"0.3rem"}}>
+                          <button onClick={toggleTodos}
+                            style={{background:todosSelec?"#dc2626":"#059669",color:"#fff",border:"none",
+                              borderRadius:"5px",padding:"1px 8px",cursor:"pointer",fontWeight:"700",fontSize:"0.67rem"}}>
+                            {todosSelec?"Ninguno":"Todos"}
+                          </button>
+                          {diasDeEstaCuad.length > 0 && !todosSelec && (
+                            <span style={{fontSize:"0.67rem",color:"#059669",fontWeight:"700",alignSelf:"center"}}>
+                              {diasDeEstaCuad.length}/{todosLosDias.length}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {/* Checkboxes de días */}
+                      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"2px",
+                        padding:"0.35rem 0.6rem",borderBottom:"1px solid #f1f5f9"}}>
+                        {diasFiltrados.map(d => {
+                          const selec = (diasSeleccionados||[]).some(s => s.id === d.id);
+                          return (
+                            <div key={d.id} onClick={e => toggleDia(d, e)}
+                              style={{padding:"0.42rem 0.5rem",borderRadius:"8px",cursor:"pointer",
+                                display:"flex",alignItems:"center",gap:"0.3rem",
+                                background:selec?"#f0fdf4":"#fff",
+                                border:`1.5px solid ${selec?"#059669":"#e2e8f0"}`,
+                                transition:"all 0.1s"}}
+                              onMouseEnter={e=>{if(!selec)e.currentTarget.style.background="#f0fdf4";}}
+                              onMouseLeave={e=>{if(!selec)e.currentTarget.style.background="#fff";}}>
+                              <div style={{width:"14px",height:"14px",borderRadius:"4px",flexShrink:0,
+                                border:`2px solid ${selec?"#059669":"#cbd5e1"}`,
+                                background:selec?"#059669":"#fff",
+                                display:"flex",alignItems:"center",justifyContent:"center"}}>
+                                {selec&&<CheckCircle size={9} color="#fff" strokeWidth={3}/>}
+                              </div>
+                              <span style={{fontWeight:selec?"800":"600",fontSize:"0.73rem",
+                                color:selec?"#065f46":"#374151"}}>{d.label}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+                {/* Botón confirmar al final si hay días seleccionados */}
+                {diasSeleccionados?.length > 0 && (
+                  <div style={{padding:"0.5rem 0.75rem",background:"#f0fdf4",borderBottom:"1px solid #d1fae5"}}>
+                    <button onClick={e=>{e.stopPropagation();setOpen(false);}}
+                      style={{width:"100%",background:"#059669",color:"#fff",border:"none",
+                        borderRadius:"8px",padding:"0.5rem",cursor:"pointer",fontWeight:"800",fontSize:"0.85rem",
+                        display:"flex",alignItems:"center",justifyContent:"center",gap:"0.4rem"}}>
+                      <CheckCircle size={14}/>
+                      Confirmar {diasSeleccionados.length} día{diasSeleccionados.length!==1?"s":""} seleccionado{diasSeleccionados.length!==1?"s":""}
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* CUADRILLAS PERMANENTES */}
+            {cuadNormales.length > 0 && (
               <>
                 <div style={{padding:"0.35rem 0.75rem",fontSize:"0.68rem",fontWeight:"800",
                   color:"#94a3b8",textTransform:"uppercase",letterSpacing:"0.07em",
-                  background:"#f8fafc",borderBottom:"1px solid #f1f5f9",
-                  position:"sticky",top:0}}>
-                  👥 CUADRILLAS
+                  background:"#f8fafc",borderBottom:"1px solid #f1f5f9",position:"sticky",top:0}}>
+                  👥 CUADRILLAS PERMANENTES
                 </div>
-                {cuadFiltradas.map(c => (
+                {cuadNormales.map(c => (
                   <div key={c.id} onClick={() => select(c.id)}
-                    style={{
-                      padding:"0.55rem 0.9rem",fontSize:"0.88rem",cursor:"pointer",
+                    style={{padding:"0.55rem 0.9rem",fontSize:"0.88rem",cursor:"pointer",
                       background:value===c.id?"#eff6ff":"transparent",
                       color:value===c.id?"#0B3D91":"#1e293b",
                       fontWeight:value===c.id?"700":"500",
-                      borderBottom:"1px solid #f8fafc",
-                      transition:"background 0.1s",
-                    }}
-                    onMouseEnter={e => { if(value!==c.id) e.currentTarget.style.background="#f0f9ff"; }}
-                    onMouseLeave={e => { if(value!==c.id) e.currentTarget.style.background="transparent"; }}
-                  >
+                      borderBottom:"1px solid #f8fafc",transition:"background 0.1s"}}
+                    onMouseEnter={e=>{ if(value!==c.id) e.currentTarget.style.background="#f0f9ff"; }}
+                    onMouseLeave={e=>{ if(value!==c.id) e.currentTarget.style.background="transparent"; }}>
                     Cuadrilla {c.nombre}
                     <span style={{marginLeft:"0.4rem",fontSize:"0.72rem",color:"#94a3b8",fontWeight:"400"}}>
                       · {c.miembros?.length||0} miembros
@@ -226,29 +375,22 @@ function SearchableCuadrillaSelect({ cuadrillas, trabajadores, value, onChange, 
               <>
                 <div style={{padding:"0.35rem 0.75rem",fontSize:"0.68rem",fontWeight:"800",
                   color:"#94a3b8",textTransform:"uppercase",letterSpacing:"0.07em",
-                  background:"#f8fafc",borderBottom:"1px solid #f1f5f9",
-                  position:"sticky",top:0}}>
-                  👤 TRABAJADORES INDIVIDUALES{q ? ` — ${trabFiltrados.length} resultado${trabFiltrados.length!==1?"s":""}` : ` (${trabFiltrados.length})`}
+                  background:"#f8fafc",borderBottom:"1px solid #f1f5f9",position:"sticky",top:0}}>
+                  👤 TRABAJADORES{q ? ` (${trabFiltrados.length})` : ` INDIVIDUALES (${trabFiltrados.length})`}
                 </div>
                 {trabFiltrados.map(t => {
                   const val = `trab_${t.id}`;
                   return (
                     <div key={t.id} onClick={() => select(val)}
-                      style={{
-                        padding:"0.55rem 0.9rem",fontSize:"0.85rem",cursor:"pointer",
+                      style={{padding:"0.55rem 0.9rem",fontSize:"0.85rem",cursor:"pointer",
                         background:value===val?"#eff6ff":"transparent",
                         color:value===val?"#0B3D91":"#1e293b",
                         fontWeight:value===val?"700":"400",
-                        borderBottom:"1px solid #f8fafc",
-                        transition:"background 0.1s",
-                        display:"flex",alignItems:"center",justifyContent:"space-between",gap:"0.5rem",
-                      }}
-                      onMouseEnter={e => { if(value!==val) e.currentTarget.style.background="#f0f9ff"; }}
-                      onMouseLeave={e => { if(value!==val) e.currentTarget.style.background="transparent"; }}
-                    >
-                      <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                        {t.nombre}
-                      </span>
+                        borderBottom:"1px solid #f8fafc",transition:"background 0.1s",
+                        display:"flex",alignItems:"center",justifyContent:"space-between",gap:"0.5rem"}}
+                      onMouseEnter={e=>{ if(value!==val) e.currentTarget.style.background="#f0f9ff"; }}
+                      onMouseLeave={e=>{ if(value!==val) e.currentTarget.style.background="transparent"; }}>
+                      <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.nombre}</span>
                       <span style={{fontFamily:"monospace",fontSize:"0.75rem",color:"#64748b",flexShrink:0}}>
                         {t.cedula||""}
                       </span>
@@ -388,7 +530,7 @@ function FilaResumen({ t, i, formatCOP }) {
             color:abierto?PRIMARY:"#475569",fontWeight:"700",fontSize:"0.8rem",
             transition:"all 0.15s",whiteSpace:"nowrap"}}>
           <span style={{fontWeight:"900",color:abierto?PRIMARY:SUCCESS,fontSize:"1rem"}}>{t.dias.length}</span>
-          {t.dias.length===1?"día trabajado":"días trabajados"}
+          {t.dias.length===1?"servicio":"servicios"}
           <span style={{fontSize:"0.65rem",transition:"transform 0.2s",transform:abierto?"rotate(180deg)":"rotate(0deg)"}}>▼</span>
         </button>
         {abierto && (
@@ -412,7 +554,7 @@ function FilaResumen({ t, i, formatCOP }) {
               </tbody>
               <tfoot>
                 <tr style={{background:"#f0fdf4",borderTop:`2px solid ${SUCCESS}`}}>
-                  <td colSpan={2} style={{padding:"0.4rem 0.6rem",fontWeight:"700",color:"#065f46",fontSize:"0.72rem"}}>Total ({t.dias.length} días)</td>
+                  <td colSpan={2} style={{padding:"0.4rem 0.6rem",fontWeight:"700",color:"#065f46",fontSize:"0.72rem"}}>Total ({t.dias.length} servicio{t.dias.length!==1?"s":""})</td>
                   <td style={{padding:"0.4rem 0.6rem",fontWeight:"900",color:"#065f46",fontFamily:"monospace",whiteSpace:"nowrap"}}>{formatCOP(t.totalNeto)}</td>
                 </tr>
               </tfoot>
@@ -906,7 +1048,11 @@ function MiniCuadrillaPanel({ cuadrillas, servicios, clienteId, onGuardado, onCl
 export default function NominaMatriz() {
   const router = useRouter();
   const [rol,     setRol]     = useState(null);
+  const [uid,     setUid]     = useState(null);
   const [loading, setLoading] = useState(true);
+
+  // Permisos desde control-roles
+  const { puedeEditar: puedeEditarMatriz, tieneControl: tieneControlMatriz } = usePermisosNomina(uid, rol);
 
   // Catálogos
   const [cuadrillasAsistencia, setCuadrillasAsistencia] = useState([]);
@@ -915,7 +1061,7 @@ export default function NominaMatriz() {
 
   // Período
   const [periodoDesde, setPeriodoDesde] = useState(primerDiaMes());
-  const [periodoHasta, setPeriodoHasta] = useState(hoy());
+  const [periodoHasta, setPeriodoHasta] = useState(ultimoDiaMes());
 
   // Registros
   const [operaciones, setOperaciones] = useState([]);
@@ -924,6 +1070,10 @@ export default function NominaMatriz() {
   // Filtros tabla
   const [filtroCuadrillaTabla, setFiltroCuadrillaTabla] = useState("");
   const [vistaTabla, setVistaTabla] = useState("registros");
+
+  // ── Multi-día semanal — días seleccionados para guardar en lote
+  // Cada elemento: { id, cuadId, cuadNombre, fecha, label }
+  const [diasSemanalSeleccionados, setDiasSemanalSeleccionados] = useState([]);
 
   // ── Formulario SPIA/C1 ──
   const [form,       setForm]      = useState(FORM_INIT);
@@ -960,6 +1110,8 @@ export default function NominaMatriz() {
 
   // Novedad del día del trabajador (leída de nomina_asistencia_registro — fuente: Llamado a Lista)
   const [novedadActivaWorker, setNovedadActivaWorker] = useState(null);
+  // Indica si cargarAsistenciaDia usó un snapshot histórico (true) o miembros actuales (false)
+  const [usandoSnapshotHistorico, setUsandoSnapshotHistorico] = useState(false);
 
   // Clientes
   const [clienteActivo, setClienteActivo] = useState("spia");
@@ -983,6 +1135,7 @@ export default function NominaMatriz() {
     const auth = getAuth();
     const unsub = onAuthStateChanged(auth, async (user) => {
       if (!user) { router.push("/login"); return; }
+      setUid(user.uid);
       const r = await getUserRoleByUid(user.uid);
       setRol(r);
       if (!["admin","admin_nomina","nomina"].includes(r)) { router.push("/nomina"); return; }
@@ -1000,6 +1153,7 @@ export default function NominaMatriz() {
       cargarServicios(clienteActivo);
       cargarCatalogos(clienteActivo);
       setForm(FORM_INIT);
+      setDiasSemanalSeleccionados([]);
       setAsistentesForm([]);
       setAusentesForm([]);
       setC2Form(CIAMSA2_FORM_INIT);
@@ -1010,7 +1164,9 @@ export default function NominaMatriz() {
     }
   }, [clienteActivo]);
 
-  // Recargar asistencia SPIA cuando cambia cuadrilla/fecha
+  // Recargar asistencia SPIA cuando cambia cuadrilla O fecha
+  // Incluir form.fecha en las dependencias para que al seleccionar un día
+  // de cuadrilla semanal se recargue automáticamente el snapshot correcto
   useEffect(() => {
     if (isCiamsa) return;
     if (form.tipoSeleccion === "trabajador") return;
@@ -1020,7 +1176,8 @@ export default function NominaMatriz() {
       setAsistentesForm([]);
       setAusentesForm([]);
     }
-  }, [form.cuadrillaId, form.fecha]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.cuadrillaId, form.fecha, form.tipoSeleccion]);
 
   /**
    * Lee nomina_asistencia_registro para saber si el trabajador tiene novedad
@@ -1189,31 +1346,64 @@ export default function NominaMatriz() {
     } catch {}
   };
 
-  /* ── Asistencia SPIA ── */
+  /* ── Asistencia SPIA ──
+   * PRIORIDAD: snapshot del día > miembros actuales de la cuadrilla
+   * Si existe un snapshot en nomina_cuadrilla_snapshot/{cuadrillaId}_{YYYYMMDD}
+   * se usa ESA composición, que refleja quiénes estaban el día exacto.
+   * Si no existe snapshot (cuadrilla clásica sin semana), se usa los miembros actuales.
+   */
   const cargarAsistenciaDia = async (cuadrillaId, fechaStr) => {
     setCargandoAsist(true);
     try {
       const c = cuadrillasAsistencia.find(x=>x.id===cuadrillaId);
-      if (!c || !c.miembros || c.miembros.length===0) {
+      if (!c) {
         setAsistentesForm([]); setAusentesForm([]); setCargandoAsist(false); return;
       }
-      const d    = new Date(fechaStr+"T12:00:00");
+
+      // ── 1. Intentar leer snapshot del día concreto ──
+      const fechaCompacta = fechaStr.replace(/-/g, ""); // "20250317"
+      const snapId  = `${cuadrillaId}_${fechaCompacta}`;
+      const snapDoc = await getDoc(doc(db, "nomina_cuadrilla_snapshot", snapId));
+      // miembrosDelDia = composición real de ese día
+      let miembrosDelDia = snapDoc.exists()
+        ? (snapDoc.data().miembros || [])   // ← snapshot encontrado ✔
+        : (c.miembros || []);                // ← fallback: miembros actuales
+      const usandoSnapshot = snapDoc.exists();
+
+      if (miembrosDelDia.length === 0) {
+        setAsistentesForm([]); setAusentesForm([]); setCargandoAsist(false); return;
+      }
+
+      // ── 2. Leer novedades del día (asistencia_registro) ──
+      const d    = new Date(fechaStr + "T12:00:00");
       const anio = d.getFullYear();
-      const mes  = d.getMonth()+1;
+      const mes  = d.getMonth() + 1;
       const dia  = d.getDate();
-      const id   = docIdReg(cuadrillaId, anio, mes);
-      const snap = await getDoc(doc(db,"nomina_asistencia_registro",id));
+      const regId = docIdReg(cuadrillaId, anio, mes);
+      const regSnap = await getDoc(doc(db, "nomina_asistencia_registro", regId));
       let novedadesDia = {};
-      if (snap.exists()) novedadesDia = snap.data().registro?.[String(dia)] || {};
-      const asisten  = c.miembros.filter(m => !novedadesDia[m.id]);
-      const ausentes = c.miembros.filter(m => !!novedadesDia[m.id]).map(m=>({...m,novedad:novedadesDia[m.id]}));
-      setAsistentesForm(asisten);
+      if (regSnap.exists()) novedadesDia = regSnap.data().registro?.[String(dia)] || {};
+
+      // ── 3. Clasificar usando la composición del snapshot ──
+      const NOV_REMUNERADAS = ["D"];
+      const asisten  = miembrosDelDia.filter(m => !novedadesDia[m.id] || NOV_REMUNERADAS.includes(novedadesDia[m.id]));
+      const ausentes = miembrosDelDia.filter(m => !!novedadesDia[m.id] && !NOV_REMUNERADAS.includes(novedadesDia[m.id])).map(m=>({...m,novedad:novedadesDia[m.id]}));
+      const asistentesM = asisten.map(m => ({...m, novedad:novedadesDia[m.id]||null, esRemunerado:NOV_REMUNERADAS.includes(novedadesDia[m.id]||"")}));
+
+      setAsistentesForm(asistentesM);
       setAusentesForm(ausentes);
       setForm(prev => {
-        const personas = asisten.length || 1;
+        const personas = asistentesM.length || 1;
         const neto = Math.round(calcularNetoOperacion(parseFloat(prev.servicioValor)||0, personas, parseInt(prev.cantidad)||1)*100)/100;
-        return { ...prev, personas, cuadrillaPersonas: c.miembros.length, netoCalculado: neto };
+        return { ...prev, personas, cuadrillaPersonas: miembrosDelDia.length, netoCalculado: neto };
       });
+
+      setUsandoSnapshotHistorico(usandoSnapshot);
+      if (usandoSnapshot) {
+        console.info(`[Matriz] Usando snapshot del ${fechaStr} para cuadrilla ${cuadrillaId} (${miembrosDelDia.length} miembros)`);
+      } else {
+        console.info(`[Matriz] Sin snapshot para ${fechaStr} — usando miembros actuales (${miembrosDelDia.length})`);
+      }
     } catch(e) {
       console.error("Error asistencia:", e);
       setAsistentesForm([]); setAusentesForm([]);
@@ -1276,6 +1466,29 @@ export default function NominaMatriz() {
       setForm(prev=>recalcular({...prev, cuadrillaId:val, cuadrillaNombre:t.nombre, cuadrillaPersonas:1, personas:1, tipoSeleccion:"trabajador"}));
       return;
     }
+    // Cuadrilla semanal — día específico: semanal_dia_{cuadId}_{YYYYMMDD}
+    if (val.startsWith("semanal_dia_")) {
+      // Extraer el cuadId buscando en todas las cuadrillas semanales
+      const cuad = cuadrillasAsistencia.find(c =>
+        c.tipo === "semanal" && val.startsWith(`semanal_dia_${c.id}_`)
+      );
+      if (!cuad) return;
+      // El ID del día contiene la fecha compacta al final
+      const fechaCompacta = val.replace(`semanal_dia_${cuad.id}_`, ""); // YYYYMMDD
+      const fechaStr = `${fechaCompacta.slice(0,4)}-${fechaCompacta.slice(4,6)}-${fechaCompacta.slice(6,8)}`;
+      // Usamos el cuadrillaId real para buscar el snapshot en Firestore
+      setForm(prev=>({...prev,
+        cuadrillaId: cuad.id,      // ID real de la cuadrilla — usado en cargarAsistenciaDia
+        cuadrillaNombre: cuad.nombre,
+        cuadrillaPersonas: cuad.miembros?.length||0,
+        personas: cuad.miembros?.length||1,
+        tipoSeleccion: "cuadrilla",
+        // La fecha ya viene seteada por onFechaChange, no la pisamos aquí
+        // a menos que el usuario no la haya seleccionado antes
+        fecha: fechaStr, // auto-set al seleccionar el día
+      }));
+      return;
+    }
     const c = cuadrillasAsistencia.find(x=>x.id===val);
     if (!c) return;
     setForm(prev=>({...prev, cuadrillaId:c.id, cuadrillaNombre:c.nombre, cuadrillaPersonas:c.miembros?.length||c.totalPersonas||0, personas:c.miembros?.length||c.totalPersonas||1, tipoSeleccion:"cuadrilla"}));
@@ -1287,9 +1500,93 @@ export default function NominaMatriz() {
     setForm(prev=>recalcular({...prev,servicioId:s.id,servicioNombre:s.nombre,servicioValor:s.valor||s.tarifa||0}));
   };
 
+  /* ── SPIA: Guardar múltiples días de cuadrilla semanal ──
+   * Crea UN registro independiente por cada día seleccionado.
+   * Cada día usa su propio snapshot (composición real) y calcula
+   * el neto según los asistentes de ESE día.
+   */
+  const guardarMultiDia = async () => {
+    if (!form.servicioNombre) { alert("Selecciona el servicio."); return; }
+    if (diasSemanalSeleccionados.length === 0) return;
+    setGuardando(true);
+    const NOV_REMUNERADAS = ["D"];
+    const valorUnitario = parseFloat(form.servicioValor) || 0;
+    const cantidad      = parseInt(form.cantidad) || 1;
+    let guardados = 0;
+    let errores   = [];
+    try {
+      for (const dia of diasSemanalSeleccionados) {
+        try {
+          // 1. Snapshot del día
+          const snapId  = `${dia.cuadId}_${dia.fecha.replace(/-/g, "")}`;
+          const snapDoc = await getDoc(doc(db, "nomina_cuadrilla_snapshot", snapId));
+          const cuad    = cuadrillasAsistencia.find(c => c.id === dia.cuadId);
+          const miembros = snapDoc.exists() ? (snapDoc.data().miembros || []) : (cuad?.miembros || []);
+          // 2. Novedades del día
+          const dObj = new Date(dia.fecha + "T12:00:00");
+          const anio  = dObj.getFullYear();
+          const mes   = dObj.getMonth() + 1;
+          const dNum  = dObj.getDate();
+          const regId = docIdReg(dia.cuadId, anio, mes);
+          const regSnap = await getDoc(doc(db, "nomina_asistencia_registro", regId));
+          const novDia  = regSnap.exists() ? (regSnap.data().registro?.[String(dNum)] || {}) : {};
+          // 3. Clasificar asistentes
+          const asisten  = miembros.filter(m => !novDia[m.id] || NOV_REMUNERADAS.includes(novDia[m.id]));
+          const ausentes = miembros.filter(m => !!novDia[m.id] && !NOV_REMUNERADAS.includes(novDia[m.id])).map(m=>({...m,novedad:novDia[m.id]}));
+          const personas = asisten.length || 1;
+          const netoFinal = Math.round(calcularNetoOperacion(valorUnitario, personas, cantidad) * 100) / 100;
+          // 4. Guardar registro
+          await addDoc(collection(db, "nomina_operaciones"), {
+            periodoDesde, periodoHasta,
+            clienteId:  clienteActivo,
+            modoCiamsa: false,
+            quincenaId:   `${periodoDesde} al ${periodoHasta}`,
+            quincenaLabel:`${periodoDesde} al ${periodoHasta}`,
+            cuadrillaId:       dia.cuadId,
+            cuadrillaNombre:   dia.cuadNombre.trim().toUpperCase(),
+            cuadrilla:         dia.cuadNombre.trim().toUpperCase(),
+            cuadrillaPersonas: miembros.length,
+            fecha:    Timestamp.fromDate(new Date(dia.fecha + "T12:00:00")),
+            fechaStr: dia.fecha,
+            servicioNombre:        form.servicioNombre.trim().toUpperCase(),
+            servicioValorUnitario: valorUnitario,
+            servicioValor:         valorUnitario * cantidad,
+            cantidad, personas,
+            horasExtras:    null,
+            modoHorasExtras:false,
+            netoAPagar:     netoFinal,
+            trabajadoresAsisten:  asisten.map(a=>({id:a.id,nombre:a.nombre,cedula:a.cedula||""})),
+            trabajadoresAusentes: ausentes.map(a=>({id:a.id,nombre:a.nombre,novedad:a.novedad})),
+            creadoEn:      new Date(),
+            actualizadoEn: new Date(),
+          });
+          guardados++;
+        } catch(e) {
+          console.error(`Error guardando día ${dia.fecha}:`, e);
+          errores.push(`${dia.label}: ${e.message}`);
+        }
+      }
+      await cargarOperaciones();
+      setDiasSemanalSeleccionados([]);
+      setForm({ ...FORM_INIT,
+        cuadrillaId:      form.cuadrillaId,
+        cuadrillaNombre:  form.cuadrillaNombre,
+        cuadrillaPersonas:form.cuadrillaPersonas,
+        personas:         form.cuadrillaPersonas || 1,
+      });
+      setAsistentesForm([]); setAusentesForm([]);
+      setGuardadoOk(true);
+      setTimeout(() => setGuardadoOk(false), 3000);
+      tablaRef.current?.scrollIntoView({ behavior:"smooth", block:"start" });
+      if (errores.length > 0) alert(`Se guardaron ${guardados} de ${diasSemanalSeleccionados.length} días.\n\nErrores:\n${errores.join("\n")}`);
+    } catch(e) { alert("Error: " + e.message); }
+    setGuardando(false);
+  };
+
   /* ── SPIA: Guardar ── */
   const guardar = async () => {
     if (!form.cuadrillaNombre || !form.servicioNombre) { alert("Selecciona cuadrilla y servicio."); return; }
+    if (form.tipoSeleccion !== "trabajador" && (!form.cantidad || parseInt(form.cantidad) < 1)) { alert("Ingresa la cantidad."); return; }
     setGuardando(true);
     const valorUnitario = parseFloat(form.servicioValor)||0;
     const cantidad      = parseInt(form.cantidad)||1;
@@ -1340,6 +1637,10 @@ export default function NominaMatriz() {
       if (form.motivo && form.tipoSeleccion==="trabajador" && form.cuadrillaId && form.fecha) {
         const trabId = form.cuadrillaId.replace("trab_","");
         await guardarMotivoEnRegistro(trabId, form.fecha, form.motivo);
+      }
+      // Si la fecha de la operación es mayor que periodoHasta, extender el período
+      if (form.fecha && form.fecha > periodoHasta) {
+        setPeriodoHasta(form.fecha);
       }
       await cargarOperaciones();
       setForm({...FORM_INIT,cuadrillaId:form.cuadrillaId,cuadrillaNombre:form.cuadrillaNombre,cuadrillaPersonas:form.cuadrillaPersonas,personas:form.cuadrillaPersonas||1,fecha:form.fecha});
@@ -1445,6 +1746,7 @@ export default function NominaMatriz() {
       if (c2Form.motivo && c2Form.trabajadorId && c2Form.fecha) {
         await guardarMotivoEnRegistro(c2Form.trabajadorId, c2Form.fecha, c2Form.motivo);
       }
+      if (c2Form.fecha && c2Form.fecha > periodoHasta) setPeriodoHasta(c2Form.fecha);
       await cargarOperaciones();
       setC2Form({...CIAMSA2_FORM_INIT, trabajadorId:c2Form.trabajadorId, trabajadorNombre:c2Form.trabajadorNombre, trabajadorCedula:c2Form.trabajadorCedula, fecha:c2Form.fecha, servicioId:c2Form.servicioId, servicioNombre:c2Form.servicioNombre, tarifaUnitaria:tarifa, unidad:c2Form.unidad});
       setC2Ok(true);
@@ -1564,6 +1866,7 @@ export default function NominaMatriz() {
       if (ciamsaForm.motivo && ciamsaForm.trabajadorId && ciamsaForm.fecha) {
         await guardarMotivoEnRegistro(ciamsaForm.trabajadorId, ciamsaForm.fecha, ciamsaForm.motivo);
       }
+      if (ciamsaForm.fecha && ciamsaForm.fecha > periodoHasta) setPeriodoHasta(ciamsaForm.fecha);
       await cargarOperaciones();
       setCiamsaForm({...CIAMSA_FORM_INIT, trabajadorId:ciamsaForm.trabajadorId, trabajadorNombre:ciamsaForm.trabajadorNombre, trabajadorCedula:ciamsaForm.trabajadorCedula, fecha:ciamsaForm.fecha});
       setCiamsaOk(true);
@@ -1675,7 +1978,12 @@ export default function NominaMatriz() {
 
         {/* ── HEADER ── */}
         <div style={{display:"flex",alignItems:"center",gap:"1rem",marginBottom:"1rem",flexWrap:"wrap"}}>
-          <button onClick={()=>router.push("/nomina")} style={{background:"none",border:"none",cursor:"pointer",color:PRIMARY}}>
+          <button
+            onClick={()=>{
+              if(showMiniCuad) setShowMiniCuad(false);
+              else router.push("/nomina");
+            }}
+            style={{background:"none",border:"none",cursor:"pointer",color:PRIMARY}}>
             <ArrowLeft size={22}/>
           </button>
           <div style={{flex:1}}>
@@ -1709,7 +2017,7 @@ export default function NominaMatriz() {
           )}
         </div>
 
-        {/* ── SELECTOR DE CLIENTE ── */
+        {/* ── SELECTOR DE CLIENTE ── */}
         <div style={{display:"flex",gap:"0.5rem",marginBottom:"1.25rem",flexWrap:"wrap",alignItems:"center"}}>
           <span style={{fontSize:"0.78rem",fontWeight:"700",color:"#64748b",marginRight:"0.25rem"}}>🏢 Cliente:</span>
           {clientes.map(c=>{
@@ -2009,9 +2317,10 @@ export default function NominaMatriz() {
               {/* Botón guardar */}
               <div style={{marginTop:"1.25rem",display:"flex",gap:"0.75rem",alignItems:"center",flexWrap:"wrap"}}>
                 <button onClick={ciamsaGuardar}
-                  disabled={ciamsaGuardando||!ciamsaForm.trabajadorNombre||!ciamsaForm.servicioNombre||!ciamsaForm.cantidad}
-                  style={{background:(ciamsaGuardando||!ciamsaForm.trabajadorNombre||!ciamsaForm.servicioNombre||!ciamsaForm.cantidad)?"#94a3b8":ciamsaEditId?"#f59e0b":colorCiamsa,
-                    border:"none",borderRadius:"10px",padding:"0.85rem 2rem",color:"#fff",fontWeight:"800",fontSize:"1rem",cursor:"pointer",
+                  disabled={ciamsaGuardando||!ciamsaForm.trabajadorNombre||!ciamsaForm.servicioNombre||!ciamsaForm.cantidad||!puedeEditarMatriz}
+                  title={!puedeEditarMatriz?"Sin permiso de edición en Matriz":""}
+                  style={{background:(ciamsaGuardando||!ciamsaForm.trabajadorNombre||!ciamsaForm.servicioNombre||!ciamsaForm.cantidad||!puedeEditarMatriz)?"#94a3b8":ciamsaEditId?"#f59e0b":colorCiamsa,
+                    border:"none",borderRadius:"10px",padding:"0.85rem 2rem",color:"#fff",fontWeight:"800",fontSize:"1rem",cursor:puedeEditarMatriz?"pointer":"not-allowed",
                     display:"flex",alignItems:"center",gap:"0.6rem",boxShadow:`0 4px 12px ${colorCiamsa}40`}}>
                   {ciamsaGuardando?<><RefreshCw size={18} style={{animation:"spin 1s linear infinite"}}/> Guardando...</>
                     :ciamsaOk?<><CheckCircle size={18}/> ¡Guardado!</>
@@ -2022,6 +2331,7 @@ export default function NominaMatriz() {
                     {!ciamsaForm.trabajadorNombre?"Selecciona trabajador":!ciamsaForm.servicioNombre?"Selecciona servicio":"Ingresa la cantidad"}
                   </span>
                 )}
+                {!puedeEditarMatriz && <span style={{color:"#94a3b8",fontSize:"0.8rem",fontWeight:"600"}}>🔒 Solo lectura</span>}
               </div>
             </>)} {/* fin: !novedadActivaWorker CIAMSA */}
             </div>
@@ -2077,6 +2387,16 @@ export default function NominaMatriz() {
                     value={form.cuadrillaId}
                     onChange={seleccionarCuadrilla}
                     color={PRIMARY}
+                    onFechaChange={fecha => setField("fecha", fecha)}
+                    diasSeleccionados={diasSemanalSeleccionados}
+                    onDiasChange={nuevos => {
+                      setDiasSemanalSeleccionados(nuevos);
+                      // Si se deseleccionan todos, limpiar el form
+                      if (nuevos.length === 0) {
+                        setForm(prev=>({...prev,cuadrillaId:"",cuadrillaNombre:"",tipoSeleccion:""}));
+                        setAsistentesForm([]); setAusentesForm([]);
+                      }
+                    }}
                   />
                 </div>
                 <div>
@@ -2098,12 +2418,68 @@ export default function NominaMatriz() {
                 )}
               </div>
 
-              {/* Panel asistencia */}
-              {form.cuadrillaId && form.fecha && (
+              {/* ═ PANEL MULTI-DÍA: visible cuando hay días semanal seleccionados ═ */}
+              {diasSemanalSeleccionados.length > 0 && (
+                <div style={{margin:"1rem 0",borderRadius:"12px",overflow:"hidden",
+                  border:"2px solid #059669",background:"#f0fdf4"}}>
+                  {/* Header */}
+                  <div style={{padding:"0.65rem 1rem",background:"#059669",
+                    display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                    <span style={{fontWeight:"800",color:"#fff",fontSize:"0.88rem"}}>
+                      📅 Modo semanal — se crearán {diasSemanalSeleccionados.length} registro{diasSemanalSeleccionados.length!==1?"s":""} independientes
+                    </span>
+                    <button onClick={()=>{
+                        setDiasSemanalSeleccionados([]);
+                        setForm(prev=>({...prev,cuadrillaId:"",cuadrillaNombre:"",tipoSeleccion:""}));
+                      }}
+                      style={{background:"rgba(255,255,255,0.2)",border:"none",borderRadius:"6px",
+                        padding:"2px 8px",cursor:"pointer",color:"#fff",fontWeight:"700",fontSize:"0.75rem"}}>
+                      × Limpiar
+                    </button>
+                  </div>
+                  {/* Chips de días */}
+                  <div style={{padding:"0.65rem 1rem",display:"flex",flexWrap:"wrap",gap:"0.4rem",alignItems:"center"}}>
+                    {diasSemanalSeleccionados.map(d => (
+                      <span key={d.id} style={{
+                        background:"#fff",border:"1.5px solid #86efac",
+                        color:"#065f46",borderRadius:"20px",
+                        padding:"0.2rem 0.6rem 0.2rem 0.8rem",
+                        fontSize:"0.78rem",fontWeight:"700",
+                        display:"flex",alignItems:"center",gap:"0.3rem"}}>
+                        {d.label}
+                        <button onClick={()=>{
+                            const nuevo = diasSemanalSeleccionados.filter(x=>x.id!==d.id);
+                            setDiasSemanalSeleccionados(nuevo);
+                            if(nuevo.length===0){
+                              setForm(prev=>({...prev,cuadrillaId:"",cuadrillaNombre:"",tipoSeleccion:""}));
+                            }
+                          }}
+                          style={{background:"none",border:"none",cursor:"pointer",
+                            color:"#94a3b8",padding:0,display:"flex",lineHeight:1}}>
+                          <X size={11}/>
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                  {/* Info */}
+                  <div style={{padding:"0.4rem 1rem 0.65rem",fontSize:"0.78rem",color:"#065f46"}}>
+                    ℹ️ Cada día usa su propio snapshot de composición y cuenta sus asistentes para calcular el neto.
+                    Selecciona el servicio y cantidad abajo, luego guarda.
+                  </div>
+                </div>
+              )}
+
+              {/* Panel asistencia (solo en modo día único) */}
+              {diasSemanalSeleccionados.length === 0 && form.cuadrillaId && form.fecha && (
                 <div style={{margin:"1rem 0",borderRadius:"12px",border:"1px solid #e2e8f0",overflow:"hidden"}}>
-                  <div style={{padding:"0.65rem 1rem",background:`${PRIMARY}08`,display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:"1px solid #e2e8f0"}}>
-                    <span style={{fontWeight:"700",color:PRIMARY,fontSize:"0.85rem"}}>
+                  <div style={{padding:"0.65rem 1rem",background:usandoSnapshotHistorico?"#f0fdf4":`${PRIMARY}08`,display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:"1px solid #e2e8f0"}}>
+                    <span style={{fontWeight:"700",color:usandoSnapshotHistorico?"#059669":PRIMARY,fontSize:"0.85rem",display:"flex",alignItems:"center",gap:"0.5rem"}}>
                       {form.tipoSeleccion==="trabajador" ? "👤 Trabajador individual" : `📋 Asistencia del día — ${form.fecha}`}
+                      {usandoSnapshotHistorico && form.tipoSeleccion!=="trabajador" && (
+                        <span style={{background:"#059669",color:"#fff",borderRadius:"6px",padding:"1px 8px",fontSize:"0.65rem",fontWeight:"800"}}>
+                          📸 COMPOSICIÓN HISTÓRICA DEL DÍA
+                        </span>
+                      )}
                     </span>
                     {cargandoAsist ? (
                       <span style={{fontSize:"0.75rem",color:"#94a3b8",display:"flex",alignItems:"center",gap:"0.35rem"}}>
@@ -2309,7 +2685,7 @@ export default function NominaMatriz() {
                 {form.tipoSeleccion !== "trabajador" && (
                   <div>
                     <label style={labelSt}>📦 Cantidad</label>
-                    <input type="number" min="1" value={form.cantidad} onChange={e=>setField("cantidad",e.target.value)} style={inputSt}/>
+                    <input type="number" min="1" value={form.cantidad} onChange={e=>setField("cantidad",e.target.value)} placeholder="0" style={inputSt}/>
                   </div>
                 )}
 
@@ -2386,17 +2762,35 @@ export default function NominaMatriz() {
               </div>
 
               <div style={{marginTop:"1.5rem",display:"flex",gap:"0.75rem",alignItems:"center"}}>
-                <button onClick={guardar}
-                  disabled={guardando||!form.cuadrillaNombre||!form.servicioNombre||asistentesForm.length===0}
-                  style={{background:(guardando||!form.cuadrillaNombre||!form.servicioNombre||asistentesForm.length===0)?"#94a3b8":editandoId?"#f59e0b":PRIMARY,
-                    border:"none",borderRadius:"10px",padding:"0.85rem 2rem",color:"#fff",fontWeight:"800",fontSize:"1rem",cursor:"pointer",
-                    display:"flex",alignItems:"center",gap:"0.6rem",boxShadow:"0 4px 12px rgba(11,61,145,0.25)"}}>
-                  {guardando?<><RefreshCw size={18} style={{animation:"spin 1s linear infinite"}}/> Guardando...</>
-                    :guardadoOk?<><CheckCircle size={18}/> ¡Guardado!</>
-                    :<><Save size={18}/> {editandoId?"Actualizar":"Guardar"}</>}
-                </button>
-                {asistentesForm.length===0 && form.cuadrillaId && (
+                {/* Botón: modo multi-día semanal */}
+                {diasSemanalSeleccionados.length > 0 ? (
+                  <button onClick={guardarMultiDia}
+                    disabled={guardando||!form.servicioNombre||!puedeEditarMatriz}
+                    title={!puedeEditarMatriz?"Sin permiso de edición en Matriz":""}
+                    style={{background:(guardando||!form.servicioNombre||!puedeEditarMatriz)?"#94a3b8":"#059669",
+                      border:"none",borderRadius:"10px",padding:"0.85rem 2rem",color:"#fff",fontWeight:"800",fontSize:"1rem",cursor:puedeEditarMatriz?"pointer":"not-allowed",
+                      display:"flex",alignItems:"center",gap:"0.6rem",boxShadow:"0 4px 12px rgba(5,150,105,0.3)"}}>
+                    {guardando?<><RefreshCw size={18} style={{animation:"spin 1s linear infinite"}}/> Guardando...</>
+                      :guardadoOk?<><CheckCircle size={18}/> ¡{diasSemanalSeleccionados.length} registros guardados!</>
+                      :<><Save size={18}/> Guardar {diasSemanalSeleccionados.length} día{diasSemanalSeleccionados.length!==1?"s":""} ({diasSemanalSeleccionados.map(d=>d.label).join(", ")})</>}
+                  </button>
+                ) : (
+                  <button onClick={guardar}
+                    disabled={guardando||!form.cuadrillaNombre||!form.servicioNombre||asistentesForm.length===0||!puedeEditarMatriz||(form.tipoSeleccion!=="trabajador"&&!form.cantidad)}
+                    title={!puedeEditarMatriz?"Sin permiso de edición en Matriz":""}
+                    style={{background:(guardando||!form.cuadrillaNombre||!form.servicioNombre||asistentesForm.length===0||!puedeEditarMatriz)?"#94a3b8":editandoId?"#f59e0b":PRIMARY,
+                      border:"none",borderRadius:"10px",padding:"0.85rem 2rem",color:"#fff",fontWeight:"800",fontSize:"1rem",cursor:puedeEditarMatriz?"pointer":"not-allowed",
+                      display:"flex",alignItems:"center",gap:"0.6rem",boxShadow:"0 4px 12px rgba(11,61,145,0.25)"}}>
+                    {guardando?<><RefreshCw size={18} style={{animation:"spin 1s linear infinite"}}/> Guardando...</>
+                      :guardadoOk?<><CheckCircle size={18}/> ¡Guardado!</>
+                      :<><Save size={18}/> {editandoId?"Actualizar":"Guardar"}</>}
+                  </button>
+                )}
+                {diasSemanalSeleccionados.length === 0 && asistentesForm.length===0 && form.cuadrillaId && (
                   <span style={{color:DANGER,fontSize:"0.82rem",fontWeight:"600"}}>⚠️ Sin asistentes — registra asistencia primero</span>
+                )}
+                {!puedeEditarMatriz && (
+                  <span style={{color:"#94a3b8",fontSize:"0.8rem",fontWeight:"600"}}>🔒 Solo lectura — solicita permiso de edición</span>
                 )}
               </div>
               </>)} {/* cierre: !(tipoSeleccion==trabajador && novedadActivaWorker) */}
@@ -2506,8 +2900,8 @@ export default function NominaMatriz() {
                               </td>
                               <td style={tdSt}>
                                 <div style={{display:"flex",gap:"0.3rem"}}>
-                                  <button onClick={()=>ciamsaIniciarEdicion(op)} style={{background:`${colorCiamsa}18`,border:"none",borderRadius:"6px",padding:"0.3rem 0.45rem",cursor:"pointer",color:colorCiamsa}}><Edit2 size={13}/></button>
-                                  <button onClick={()=>eliminar(op)} style={{background:"#fff1f2",border:"none",borderRadius:"6px",padding:"0.3rem 0.45rem",cursor:"pointer",color:DANGER}}><Trash2 size={13}/></button>
+                                  <button onClick={()=>ciamsaIniciarEdicion(op)} disabled={!puedeEditarMatriz} title={!puedeEditarMatriz?"Sin permiso":""} style={{background:puedeEditarMatriz?`${colorCiamsa}18`:"#f8fafc",border:"none",borderRadius:"6px",padding:"0.3rem 0.45rem",cursor:puedeEditarMatriz?"pointer":"not-allowed",color:puedeEditarMatriz?colorCiamsa:"#cbd5e1",opacity:puedeEditarMatriz?1:0.5}}><Edit2 size={13}/></button>
+                                  <button onClick={()=>eliminar(op)} disabled={!tieneControlMatriz} title={!tieneControlMatriz?"Sin permiso":""} style={{background:tieneControlMatriz?"#fff1f2":"#f8fafc",border:"none",borderRadius:"6px",padding:"0.3rem 0.45rem",cursor:tieneControlMatriz?"pointer":"not-allowed",color:tieneControlMatriz?DANGER:"#cbd5e1",opacity:tieneControlMatriz?1:0.5}}><Trash2 size={13}/></button>
                                 </div>
                               </td>
                             </tr>
@@ -2588,8 +2982,8 @@ export default function NominaMatriz() {
                               <td style={{...tdSt,fontFamily:"monospace",fontSize:"0.82rem",color:"#475569"}}>{xPersona>0?formatCOP(xPersona):"—"}</td>
                               <td style={tdSt}>
                                 <div style={{display:"flex",gap:"0.4rem"}}>
-                                  <button onClick={()=>iniciarEdicion(op)} style={{background:"#f0f9ff",border:"none",borderRadius:"6px",padding:"0.3rem 0.45rem",cursor:"pointer",color:ACCENT}}><Edit2 size={13}/></button>
-                                  <button onClick={()=>eliminar(op)} style={{background:"#fff1f2",border:"none",borderRadius:"6px",padding:"0.3rem 0.45rem",cursor:"pointer",color:DANGER}}><Trash2 size={13}/></button>
+                                  <button onClick={()=>iniciarEdicion(op)} disabled={!puedeEditarMatriz} title={!puedeEditarMatriz?"Sin permiso":""} style={{background:puedeEditarMatriz?"#f0f9ff":"#f8fafc",border:"none",borderRadius:"6px",padding:"0.3rem 0.45rem",cursor:puedeEditarMatriz?"pointer":"not-allowed",color:puedeEditarMatriz?ACCENT:"#cbd5e1",opacity:puedeEditarMatriz?1:0.5}}><Edit2 size={13}/></button>
+                                  <button onClick={()=>eliminar(op)} disabled={!tieneControlMatriz} title={!tieneControlMatriz?"Sin permiso":""} style={{background:tieneControlMatriz?"#fff1f2":"#f8fafc",border:"none",borderRadius:"6px",padding:"0.3rem 0.45rem",cursor:tieneControlMatriz?"pointer":"not-allowed",color:tieneControlMatriz?DANGER:"#cbd5e1",opacity:tieneControlMatriz?1:0.5}}><Trash2 size={13}/></button>
                                 </div>
                               </td>
                             </tr>

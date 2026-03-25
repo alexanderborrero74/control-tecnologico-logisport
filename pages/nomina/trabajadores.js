@@ -210,7 +210,7 @@ export default function NominaTrabajadores() {
   useEffect(() => {
     if (!rol || !uid || loadingPermisos) return;
     if (["admin", "admin_nomina"].includes(rol)) return; // admin siempre pasa
-    if (!puedeVer("trabajadores")) router.push("/nomina");
+    if (!puedeVer("trabajadores")) router.back();
   }, [rol, uid, loadingPermisos]);
 
   /* ── Auth ── */
@@ -386,6 +386,18 @@ export default function NominaTrabajadores() {
   /* ── Toggle activo/inactivo de un trabajador ── */
   const toggleActivo = async (t) => {
     const nuevoEstado = t.activo === false ? true : false;
+    // ━━ BLOQUEO: si se va a INACTIVAR, verificar si pertenece a alguna cuadrilla
+    if (!nuevoEstado) {
+      const cuadrillaDelWorker = workerCuadrillaMap[t.id];
+      if (cuadrillaDelWorker) {
+        alert(
+          `⚠️ No es posible inactivar a ${t.nombre}.\n\n` +
+          `Este trabajador pertenece a la cuadrilla "${cuadrillaDelWorker}".\n\n` +
+          `Debe retirarlo de la cuadrilla antes de inactivarlo.`
+        );
+        return;
+      }
+    }
     const msg = nuevoEstado
       ? `¿Reactivar a ${t.nombre}?\nVolverá a aparecer en la matriz, liquidación y asistencia.`
       : `¿Deshabilitar a ${t.nombre}?\nNo aparecerá en la matriz ni en la liquidación de nómina.`;
@@ -658,6 +670,36 @@ export default function NominaTrabajadores() {
       // Cédula → {basicoMensual, centroCostos, cargo} — también marca inactivos
       if (salFormatoBase) {
         let actualizados = 0; let inactivados = 0; let sinEncontrar = 0;
+
+        // Construir mapa workerId → cedula para los que serán inactivados
+        const idsAInactivar = new Set();
+        trabSnap.docs.forEach(d => {
+          const cedula = String(d.data().cedula || "").trim();
+          if (!salCedulaMap[cedula]) idsAInactivar.add(d.id);
+        });
+
+        // Limpiar cuadrillas: quitar los que serán inactivados
+        if (idsAInactivar.size > 0) {
+          try {
+            const cuadSnap = await getDocs(collection(db, "nomina_asistencia"));
+            const batchCuad = writeBatch(db);
+            let hayCambiosCuad = false;
+            cuadSnap.docs.forEach(cuadDoc => {
+              const miembros = cuadDoc.data().miembros || [];
+              const filtrados = miembros.filter(m => !idsAInactivar.has(m.id));
+              if (filtrados.length < miembros.length) {
+                batchCuad.update(cuadDoc.ref, {
+                  miembros:      filtrados,
+                  totalPersonas: filtrados.length,
+                  actualizadoEn: new Date(),
+                });
+                hayCambiosCuad = true;
+              }
+            });
+            if (hayCambiosCuad) await batchCuad.commit();
+          } catch(e) { console.error("Error limpiando cuadrillas:", e); }
+        }
+
         let batch = writeBatch(db); let count = 0;
         for (const d of trabSnap.docs) {
           const cedula = String(d.data().cedula || "").trim();
@@ -672,7 +714,7 @@ export default function NominaTrabajadores() {
             actualizados++;
           } else {
             // No aparece en el archivo → marcar inactivo
-            batch.update(d.ref, { activo: false, actualizadoEn: new Date() });
+            batch.update(d.ref, { activo: false, fechaDesactivado: new Date(), actualizadoEn: new Date() });
             inactivados++;
           }
           count++;

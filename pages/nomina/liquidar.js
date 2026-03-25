@@ -19,7 +19,8 @@ import { useRouter } from "next/router";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import {
   collection, getDocs, setDoc, getDoc,
-  doc, query, orderBy, where, Timestamp
+  doc, query, orderBy, where, Timestamp,
+  writeBatch
 } from "firebase/firestore";
 import { db } from "@/firebase/firebaseConfig";
 import { getUserRoleByUid } from "@/utils/getUserRole";
@@ -149,6 +150,7 @@ export default function NominaLiquidar() {
   const [recalculando,   setRecalculando]   = useState(false);
   const [guardando,      setGuardando]      = useState(false);
   const [nominaGuardada, setNominaGuardada] = useState(null);
+  const [aprobando,      setAprobando]      = useState(false);
   const [importando,     setImportando]     = useState(false);
   const [filtroNombre,   setFiltroNombre]   = useState("");
   const [filtroCedula,   setFiltroCedula]   = useState("");
@@ -162,6 +164,7 @@ export default function NominaLiquidar() {
   const [comidaMap,      setComidaMap]      = useState({});  // { cedula: total comida pendiente }
   const [clienteActivo,  setClienteActivo]  = useState("spia");
   const [clientes,       setClientes]       = useState(CLIENTES_BASE);
+  const [periodosNoLiquidados, setPeriodosNoLiquidados] = useState([]); // [{desde,hasta,ops,cliente}]
 
   // qId incluye cliente para separar períodos — SPIA conserva formato original
   const qId     = clienteActivo === "spia"
@@ -207,6 +210,79 @@ export default function NominaLiquidar() {
   useEffect(() => {
     if (!loading && fechaInicio && fechaFin && fechaFin >= fechaInicio) cargarPeriodo();
   }, [qId, loading]);
+
+  // Verificar quincenas anteriores sin liquidar al cargar o cambiar cliente
+  useEffect(() => {
+    if (!loading) verificarPeriodosAnteriores();
+  }, [loading, clienteActivo]);
+
+  // ── Detectar períodos anteriores con operaciones sin liquidar/aprobar ────────
+  const verificarPeriodosAnteriores = async () => {
+    try {
+      const hoy       = new Date();
+      const inicioPeriodoActual = new Date(fechaInicio + "T00:00:00");
+      // Solo buscar ops anteriores al período actual
+      const fin = Timestamp.fromDate(new Date(inicioPeriodoActual.getTime() - 1000));
+      const opsSnap = await getDocs(query(
+        collection(db, "nomina_operaciones"),
+        where("fecha", "<", fin),
+        orderBy("fecha"),
+      ));
+      if (opsSnap.empty) { setPeriodosNoLiquidados([]); return; }
+
+      // Filtrar por cliente activo
+      const opsFiltradas = opsSnap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(op => {
+          if (op.archivado) return false; // ya archivada
+          const cid = op.clienteId || "spia";
+          return clienteActivo === "spia" ? (!op.clienteId || cid === "spia") : cid === clienteActivo;
+        });
+
+      if (!opsFiltradas.length) { setPeriodosNoLiquidados([]); return; }
+
+      // Agrupar por quincena (mes + primera/segunda quincena)
+      const grupos = {};
+      opsFiltradas.forEach(op => {
+        const fecha = op.fechaStr || (op.fecha?.toDate ? op.fecha.toDate().toISOString().split("T")[0] : null);
+        if (!fecha) return;
+        const [y, m, d] = fecha.split("-");
+        const quincena  = parseInt(d) <= 15 ? "1" : "2";
+        const key       = `${y}-${m}-${quincena}`;
+        if (!grupos[key]) {
+          const diasMes = new Date(parseInt(y), parseInt(m), 0).getDate();
+          grupos[key] = {
+            desde:  quincena === "1" ? `${y}-${m}-01` : `${y}-${m}-16`,
+            hasta:  quincena === "1" ? `${y}-${m}-15` : `${y}-${m}-${diasMes}`,
+            ops: 0,
+          };
+        }
+        grupos[key].ops++;
+      });
+
+      // Para cada grupo, verificar si ya existe una nómina aprobada o borrador
+      const pendientes = [];
+      for (const [key, grupo] of Object.entries(grupos)) {
+        const pId   = clienteActivo === "spia"
+          ? periodoId(grupo.desde, grupo.hasta)
+          : `${clienteActivo}_${periodoId(grupo.desde, grupo.hasta)}`;
+        const pSnap = await getDoc(doc(db, "nomina_periodos", pId));
+        if (!pSnap.exists() || pSnap.data().estado === "borrador") {
+          pendientes.push({
+            ...grupo,
+            label:    labelPeriodo(grupo.desde, grupo.hasta),
+            aprobada: false,
+            estado:   pSnap.exists() ? "borrador" : "sin liquidar",
+          });
+        }
+      }
+      // Ordenar por fecha descendente (más reciente primero)
+      pendientes.sort((a, b) => b.desde.localeCompare(a.desde));
+      setPeriodosNoLiquidados(pendientes);
+    } catch(e) {
+      console.warn("Error verificando períodos anteriores:", e);
+    }
+  };
 
   const cargarCatalogos = async (cliente) => {
     const cli = cliente || clienteActivo;
@@ -393,6 +469,7 @@ export default function NominaLiquidar() {
       if (nomDoc.exists()) {
         const data = nomDoc.data();
         setNominaGuardada(data);
+        setAprobando(false); // reset al recargar
         setFilas(deduplicar((data.empleados || []).map(e => ({
           _key:          ++_rowCounter,
           nombre:        e.nombre        || "",
@@ -408,6 +485,7 @@ export default function NominaLiquidar() {
       } else {
         setNominaGuardada(null);
         setFilas([]);
+        setAprobando(false);
       }
     } catch (err) {
       console.error("Error cargando período:", err);
@@ -606,7 +684,67 @@ export default function NominaLiquidar() {
   };
   const conComplemento = filasCalculadas.filter(e => e.complementoSalario > 0).length;
 
+  const aprobarNomina = async () => {
+    if (!nominaGuardada) { alert("Primero guarda la nómina antes de aprobarla."); return; }
+    if (nominaGuardada.estado === "aprobada") { alert("Esta nómina ya fue aprobada."); return; }
+    const ok = confirm(
+      `⚠️ APROBACIÓN DEFINITIVA\n\nPERÍODO: ${qLabel}\nEMPLEADOS: ${filas.length}\n\nAl aprobar:\n• La nómina quedará bloqueada para edición.\n• Las operaciones del período se archivarán (dejarán de aparecer en avisos de períodos sin liquidar).\n\n¿Confirma que desea aprobar?`
+    );
+    if (!ok) return;
+    setGuardando(true);
+    try {
+      const auth = getAuth();
+
+      // 1. Marcar nómina como aprobada
+      await setDoc(doc(db, "nomina_periodos", qId), {
+        estado:      "aprobada",
+        aprobadoEn:  new Date(),
+        aprobadoPor: auth.currentUser?.uid || "",
+      }, { merge: true });
+
+      // 2. Archivar todas las operaciones del período para este cliente
+      //    → desaparecen de verificarPeriodosAnteriores() en futuras quincenas
+      try {
+        const ini = Timestamp.fromDate(new Date(fechaInicio + "T00:00:00"));
+        const fin = Timestamp.fromDate(new Date(fechaFin    + "T23:59:59"));
+        const opsSnap = await getDocs(query(
+          collection(db, "nomina_operaciones"),
+          where("fecha", ">=", ini),
+          where("fecha", "<=", fin),
+          orderBy("fecha"),
+        ));
+        const opsDelCliente = opsSnap.docs.filter(d => {
+          const cid = d.data().clienteId || "spia";
+          return clienteActivo === "spia"
+            ? (!d.data().clienteId || cid === "spia")
+            : cid === clienteActivo;
+        });
+        if (opsDelCliente.length > 0) {
+          // Procesar en lotes de 500 (límite de Firestore)
+          const LOTE = 500;
+          for (let i = 0; i < opsDelCliente.length; i += LOTE) {
+            const batch = writeBatch(db);
+            opsDelCliente.slice(i, i + LOTE).forEach(d => {
+              batch.update(d.ref, { archivado: true, archivadoEn: new Date() });
+            });
+            await batch.commit();
+          }
+        }
+      } catch(archErr) {
+        console.warn("No se pudieron archivar las operaciones (no crítico):", archErr);
+        // No bloqueamos la aprobación si el archivado falla
+      }
+
+      setNominaGuardada(prev => ({ ...prev, estado: "aprobada" }));
+      // Refrescar el aviso de períodos pendientes
+      await verificarPeriodosAnteriores();
+      alert(`✅ Nómina APROBADA\n\nPeríodo: ${qLabel}\nOperaciones archivadas correctamente.\n\nYa no se pueden realizar modificaciones.`);
+    } catch (e) { alert("Error al aprobar: " + e.message); }
+    setGuardando(false);
+  };
+
   const guardarNomina = async () => {
+    if (nominaGuardada?.estado === "aprobada") { alert("Esta nómina ya fue aprobada y no puede modificarse."); return; }
     if (!fechaInicio || !fechaFin) { alert("Selecciona el período completo."); return; }
     if (fechaFin < fechaInicio)    { alert("La fecha fin no puede ser anterior."); return; }
     if (filas.length === 0)        { alert("No hay filas para guardar."); return; }
@@ -1022,10 +1160,25 @@ export default function NominaLiquidar() {
             <button onClick={() => window.print()} style={btnStyle("#6366f1")}>
               <Printer size={16} /> Imprimir
             </button>
-            <button onClick={guardarNomina} disabled={guardando || !periodoValido}
-              style={btnStyle(PRIMARY, guardando || !periodoValido)}>
-              <Save size={16} />{guardando ? "Guardando..." : "Guardar Nómina"}
-            </button>
+            {nominaGuardada && nominaGuardada.estado !== "aprobada" && (
+              <button onClick={aprobarNomina} disabled={guardando}
+                style={btnStyle("#059669", guardando)}>
+                {guardando ? <RefreshCw size={16} style={{animation:"spin 1s linear infinite"}}/> : <span style={{fontSize:"1rem"}}>✅</span>}
+                {guardando ? "Aprobando..." : "Aprobar Nómina"}
+              </button>
+            )}
+            {nominaGuardada?.estado === "aprobada" ? (
+              <div style={{background:"#d1fae5",border:"2px solid #6ee7b7",borderRadius:"8px",
+                padding:"0.6rem 1rem",display:"flex",alignItems:"center",gap:"0.4rem",
+                color:"#065f46",fontWeight:"800",fontSize:"0.88rem"}}>
+                ✅ Nómina Aprobada
+              </div>
+            ) : (
+              <button onClick={guardarNomina} disabled={guardando || !periodoValido}
+                style={btnStyle(PRIMARY, guardando || !periodoValido)}>
+                <Save size={16} />{guardando ? "Guardando..." : "Guardar Nómina"}
+              </button>
+            )}
           </div>
         </div>
 
@@ -1111,6 +1264,77 @@ export default function NominaLiquidar() {
           <div style={{ background: "#fff7ed", border: "1.5px solid #fed7aa", borderRadius: "10px", padding: "0.65rem 1rem", marginBottom: "1rem", display: "flex", alignItems: "center", gap: "0.6rem", fontSize: "0.83rem", color: "#92400e" }}>
             <AlertTriangle size={15} color={WARN} style={{ flexShrink: 0 }} />
             <span><strong>Sin operaciones en la Matriz para este período.</strong> La columna TOTAL PROD. mostrará $0.</span>
+          </div>
+        )}
+
+        {/* ══ BANNER: PERÍODOS ANTERIORES SIN LIQUIDAR/APROBAR ══ */}
+        {periodosNoLiquidados.length > 0 && (
+          <div style={{
+            background: "#fff7ed",
+            border: "2px solid #f97316",
+            borderRadius: "12px",
+            marginBottom: "1.25rem",
+            overflow: "hidden",
+          }}>
+            {/* Cabecera */}
+            <div style={{
+              background: "linear-gradient(135deg, #ea580c, #c2410c)",
+              padding: "0.7rem 1.1rem",
+              display: "flex", alignItems: "center", gap: "0.65rem",
+            }}>
+              <AlertTriangle size={17} color="#fff" style={{ flexShrink: 0 }} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: "800", color: "#fff", fontSize: "0.92rem" }}>
+                  ⚠️ {periodosNoLiquidados.length} período{periodosNoLiquidados.length !== 1 ? "s" : ""} anterior{periodosNoLiquidados.length !== 1 ? "es" : ""} con operaciones sin aprobar
+                </div>
+                <div style={{ color: "rgba(255,255,255,0.82)", fontSize: "0.75rem", marginTop: "0.1rem" }}>
+                  Existen registros en la Matriz que aún no han sido liquidados y aprobados. Revísalos para no perderlos.
+                </div>
+              </div>
+            </div>
+            {/* Lista de períodos */}
+            <div style={{ padding: "0.6rem 1.1rem", display: "flex", flexWrap: "wrap", gap: "0.5rem", alignItems: "center" }}>
+              {periodosNoLiquidados.map((p, i) => (
+                <button key={i}
+                  onClick={() => {
+                    setFechaInicio(p.desde);
+                    setFechaFin(p.hasta);
+                    // El useEffect sobre qId detectará el cambio y llamará cargarPeriodo()
+                    setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 200);
+                  }}
+                  style={{
+                    display: "flex", alignItems: "center", gap: "0.5rem",
+                    background: "#fff",
+                    border: "2px solid #f97316",
+                    borderRadius: "10px",
+                    padding: "0.45rem 0.85rem",
+                    cursor: "pointer",
+                    transition: "all 0.15s",
+                    boxShadow: "0 2px 6px rgba(249,115,22,0.15)",
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.background = "#fff7ed"; e.currentTarget.style.transform = "translateY(-1px)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = "#fff"; e.currentTarget.style.transform = "none"; }}
+                >
+                  <span style={{ fontSize: "0.75rem" }}>
+                    {p.estado === "borrador" ? "📝" : "🔴"}
+                  </span>
+                  <div style={{ textAlign: "left" }}>
+                    <div style={{ fontWeight: "800", color: "#c2410c", fontSize: "0.82rem", whiteSpace: "nowrap" }}>
+                      {p.label}
+                    </div>
+                    <div style={{ fontSize: "0.68rem", color: "#94a3b8", fontWeight: "600" }}>
+                      {p.ops} op{p.ops !== 1 ? "s" : ""} · {p.estado === "borrador" ? "borrador sin aprobar" : "sin liquidar"}
+                    </div>
+                  </div>
+                  <span style={{ fontSize: "0.7rem", color: "#f97316", fontWeight: "800", marginLeft: "0.2rem" }}>
+                    → Ir
+                  </span>
+                </button>
+              ))}
+              <span style={{ fontSize: "0.75rem", color: "#9a3412", fontWeight: "600", marginLeft: "0.25rem" }}>
+                Haz clic en un período para cargarlo. Desaparecerán al aprobar la nómina correspondiente.
+              </span>
+            </div>
           </div>
         )}
 

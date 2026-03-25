@@ -1,7 +1,7 @@
 // pages/nomina/asistencia.js
 // Gestión de cuadrillas + registro diario de novedades
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, Fragment } from "react";
 import { useRouter } from "next/router";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import {
@@ -45,6 +45,13 @@ const mesLabel = (a,m) => `${MESES[m-1]} ${a}`;
 // ID del documento en Firestore
 const docId = (cId,a,m) => `${cId}_${a}_${String(m).padStart(2,"0")}`;
 
+// Novedades Remuneradas: cobran igual que si asistieran (suman en la división de producción)
+const NOVEDADES_REMUNERADAS = ["D"]; // D = Descanso Remunerado
+
+// Semana laboral Lunes-Sábado (Domingos = día de aviso)
+const getLunesDeSemana = (f) => { if(!f)return""; const d=new Date(f+"T12:00:00"); const dia=d.getDay(); const l=new Date(d); l.setDate(d.getDate()+(dia===0?1:1-dia)); return l.toISOString().split("T")[0]; };
+const getSabadoDeSemana = (l) => { if(!l)return""; const d=new Date(l+"T12:00:00"); d.setDate(d.getDate()+5); return d.toISOString().split("T")[0]; };
+
 // ── Helpers de datos ──────────────────────────────────────────────────────────
 // Retorna el map de novedades del día para una cuadrilla
 // Estructura: { [trabajadorId]: "D" | "I" | "INC" | ... }  (ausentes de la cuadrilla ese día)
@@ -56,12 +63,12 @@ function diasVacios(totalDias) {
 }
 
 function asistentesDelDia(miembros, novedadesDia) {
-  // novedadesDia = { [workerId]: "D"|"I"|... }
-  return miembros.filter(m => !novedadesDia?.[m.id]);
+  // NOVEDADES_REMUNERADAS ("D") cuentan como asistencia — suman en la división de producción
+  return miembros.filter(m => !novedadesDia?.[m.id] || NOVEDADES_REMUNERADAS.includes(novedadesDia?.[m.id]));
 }
 
 function ausentesDelDia(miembros, novedadesDia) {
-  return miembros.filter(m => !!novedadesDia?.[m.id]);
+  return miembros.filter(m => !!novedadesDia?.[m.id] && !NOVEDADES_REMUNERADAS.includes(novedadesDia?.[m.id]));
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -72,7 +79,7 @@ export default function AsistenciaPage() {
   const [loading, setLoading] = useState(true);
 
   // Permisos por módulo — nueva API
-  const { puedeVer, puedeEditar: puedeEditarAsistencia, loadingPermisos } = usePermisosNomina(uid, rol);
+  const { puedeVer, puedeEditar: puedeEditarAsistencia, tieneControl: tieneControlAsistencia, loadingPermisos } = usePermisosNomina(uid, rol);
 
   // Redirigir si no tiene visibilidad en este módulo
   useEffect(() => {
@@ -140,6 +147,40 @@ export default function AsistenciaPage() {
   const [errNuevaNov,          setErrNuevaNov]          = useState("");
   const [creandoNov,           setCreandoNov]           = useState(false);
 
+  // ── Historial Llamado a Lista ──────────────────────────────────────────────
+  const [historialLlamados, setHistorialLlamados] = useState([]); // [{id,anio,mes,registro:{}}]
+  const [cargandoHistorial, setCargandoHistorial] = useState(false);
+  const [histClienteId,     setHistClienteId]     = useState("spia");
+  const [histDiaExpandido,  setHistDiaExpandido]  = useState(null); // "DIA" string
+
+  // ── Editor de día en historial ────────────────────────────────────────────
+  const [modalEditHistorial,      setModalEditHistorial]      = useState(false);
+  const [editHistDoc,             setEditHistDoc]             = useState(null);  // docH completo
+  const [editHistDia,             setEditHistDia]             = useState(null);  // número día
+  const [editHistNovedades,       setEditHistNovedades]       = useState({});    // {workerId: cod|null}
+  const [editHistBusqueda,        setEditHistBusqueda]        = useState("");
+  const [editHistGuardando,       setEditHistGuardando]       = useState(false);
+  const [editHistOk,              setEditHistOk]              = useState(false);
+
+  // ── Editor de snapshot por día (cuadrilla semanal)
+  const [modalEditDia,     setModalEditDia]     = useState(false);
+  const [editDiaCuadrilla, setEditDiaCuadrilla] = useState(null);  // cuadrilla semanal completa
+  const [editDiaFecha,     setEditDiaFecha]     = useState("");    // YYYY-MM-DD del día que se está editando
+  const [editDiaMiembros,  setEditDiaMiembros]  = useState([]);    // composición del día
+  const [editDiaCargando,  setEditDiaCargando]  = useState(false);
+  const [editDiaGuardando, setEditDiaGuardando] = useState(false);
+  const [editDiaBusqueda,  setEditDiaBusqueda]  = useState("");
+
+  // ── Cuadrilla Semanal
+  const [modalSemanal,     setModalSemanal]     = useState(false);
+  const [semanalLunes,     setSemanalLunes]     = useState("");
+  const [semanalMiembros,  setSemanalMiembros]  = useState([]);  // [{id,nombre,cedula}]
+  const [semanalNombre,    setSemanalNombre]    = useState("");
+  const [semanalBusqueda,  setSemanalBusqueda]  = useState("");
+  const [guardandoSemanal, setGuardandoSemanal] = useState(false);
+  const [semanalTab,       setSemanalTab]       = useState("cuadrillas"); // "cuadrillas" | "general"
+  const [semanalCuadExpand,setSemanalCuadExpand]= useState({});  // {[cuadId]: true/false}
+
   // ── Auth ──────────────────────────────────────────────────────────────────
   useEffect(()=>{
     const auth = getAuth();
@@ -149,7 +190,8 @@ export default function AsistenciaPage() {
       const r = await getUserRoleByUid(user.uid);
       setRol(r);
       if(!["admin","admin_nomina","nomina"].includes(r)){router.push("/nomina");return;}
-      await Promise.all([cargarTrabajadores(), cargarCuadrillas(), cargarNovedades(), cargarClientes()]);
+      const idsActivos = await cargarTrabajadores();
+      await Promise.all([cargarCuadrillas(idsActivos), cargarNovedades(), cargarClientes()]);
       setLoading(false);
     });
     return ()=>unsub();
@@ -176,6 +218,12 @@ export default function AsistenciaPage() {
     cargarEstadoLlamado(llamadoFecha, llamadoClienteId, wDelCliente, cuadrillas);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[vista, llamadoFecha, llamadoClienteId]);
+
+  useEffect(()=>{
+    if(vista !== "historial_llamado") return;
+    cargarHistorialLlamados(histClienteId);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[vista, histClienteId]);
 
   // Recargar registro SOLO cuando cambia cuadrilla, mes o año — nunca por cambio de vista
   useEffect(()=>{
@@ -230,13 +278,50 @@ export default function AsistenciaPage() {
   const cargarTrabajadores = async()=>{
     const snap = await getDocs(query(collection(db,"nomina_trabajadores"),orderBy("nombre")));
     // Solo trabajadores ACTIVOS en el selector de cuadrillas
-    setTrabajadores(snap.docs.map(d=>({id:d.id,...d.data()})).filter(t => t.activo !== false));
+    const activos = snap.docs.map(d=>({id:d.id,...d.data()})).filter(t => t.activo !== false);
+    setTrabajadores(activos);
+    // IDs activos para limpiar cuadrillas
+    return new Set(activos.map(t=>t.id));
   };
 
-  const cargarCuadrillas = async()=>{
+  const cargarCuadrillas = async(idsActivos)=>{
     const snap = await getDocs(collection(db,"nomina_asistencia"));
-    const lista = snap.docs.map(d=>({id:d.id,...d.data()}));
+    let lista = snap.docs.map(d=>({id:d.id,...d.data()}));
     lista.sort((a,b)=>(a.orden||99)-(b.orden||99));
+
+    // ── Limpiar miembros inactivos de cada cuadrilla ──────────────────────────
+    // Si se pasaron IDs activos, filtrar; si no, obtenerlos de Firestore
+    let activosSet = idsActivos;
+    if (!activosSet) {
+      try {
+        const wSnap = await getDocs(collection(db,"nomina_trabajadores"));
+        activosSet = new Set(
+          wSnap.docs.filter(d => d.data().activo !== false).map(d => d.id)
+        );
+      } catch { activosSet = null; }
+    }
+    if (activosSet) {
+      const batch = writeBatch(db);
+      let hayLimpiezas = false;
+      lista = lista.map(c => {
+        const miembrosOriginales = c.miembros || [];
+        const miembrosFiltrados  = miembrosOriginales.filter(m => activosSet.has(m.id));
+        if (miembrosFiltrados.length < miembrosOriginales.length) {
+          // Hay miembros inactivos: actualizar en Firestore
+          batch.update(doc(db,"nomina_asistencia",c.id), {
+            miembros:      miembrosFiltrados,
+            totalPersonas: miembrosFiltrados.length,
+            actualizadoEn: new Date(),
+          });
+          hayLimpiezas = true;
+          return { ...c, miembros: miembrosFiltrados, totalPersonas: miembrosFiltrados.length };
+        }
+        return c;
+      });
+      if (hayLimpiezas) { try { await batch.commit(); } catch(e) { console.error("limpieza cuadrillas:",e); } }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     setCuadrillas(lista);
     const exp={};
     lista.forEach(c=>{exp[c.id]=true;});
@@ -299,14 +384,32 @@ export default function AsistenciaPage() {
 
   const guardarMiembros=async()=>{
     setGuardandoEdit(true);
-    await setDoc(doc(db,"nomina_asistencia",cuadrillaEditar.id),{
-      nombre:cuadrillaEditar.nombre,
-      miembros:cuadrillaEditar.miembros,
-      totalPersonas:cuadrillaEditar.miembros.length,
-      orden:cuadrillaEditar.orden||1,
-      actualizadoEn:new Date(),
-      creadoEn:cuadrillaEditar.creadoEn||new Date(),
-    });
+    try {
+      await setDoc(doc(db,"nomina_asistencia",cuadrillaEditar.id),{
+        nombre:cuadrillaEditar.nombre,
+        miembros:cuadrillaEditar.miembros,
+        totalPersonas:cuadrillaEditar.miembros.length,
+        orden:cuadrillaEditar.orden||1,
+        actualizadoEn:new Date(),
+        creadoEn:cuadrillaEditar.creadoEn||new Date(),
+      });
+      // Si es cuadrilla SEMANAL, actualizar snapshot sólo para HOY y fechas futuras.
+      // Los snapshots de días pasados NO se tocan — así Pedro Picapiedra sigue
+      // apareciendo el lunes aunque lo editen el lunes en la noche.
+      if (cuadrillaEditar.tipo === "semanal" && cuadrillaEditar.semanaDesde && cuadrillaEditar.semanaHasta) {
+        const futuras = fechasFuturasDeSemana(cuadrillaEditar.semanaDesde, cuadrillaEditar.semanaHasta);
+        if (futuras.length > 0) {
+          await guardarSnapshotCuadrilla(
+            cuadrillaEditar.id,
+            cuadrillaEditar.nombre,
+            cuadrillaEditar.miembros,
+            futuras
+          );
+        }
+      }
+    } catch(e) {
+      alert("Error guardando: " + e.message);
+    }
     await cargarCuadrillas();
     setCuadrillaEditar(null);
     setGuardandoEdit(false);
@@ -511,7 +614,187 @@ export default function AsistenciaPage() {
     setCargandoLlamado(false);
   }, []);
 
+  // ── Cargar historial de llamados (docs llamado_${clienteId}_YYYY_MM) ─────────
+  // Abre el modal de edición para un día del historial
+  const abrirEditHistorial = (docH, dNum) => {
+    const novDia = docH.registro?.[String(dNum)] || {};
+    setEditHistDoc(docH);
+    setEditHistDia(dNum);
+    setEditHistNovedades({ ...novDia });
+    setEditHistBusqueda("");
+    setEditHistOk(false);
+    setModalEditHistorial(true);
+  };
+
+  // Guarda los cambios del día editado en Firestore
+  const guardarEditHistorial = async () => {
+    if (!editHistDoc || editHistDia === null) return;
+    setEditHistGuardando(true);
+    try {
+      // Construir el registro actualizado: sólo guardar novedades no nulas
+      const novDia = {};
+      Object.entries(editHistNovedades).forEach(([wId, cod]) => {
+        if (cod !== null && cod !== undefined && cod !== "") novDia[wId] = cod;
+      });
+      const nuevoRegistro = {
+        ...(editHistDoc.registro || {}),
+        [String(editHistDia)]: novDia,
+      };
+      await setDoc(
+        doc(db, "nomina_asistencia_registro", editHistDoc.id),
+        { ...editHistDoc, registro: nuevoRegistro, actualizadoEn: new Date() },
+        { merge: true }
+      );
+      // Actualizar en memoria
+      setHistorialLlamados(prev => prev.map(d =>
+        d.id === editHistDoc.id
+          ? { ...d, registro: nuevoRegistro }
+          : d
+      ));
+      setEditHistOk(true);
+      setTimeout(() => {
+        setModalEditHistorial(false);
+        setEditHistOk(false);
+      }, 1200);
+    } catch(e) {
+      alert("Error guardando: " + e.message);
+    }
+    setEditHistGuardando(false);
+  };
+
+  const cargarHistorialLlamados = async (clienteId) => {
+    setCargandoHistorial(true);
+    setHistorialLlamados([]);
+    setHistDiaExpandido(null);
+    try {
+      const snap = await getDocs(collection(db,"nomina_asistencia_registro"));
+      const prefijo = `llamado_${clienteId}_`;
+      const docs = snap.docs
+        .filter(d => d.id.startsWith(prefijo))
+        .map(d => ({ id: d.id, ...d.data() }));
+      docs.sort((a,b) => {
+        const ka = `${a.anio}_${String(a.mes).padStart(2,"0")}`;
+        const kb = `${b.anio}_${String(b.mes).padStart(2,"0")}`;
+        return kb.localeCompare(ka);
+      });
+      setHistorialLlamados(docs);
+    } catch(e) { console.error("Error cargando historial llamado:",e); }
+    setCargandoHistorial(false);
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // SNAPSHOT DE COMPOSICIÓN DIARIA
+  // Guarda en  nomina_cuadrilla_snapshot/{cuadrillaId}_{YYYYMMDD}
+  // qué miembros tenía la cuadrilla en cada fecha concreta.
+  // La Matriz lee este doc antes de usar los miembros actuales, de forma que
+  // editar la cuadrilla el lunes en la noche NO afecta la producción del lunes.
+  // ─────────────────────────────────────────────────────────────────────────
+  const guardarSnapshotCuadrilla = async (cuadrillaId, cuadrillaNombre, miembros, fechas) => {
+    if (!fechas.length) return;
+    const LOTE = 499; // Firestore: máx 500 escrituras por batch
+    for (let i = 0; i < fechas.length; i += LOTE) {
+      const batch = writeBatch(db);
+      fechas.slice(i, i + LOTE).forEach(fecha => {
+        const snapId = `${cuadrillaId}_${fecha.replace(/-/g, "")}`;
+        batch.set(
+          doc(db, "nomina_cuadrilla_snapshot", snapId),
+          { cuadrillaId, cuadrillaNombre, fecha, miembros, guardadoEn: new Date() },
+          { merge: true }   // merge: no borra snapshots anteriores del mismo doc
+        );
+      });
+      await batch.commit();
+    }
+  };
+
+  // Devuelve los días que van desde hoy (inclusive) hasta el fin de la semana
+  // dado un rango lunes-sábado. Usado al editar cuadrillas: solo se actualiza
+  // el snapshot de hoy en adelante, preservando los días pasados.
+  const fechasFuturasDeSemana = (lunesStr, sabadoStr) => {
+    const hoyStr = new Date().toISOString().split("T")[0];
+    const fechas = [];
+    const ini = new Date(lunesStr + "T12:00:00");
+    const fin = new Date(sabadoStr + "T12:00:00");
+    const hoyDate = new Date(hoyStr + "T12:00:00");
+    for (let d = new Date(ini); d <= fin; d.setDate(d.getDate() + 1)) {
+      const iso = d.toISOString().split("T")[0];
+      if (iso >= hoyStr) fechas.push(iso); // solo hoy y futuros
+    }
+    return fechas;
+  };
+
+  // ── Abrir editor de composición por día de cuadrilla semanal ─────────────
+  const abrirEditarDia = async (cuadrilla, fecha) => {
+    setEditDiaCuadrilla(cuadrilla);
+    setEditDiaFecha(fecha);
+    setEditDiaBusqueda("");
+    setEditDiaGuardando(false);
+    setEditDiaCargando(true);
+    setModalEditDia(true);
+    // Cargar snapshot existente para ese día
+    const snapId = `${cuadrilla.id}_${fecha.replace(/-/g,"")}`;
+    try {
+      const snapDoc = await getDoc(doc(db,"nomina_cuadrilla_snapshot",snapId));
+      if (snapDoc.exists()) {
+        setEditDiaMiembros(snapDoc.data().miembros || []);
+      } else {
+        // No hay snapshot — usar miembros actuales de la cuadrilla
+        setEditDiaMiembros([...(cuadrilla.miembros||[])]);
+      }
+    } catch(e) {
+      setEditDiaMiembros([...(cuadrilla.miembros||[])]);
+    }
+    setEditDiaCargando(false);
+  };
+
+  // Guardar snapshot del día seleccionado en el editor
+  const guardarSnapshotDia = async () => {
+    if (!editDiaCuadrilla || !editDiaFecha) return;
+    setEditDiaGuardando(true);
+    try {
+      await guardarSnapshotCuadrilla(
+        editDiaCuadrilla.id,
+        editDiaCuadrilla.nombre,
+        editDiaMiembros,
+        [editDiaFecha]
+      );
+      alert(`✅ Composición del ${editDiaFecha} guardada (${editDiaMiembros.length} trabajadores).\nLa Matriz mostrará esta lista al registrar producción de ese día.`);
+      setModalEditDia(false);
+    } catch(e) {
+      alert("Error: " + e.message);
+    }
+    setEditDiaGuardando(false);
+  };
+
   // ── Crear nueva novedad desde el llamado a lista ─────────────────────────
+  const crearCuadrillaSemanal = async () => {
+    if(!semanalLunes){alert("Selecciona la semana.");return;}
+    if(!semanalMiembros.length){alert("Selecciona al menos un trabajador.");return;}
+    setGuardandoSemanal(true);
+    const sabado=getSabadoDeSemana(semanalLunes);
+    const nombre=semanalNombre.trim()||`SEMANA ${semanalLunes} → ${sabado}`;
+    const id=`semanal_${semanalLunes.replace(/-/g,"")}`;
+    try{
+      await setDoc(doc(db,"nomina_asistencia",id),{
+        nombre, tipo:"semanal", semanaDesde:semanalLunes, semanaHasta:sabado,
+        miembros:semanalMiembros, totalPersonas:semanalMiembros.length,
+        orden:cuadrillas.length+1, creadoEn:new Date(), actualizadoEn:new Date(),
+      });
+      // Guardar snapshot para TODOS los días Lun-Sáb de la semana.
+      // Así queda inmortalizado quiénes forman la cuadrilla cada día.
+      const fechasLunSab = [];
+      const lunesDate = new Date(semanalLunes + "T12:00:00");
+      for (let i = 0; i <= 5; i++) {        // 0=Lun ... 5=Sáb
+        const d = new Date(lunesDate);
+        d.setDate(lunesDate.getDate() + i);
+        fechasLunSab.push(d.toISOString().split("T")[0]);
+      }
+      await guardarSnapshotCuadrilla(id, nombre, semanalMiembros, fechasLunSab);
+      await cargarCuadrillas();
+      setModalSemanal(false); setSemanalMiembros([]); setSemanalLunes(""); setSemanalNombre(""); setSemanalBusqueda("");
+    }catch(e){alert("Error: "+e.message);}
+    setGuardandoSemanal(false);
+  };
+
   const crearNovedadDesdeCallada = async () => {
     const label  = formNuevaNov.label.trim();
     if(!label){setErrNuevaNov("El nombre es requerido.");return;}
@@ -589,7 +872,11 @@ export default function AsistenciaPage() {
 
         {/* ── HEADER ── */}
         <div style={{display:"flex",alignItems:"center",gap:"0.75rem",marginBottom:"1.5rem",flexWrap:"wrap"}}>
-          <button onClick={()=>router.push("/nomina")}
+          <button
+            onClick={()=>{
+              if(vista==="cuadrillas") router.push("/nomina");
+              else setVista("cuadrillas");
+            }}
             style={{background:"none",border:"none",cursor:"pointer",color:PRIMARY,display:"flex"}}>
             <ArrowLeft size={22}/>
           </button>
@@ -605,6 +892,7 @@ export default function AsistenciaPage() {
               {key:"cuadrillas",icon:<Users size={14}/>,  label:"Cuadrillas"},
               {key:"diario",    icon:<Calendar size={14}/>,label:"Registro diario"},
               {key:"mensual",   icon:<span style={{fontSize:"0.9rem"}}>📊</span>,label:"Vista mensual"},
+              {key:"historial_llamado",icon:<span style={{fontSize:"0.9rem"}}>📋</span>,label:"Historial"},
             ].map(v=>(
               <button key={v.key} onClick={()=>setVista(v.key)}
                 style={{padding:"0.48rem 0.9rem",borderRadius:"9px",border:"none",cursor:"pointer",
@@ -631,16 +919,94 @@ export default function AsistenciaPage() {
               </p>
               <div style={{display:"flex",gap:"0.6rem",flexWrap:"wrap"}}>
                 <button
+                  onClick={()=>{
+                    setSemanalLunes(getLunesDeSemana(new Date().toISOString().split("T")[0]));
+                    setSemanalMiembros([]);
+                    setSemanalNombre("");
+                    setSemanalBusqueda("");
+                    setSemanalTab("cuadrillas");
+                    setSemanalCuadExpand({});
+                    setModalSemanal(true);
+                  }}
+                  disabled={!puedeEditarAsistencia}
+                  title={!puedeEditarAsistencia?"Necesitas permiso de edición en Asistencia":""}
+                  style={{...sty.btnPrimary,background:"#059669",boxShadow:"0 4px 12px rgba(5,150,105,0.3)",opacity:!puedeEditarAsistencia?0.45:1,cursor:!puedeEditarAsistencia?"not-allowed":"pointer"}}>
+                  📅 Cuadrilla Semanal
+                </button>
+                <button
+                  onClick={()=>setVista("historial_llamado")}
+                  style={{...sty.btnPrimary,background:"#6366f1",boxShadow:"0 4px 12px rgba(99,102,241,0.3)"}}>
+                  📋 Historial
+                </button>
+                <button
                   onClick={()=>setVista("llamado")}
-                  style={{...sty.btnPrimary,background:"#f59e0b",boxShadow:"0 4px 12px rgba(245,158,11,0.3)"}}>
+                  disabled={!puedeEditarAsistencia}
+                  title={!puedeEditarAsistencia?"Necesitas permiso de edición en Asistencia":""}
+                  style={{...sty.btnPrimary,background:"#f59e0b",boxShadow:"0 4px 12px rgba(245,158,11,0.3)",opacity:!puedeEditarAsistencia?0.45:1,cursor:!puedeEditarAsistencia?"not-allowed":"pointer"}}>
                   📣 Llamado a lista
                 </button>
-                <button onClick={()=>{setModalNueva(true);setNombreNueva("");setErrNombre("");}}
-                  style={sty.btnPrimary}>
+                <button
+                  onClick={()=>{setModalNueva(true);setNombreNueva("");setErrNombre("");}}
+                  disabled={!tieneControlAsistencia}
+                  title={!tieneControlAsistencia?"Necesitas control total en Asistencia":""}
+                  style={{...sty.btnPrimary,opacity:!tieneControlAsistencia?0.45:1,cursor:!tieneControlAsistencia?"not-allowed":"pointer"}}>
                   <Plus size={15}/> Nueva cuadrilla
                 </button>
               </div>
             </div>
+
+            {/* ── BARRA ACCESO RÁPIDO — chips de cada cuadrilla ── */}
+            {cuadrillas.length>0&&(
+              <div style={{
+                position:"sticky",top:0,zIndex:40,
+                background:"#f8fafc",
+                borderRadius:"12px",
+                border:"1px solid #e2e8f0",
+                padding:"0.55rem 0.85rem",
+                marginBottom:"1rem",
+                display:"flex",gap:"0.4rem",flexWrap:"wrap",alignItems:"center",
+                boxShadow:"0 2px 8px rgba(11,61,145,0.08)",
+              }}>
+                <span style={{fontSize:"0.7rem",fontWeight:"800",color:"#94a3b8",
+                  textTransform:"uppercase",letterSpacing:"0.05em",marginRight:"0.15rem",flexShrink:0}}>
+                  📍 Ir a:
+                </span>
+                {cuadrillas.map((c,idx)=>{
+                  const color=COLORES[idx%COLORES.length];
+                  return(
+                    <button key={c.id}
+                      onClick={()=>{
+                        const el=document.getElementById(`cuadrilla-card-${c.id}`);
+                        if(el)el.scrollIntoView({behavior:"smooth",block:"start"});
+                      }}
+                      style={{
+                        padding:"0.28rem 0.75rem",
+                        borderRadius:"20px",
+                        border:`1.5px solid ${color}50`,
+                        background:`${color}12`,
+                        color,
+                        fontWeight:"700",
+                        fontSize:"0.78rem",
+                        cursor:"pointer",
+                        display:"flex",alignItems:"center",gap:"0.3rem",
+                        whiteSpace:"nowrap",
+                        transition:"all 0.13s",
+                      }}
+                      onMouseEnter={e=>{
+                        e.currentTarget.style.background=color;
+                        e.currentTarget.style.color="#fff";
+                      }}
+                      onMouseLeave={e=>{
+                        e.currentTarget.style.background=`${color}12`;
+                        e.currentTarget.style.color=color;
+                      }}>
+                      {c.tipo==="semanal"?"📅":"👥"} {c.nombre}
+                      <span style={{fontSize:"0.65rem",opacity:0.75}}>({c.totalPersonas||0})</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
             {cuadrillas.length===0 ? (
               <EmptyState icon="👥" title="No hay cuadrillas" desc="Crea la primera con el botón de arriba."/>
@@ -648,7 +1014,7 @@ export default function AsistenciaPage() {
               const color=COLORES[idx%COLORES.length];
               const abierta=expandidas[c.id]!==false;
               return(
-                <div key={c.id} style={{background:"#fff",borderRadius:"14px",
+                <div key={c.id} id={`cuadrilla-card-${c.id}`} style={{background:"#fff",borderRadius:"14px",
                   boxShadow:"0 2px 10px rgba(0,0,0,0.06)",marginBottom:"0.85rem",
                   overflow:"hidden",borderLeft:`5px solid ${color}`}}>
 
@@ -661,25 +1027,54 @@ export default function AsistenciaPage() {
                       <Users size={20} color={color}/>
                     </div>
                     <div style={{flex:1}}>
-                      <div style={{fontWeight:"800",color:PRIMARY,fontSize:"1rem"}}>
-                        Cuadrilla {c.nombre}
+                      <div style={{fontWeight:"800",color:PRIMARY,fontSize:"1rem",display:"flex",alignItems:"center",gap:"0.4rem",flexWrap:"wrap"}}>
+                        {c.tipo==="semanal"?"📅":""} {c.nombre}
+                        {c.tipo==="semanal"&&<span style={{background:"#d1fae5",color:"#059669",borderRadius:"5px",padding:"1px 7px",fontSize:"0.68rem",fontWeight:"800"}}>SEMANAL</span>}
                       </div>
                       <div style={{color:"#64748b",fontSize:"0.8rem"}}>
                         <span style={{fontWeight:"700",color}}>{c.totalPersonas||0}</span> miembro(s)
+                        {c.tipo==="semanal"&&c.semanaDesde&&<span style={{marginLeft:"0.4rem",color:"#059669"}}>· {c.semanaDesde} → {c.semanaHasta}</span>}
                       </div>
                     </div>
-                    <div style={{display:"flex",gap:"0.4rem",alignItems:"center"}}>
-                      <button onClick={e=>{e.stopPropagation();abrirEditar(c);}}
-                        style={{...sty.btnSec,color,background:`${color}12`}}>
-                        <Edit2 size={12}/> Editar miembros
+                    <div style={{display:"flex",gap:"0.4rem",alignItems:"center",flexWrap:"wrap"}}>
+                      {/* Botón editar por día — solo para cuadrillas semanales */}
+                      {c.tipo==="semanal"&&c.semanaDesde&&c.semanaHasta&&puedeEditarAsistencia&&(()=>{
+                        // Generar los 6 días Lun-Sáb de la semana
+                        const dias=[];
+                        const ini=new Date(c.semanaDesde+"T12:00:00");
+                        for(let i=0;i<=5;i++){const d=new Date(ini);d.setDate(ini.getDate()+i);dias.push(d.toISOString().split("T")[0]);}
+                        const LETRAS=["Lun","Mar","Mié","Jue","Vie","Sáb"];
+                        return(
+                          <div style={{display:"flex",gap:"0.3rem",flexWrap:"wrap"}}>
+                            {dias.map((fecha,i)=>(
+                              <button key={fecha}
+                                onClick={e=>{e.stopPropagation();abrirEditarDia(c,fecha);}}
+                                title={`Editar composición del ${fecha}`}
+                                style={{...sty.btnSec,color:"#059669",background:"#f0fdf4",
+                                  border:"1.5px solid #86efac",fontSize:"0.68rem",padding:"0.22rem 0.5rem"}}>
+                                ✏️ {LETRAS[i]} {parseInt(fecha.split("-")[2])}
+                              </button>
+                            ))}
+                          </div>
+                        );
+                      })()}
+                      <button
+                        onClick={e=>{e.stopPropagation();abrirEditar(c);}}
+                        disabled={!puedeEditarAsistencia}
+                        title={!puedeEditarAsistencia?"Sin permiso de edición":""}
+                        style={{...sty.btnSec,color,background:`${color}12`,opacity:!puedeEditarAsistencia?0.45:1,cursor:!puedeEditarAsistencia?"not-allowed":"pointer"}}>
+                        <Edit2 size={12}/> {c.tipo==="semanal"?"Base semana":"Editar miembros"}
                       </button>
                       <button onClick={e=>{e.stopPropagation();setCuadrillaActiva(c);setVista("diario");}}
                         style={{...sty.btnSec,color:PRIMARY,background:`${PRIMARY}10`}}>
                         <Calendar size={12}/> Ver asistencia
                       </button>
-                      <button onClick={e=>{e.stopPropagation();eliminarCuadrilla(c);}}
+                      <button
+                        onClick={e=>{e.stopPropagation();eliminarCuadrilla(c);}}
+                        disabled={!tieneControlAsistencia}
+                        title={!tieneControlAsistencia?"Necesitas control total para eliminar":""}
                         style={{background:"#fff1f2",border:"none",borderRadius:"8px",
-                          padding:"0.4rem 0.5rem",cursor:"pointer",color:DANGER,display:"flex"}}>
+                          padding:"0.4rem 0.5rem",cursor:!tieneControlAsistencia?"not-allowed":"pointer",color:DANGER,display:"flex",opacity:!tieneControlAsistencia?0.35:1}}>
                         <Trash2 size={13}/>
                       </button>
                       <span style={{color:"#cbd5e1"}}>{abierta?"▲":"▼"}</span>
@@ -765,10 +1160,11 @@ export default function AsistenciaPage() {
                 </button>
                 <button
                   onClick={guardarLlamadoLista}
-                  disabled={guardandoLlamado||totalConNovedad+totalAsistio===0}
-                  style={{...sty.btnPrimary,background:totalConNovedad+totalAsistio>0?"#059669":"#e2e8f0",
-                    color:totalConNovedad+totalAsistio>0?"#fff":"#94a3b8",
-                    cursor:totalConNovedad+totalAsistio>0?"pointer":"not-allowed"}}>
+                  disabled={guardandoLlamado||totalConNovedad+totalAsistio===0||!puedeEditarAsistencia}
+                  title={!puedeEditarAsistencia?"Sin permiso de edición en Asistencia":""}
+                  style={{...sty.btnPrimary,background:totalConNovedad+totalAsistio>0&&puedeEditarAsistencia?"#059669":"#e2e8f0",
+                    color:totalConNovedad+totalAsistio>0&&puedeEditarAsistencia?"#fff":"#94a3b8",
+                    cursor:totalConNovedad+totalAsistio>0&&puedeEditarAsistencia?"pointer":"not-allowed"}}>
                   {guardandoLlamado?<RefreshCw size={15} style={{animation:"spin 1s linear infinite"}}/>:<Save size={15}/>}
                   {guardandoLlamado?"Guardando...":"Guardar llamado"}
                 </button>
@@ -1119,12 +1515,15 @@ export default function AsistenciaPage() {
 
                   {/* Botones guardar/exportar */}
                   <div style={{marginTop:"0.85rem",display:"flex",flexDirection:"column",gap:"0.5rem"}}>
-                    <button onClick={guardarRegistro} disabled={!modificado||guardandoReg}
+                    <button
+                      onClick={guardarRegistro}
+                      disabled={!modificado||guardandoReg||!puedeEditarAsistencia}
+                      title={!puedeEditarAsistencia?"Sin permiso de edición":""}
                       style={{...sty.btnPrimary,justifyContent:"center",
-                        background:modificado?PRIMARY:"#e2e8f0",
-                        color:modificado?"#fff":"#94a3b8",
-                        boxShadow:modificado?"0 4px 12px rgba(11,61,145,0.25)":"none",
-                        cursor:modificado?"pointer":"not-allowed"}}>
+                        background:modificado&&puedeEditarAsistencia?PRIMARY:"#e2e8f0",
+                        color:modificado&&puedeEditarAsistencia?"#fff":"#94a3b8",
+                        boxShadow:modificado&&puedeEditarAsistencia?"0 4px 12px rgba(11,61,145,0.25)":"none",
+                        cursor:modificado&&puedeEditarAsistencia?"pointer":"not-allowed"}}>
                       {guardandoReg?<RefreshCw size={15} style={{animation:"spin 1s linear infinite"}}/>:<Save size={15}/>}
                       {guardandoReg?"Guardando...":"Guardar registro del mes"}
                     </button>
@@ -1206,13 +1605,14 @@ export default function AsistenciaPage() {
                       {/* Lista de trabajadores */}
                       <div style={{display:"flex",flexDirection:"column",gap:"0.5rem"}}>
                         {miembros.map(m=>{
-                          const codNov  = novedadesHoy[m.id]||null;
-                          const novInfo = codNov ? novMap[codNov] : null;
-                          const asiste  = !codNov;
+                          const codNov      = novedadesHoy[m.id]||null;
+                          const novInfo     = codNov ? novMap[codNov] : null;
+                          const esRemunerado= !!codNov && NOVEDADES_REMUNERADAS.includes(codNov);
+                          const asiste      = !codNov || esRemunerado;
                           return(
                             <div key={m.id} style={{
-                              background:"#fff",borderRadius:"12px",
-                              border:`2px solid ${asiste?"#d1fae5":novInfo?.color+"40"||"#fee2e2"}`,
+                              background:esRemunerado?"#fffbeb":"#fff",borderRadius:"12px",
+                              border:`2px solid ${esRemunerado?"#fcd34d":asiste?"#d1fae5":novInfo?.color+"40"||"#fee2e2"}`,
                               padding:"0.85rem 1rem",
                               display:"flex",alignItems:"center",gap:"0.85rem",
                               boxShadow:"0 2px 8px rgba(0,0,0,0.05)",
@@ -1221,11 +1621,11 @@ export default function AsistenciaPage() {
                               {/* Icono estado */}
                               <div style={{
                                 width:"44px",height:"44px",borderRadius:"12px",flexShrink:0,
-                                background:asiste?"#d1fae5":novInfo?.bg||"#fee2e2",
+                                background:esRemunerado?"#fef9c3":asiste?"#d1fae5":novInfo?.bg||"#fee2e2",
                                 display:"flex",alignItems:"center",justifyContent:"center",
                                 fontSize:"1.3rem",
                               }}>
-                                {asiste ? "✅" : novInfo?.emoji||"❓"}
+                                {esRemunerado?"😴":asiste?"✅":novInfo?.emoji||"❓"}
                               </div>
 
                               {/* Info trabajador */}
@@ -1236,7 +1636,16 @@ export default function AsistenciaPage() {
                                 <div style={{fontSize:"0.73rem",fontFamily:"monospace",color:"#94a3b8"}}>
                                   {m.cedula}
                                 </div>
-                                {!asiste&&(
+                                {esRemunerado&&(
+                                  <div style={{marginTop:"0.2rem"}}>
+                                    <div style={{fontSize:"0.75rem",fontWeight:"700",color:"#92400e",display:"flex",alignItems:"center",gap:"0.35rem"}}>
+                                      😴 {novInfo?.label||"Descanso"}
+                                      <span style={{background:"#fef9c3",color:"#92400e",borderRadius:"4px",padding:"1px 6px",fontSize:"0.65rem",fontWeight:"800",border:"1px solid #fcd34d"}}>REMUNERADO</span>
+                                    </div>
+                                    <div style={{fontSize:"0.68rem",color:"#059669",fontWeight:"600"}}>✅ Suma en la división del pago</div>
+                                  </div>
+                                )}
+                                {!asiste&&!esRemunerado&&(
                                   <div style={{marginTop:"0.25rem",fontSize:"0.75rem",
                                     fontWeight:"700",color:novInfo?.color||"#dc2626"}}>
                                     {novInfo?.emoji} {novInfo?.label}
@@ -1244,7 +1653,7 @@ export default function AsistenciaPage() {
                                       opacity:0.7,fontWeight:"500"}}>— no suma en el pago de hoy</span>
                                   </div>
                                 )}
-                                {asiste&&(
+                                {asiste&&!esRemunerado&&(
                                   <div style={{marginTop:"0.2rem",fontSize:"0.72rem",color:"#6ee7b7",fontWeight:"600"}}>
                                     Asiste · suma en la división del pago
                                   </div>
@@ -1253,7 +1662,7 @@ export default function AsistenciaPage() {
 
                               {/* Botón acción */}
                               <div style={{position:"relative"}}>
-                                {asiste ? (
+                                {!codNov ? (
                                   <button
                                     onClick={e=>{
                                       const r=e.currentTarget.getBoundingClientRect();
@@ -1473,6 +1882,200 @@ export default function AsistenciaPage() {
             )}
           </>
         )}
+
+        {/* ══════════════════════════════════════════════════════════
+            VISTA 5: HISTORIAL LLAMADO A LISTA
+        ══════════════════════════════════════════════════════════ */}
+        {vista==="historial_llamado" && (
+          <>
+            {/* Selector de cliente */}
+            <div style={{display:"flex",gap:"0.6rem",flexWrap:"wrap",alignItems:"center",marginBottom:"1.25rem"}}>
+              {clientes.map(c=>(
+                <button key={c.id} onClick={()=>setHistClienteId(c.id)}
+                  style={{padding:"0.45rem 1rem",borderRadius:"9px",fontWeight:"700",fontSize:"0.82rem",
+                    cursor:"pointer",border:`2px solid ${histClienteId===c.id?c.color:"#e2e8f0"}`,
+                    background:histClienteId===c.id?`${c.color}15`:"#fff",
+                    color:histClienteId===c.id?c.color:"#94a3b8",
+                    boxShadow:histClienteId===c.id?`0 3px 10px ${c.color}30`:"none",
+                    transition:"all 0.13s"}}>
+                  {c.emoji} {c.nombre}
+                </button>
+              ))}
+              <div style={{flex:1}}/>
+              <button onClick={()=>cargarHistorialLlamados(histClienteId)}
+                style={{...sty.btnSec,color:PRIMARY,background:`${PRIMARY}10`}}>
+                <RefreshCw size={13}/> Actualizar
+              </button>
+            </div>
+
+            {cargandoHistorial ? (
+              <div style={{textAlign:"center",padding:"3rem"}}>
+                <RefreshCw size={24} style={{animation:"spin 1s linear infinite",color:PRIMARY}}/>
+                <div style={{marginTop:"0.75rem",color:"#64748b",fontSize:"0.85rem"}}>Cargando historial...</div>
+              </div>
+            ) : historialLlamados.length===0 ? (
+              <EmptyState icon="📋" title="Sin registros" desc={`No hay llamados a lista guardados para ${clientes.find(c=>c.id===histClienteId)?.nombre||histClienteId}.`}/>
+            ) : (
+              <div style={{display:"flex",flexDirection:"column",gap:"1rem"}}>
+                {historialLlamados.map(docH => {
+                  const wDelCliente = trabajadores.filter(t=>(t.clienteIds||["spia"]).includes(histClienteId));
+                  const reg = docH.registro || {};
+                  // Días con al menos 1 novedad
+                  const diasConNovedad = Object.keys(reg)
+                    .filter(d => Object.keys(reg[d]||{}).length > 0)
+                    .map(d => parseInt(d))
+                    .sort((a,b)=>a-b);
+                  const totalDiasConNov = diasConNovedad.length;
+                  return (
+                    <div key={docH.id} style={{background:"#fff",borderRadius:"14px",
+                      boxShadow:"0 2px 10px rgba(0,0,0,0.06)",overflow:"hidden",
+                      border:"1px solid #e2e8f0"}}>
+                      {/* Header mes */}
+                      <div style={{background:PRIMARY,padding:"0.85rem 1.25rem",
+                        display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                        <div style={{color:"#fff"}}>
+                          <div style={{fontWeight:"800",fontSize:"1rem"}}>
+                            {MESES[(docH.mes||1)-1]} {docH.anio}
+                          </div>
+                          <div style={{fontSize:"0.75rem",opacity:0.75,marginTop:"0.1rem"}}>
+                            {totalDiasConNov} día(s) con novedades · {wDelCliente.length} trabajadores en {clientes.find(c=>c.id===histClienteId)?.nombre||histClienteId}
+                          </div>
+                        </div>
+                        <div style={{fontSize:"0.72rem",color:"#93c5fd",fontFamily:"monospace"}}>
+                          {docH.id}
+                        </div>
+                      </div>
+
+                      {/* Tabla de días */}
+                      {Object.keys(reg).length === 0 ? (
+                        <div style={{padding:"1.5rem",textAlign:"center",color:"#94a3b8",fontSize:"0.85rem"}}>
+                          Sin registros en este período.
+                        </div>
+                      ) : (
+                        <table style={{width:"100%",borderCollapse:"collapse"}}>
+                          <thead>
+                            <tr style={{background:"#f8fafc"}}>
+                              <th style={{padding:"0.5rem 1rem",textAlign:"left",fontSize:"0.72rem",fontWeight:"700",color:"#94a3b8",width:"120px"}}>FECHA</th>
+                              <th style={{padding:"0.5rem 1rem",textAlign:"left",fontSize:"0.72rem",fontWeight:"700",color:"#94a3b8"}}>NOVEDADES</th>
+                              <th style={{padding:"0.5rem 1rem",textAlign:"right",fontSize:"0.72rem",fontWeight:"700",color:"#94a3b8",width:"120px"}}>ACCIONES</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {Object.keys(reg)
+                              .map(d=>parseInt(d))
+                              .sort((a,b)=>b-a)
+                              .map(dNum => {
+                                const dStr = String(dNum);
+                                const novDia = reg[dStr] || {};
+                                const cantNov = Object.keys(novDia).length;
+                                const diaKey = `${docH.anio}-${String(docH.mes).padStart(2,"0")}-${String(dNum).padStart(2,"0")}`;
+                                const expandido = histDiaExpandido === diaKey;
+                                const dSemana = diaLetra(docH.anio, docH.mes, dNum);
+                                return (
+                                  <Fragment key={dStr}>
+                                    <tr
+                                      style={{borderBottom:"1px solid #f1f5f9",
+                                        background:expandido?"#eff6ff":"transparent",
+                                        cursor:cantNov>0?"pointer":"default"}}
+                                      onClick={()=>cantNov>0&&setHistDiaExpandido(expandido?null:diaKey)}
+                                      onMouseEnter={e=>{if(cantNov>0)e.currentTarget.style.background="#f0f9ff";}}
+                                      onMouseLeave={e=>{e.currentTarget.style.background=expandido?"#eff6ff":"transparent";}}>
+                                      <td style={{padding:"0.55rem 1rem",fontSize:"0.83rem",fontWeight:"700",color:PRIMARY}}>
+                                        {dSemana.substring(0,3)} {dNum}
+                                        {esDomingo(docH.anio,docH.mes,dNum)&&<span style={{marginLeft:"0.4rem",fontSize:"0.65rem",color:"#f59e0b",fontWeight:"900"}}>DOM</span>}
+                                      </td>
+                                      <td style={{padding:"0.55rem 1rem"}}>
+                                        {cantNov===0 ? (
+                                          <span style={{color:"#94a3b8",fontSize:"0.78rem"}}>Sin novedades</span>
+                                        ) : (
+                                          <div style={{display:"flex",flexWrap:"wrap",gap:"0.3rem"}}>
+                                            {Object.entries(novDia).slice(0,5).map(([wId,cod])=>{
+                                              const w = trabajadores.find(t=>t.id===wId);
+                                              const nov = novMap[cod];
+                                              return (
+                                                <span key={wId} style={{
+                                                  background:nov?.bg||"#f1f5f9",
+                                                  color:nov?.color||"#64748b",
+                                                  borderRadius:"6px",padding:"0.18rem 0.45rem",
+                                                  fontSize:"0.7rem",fontWeight:"700"}}>
+                                                  {nov?.emoji} {w?.nombre?.split(" ")[0]||wId.substring(0,8)} · {cod}
+                                                </span>
+                                              );
+                                            })}
+                                            {cantNov>5&&<span style={{color:"#94a3b8",fontSize:"0.7rem",fontWeight:"600"}}>+{cantNov-5} más</span>}
+                                          </div>
+                                        )}
+                                      </td>
+                                      <td style={{padding:"0.55rem 0.75rem",textAlign:"right"}}>
+                                        <div style={{display:"flex",alignItems:"center",justifyContent:"flex-end",gap:"0.5rem"}}>
+                                          {/* Botón editar día */}
+                                          <button
+                                            onClick={e=>{e.stopPropagation();abrirEditHistorial(docH,dNum);}}
+                                            title="Editar novedades de este día"
+                                            style={{background:"#eff6ff",border:"1.5px solid #bfdbfe",
+                                              borderRadius:"7px",padding:"0.25rem 0.55rem",
+                                              cursor:"pointer",color:PRIMARY,
+                                              display:"flex",alignItems:"center",gap:"0.25rem",
+                                              fontSize:"0.72rem",fontWeight:"700",flexShrink:0}}>
+                                            <Edit2 size={11}/> Editar
+                                          </button>
+                                          {cantNov>0&&(
+                                            <span style={{fontSize:"0.72rem",fontWeight:"700",
+                                              color:expandido?PRIMARY:"#94a3b8",flexShrink:0}}>
+                                              {cantNov} {expandido?"▲":"▼"}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </td>
+                                    </tr>
+                                    {expandido&&cantNov>0&&(
+                                      <tr key={`${dStr}-exp`}>
+                                        <td colSpan={3} style={{padding:"0.75rem 1.25rem",background:"#f0f9ff",borderBottom:"1px solid #dbeafe"}}>
+                                          <div style={{fontSize:"0.77rem",fontWeight:"800",color:PRIMARY,marginBottom:"0.5rem"}}>
+                                            Detalle — {dSemana} {dNum} de {MESES[(docH.mes||1)-1]}
+                                          </div>
+                                          <div style={{display:"flex",flexDirection:"column",gap:"0.3rem"}}>
+                                            {Object.entries(novDia).map(([wId,cod])=>{
+                                              const w = trabajadores.find(t=>t.id===wId);
+                                              const nov = novMap[cod];
+                                              return (
+                                                <div key={wId} style={{display:"flex",alignItems:"center",gap:"0.75rem",
+                                                  padding:"0.4rem 0.75rem",background:"#fff",
+                                                  borderRadius:"8px",border:`1px solid ${nov?.color||"#e2e8f0"}20`}}>
+                                                  <span style={{fontSize:"1rem"}}>{nov?.emoji||"📋"}</span>
+                                                  <div style={{flex:1}}>
+                                                    <div style={{fontWeight:"700",fontSize:"0.82rem",color:"#1e293b"}}>
+                                                      {w?.nombre||wId}
+                                                    </div>
+                                                    <div style={{fontSize:"0.7rem",color:"#94a3b8",fontFamily:"monospace"}}>
+                                                      {w?.cedula||""}
+                                                    </div>
+                                                  </div>
+                                                  <span style={{background:nov?.bg||"#f1f5f9",color:nov?.color||"#64748b",
+                                                    borderRadius:"6px",padding:"0.18rem 0.55rem",
+                                                    fontSize:"0.72rem",fontWeight:"900"}}>
+                                                    {cod} · {nov?.label||cod}
+                                                  </span>
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    )}
+                                  </Fragment>
+                                );
+                              })}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        )}
       </div>
 
       {/* ══ POPOVER LLAMADO A LISTA ══ */}
@@ -1648,6 +2251,592 @@ export default function AsistenciaPage() {
           ))}
         </div>
       )}
+
+      {/* ══ MODAL EDITAR COMPOSICIÓN POR DÍA (cuadrilla semanal) ══ */}
+      {modalEditDia&&editDiaCuadrilla&&(()=>{
+        const q=editDiaBusqueda.trim().toLowerCase();
+        const DIAS_NOMBRE=["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
+        const diaNombre=editDiaFecha?DIAS_NOMBRE[new Date(editDiaFecha+"T12:00:00").getDay()]:"";
+        const fechaLabel=editDiaFecha?`${diaNombre} ${parseInt(editDiaFecha.split("-")[2])} de ${MESES[parseInt(editDiaFecha.split("-")[1])-1]} ${editDiaFecha.split("-")[0]}`:"";
+
+        // Todos los trabajadores activos como fuente
+        const fuente=trabajadores.filter(t=>
+          !q||t.nombre?.toLowerCase().includes(q)||String(t.cedula||"").includes(editDiaBusqueda.trim())
+        );
+        const idsSelec=new Set(editDiaMiembros.map(m=>m.id));
+
+        const toggleDia=(t)=>setEditDiaMiembros(p=>
+          p.find(m=>m.id===t.id)?p.filter(m=>m.id!==t.id):[...p,{id:t.id,nombre:t.nombre,cedula:t.cedula||""}]
+        );
+
+        return(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:9999,
+          display:"flex",alignItems:"center",justifyContent:"center",padding:"1rem"}}
+          onClick={e=>{if(e.target===e.currentTarget&&!editDiaGuardando)setModalEditDia(false);}}>
+          <div style={{background:"#fff",borderRadius:"18px",width:"100%",maxWidth:"620px",
+            maxHeight:"92vh",display:"flex",flexDirection:"column",
+            boxShadow:"0 24px 60px rgba(0,0,0,0.22)"}}>
+
+            {/* Header */}
+            <div style={{padding:"1rem 1.5rem",background:"linear-gradient(135deg,#059669,#047857)",
+              borderRadius:"18px 18px 0 0",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div>
+                <div style={{fontWeight:"900",color:"#fff",fontSize:"1.05rem"}}>
+                  ✏️ Composición del {fechaLabel}
+                </div>
+                <div style={{color:"rgba(255,255,255,0.82)",fontSize:"0.78rem",marginTop:"0.1rem"}}>
+                  Cuadrilla {editDiaCuadrilla.nombre} · Define quiénes trabajan ESTE día específicamente
+                </div>
+              </div>
+              <button onClick={()=>setModalEditDia(false)}
+                style={{background:"rgba(255,255,255,0.2)",border:"none",borderRadius:"8px",
+                  padding:"0.45rem",cursor:"pointer",color:"#fff",display:"flex"}}>
+                <X size={18}/>
+              </button>
+            </div>
+
+            {/* Info banner */}
+            <div style={{padding:"0.75rem 1.5rem",background:"#f0fdf4",borderBottom:"1px solid #d1fae5",
+              display:"flex",alignItems:"center",gap:"0.75rem"}}>
+              <span style={{fontSize:"1.5rem"}}>📅</span>
+              <div style={{fontSize:"0.82rem",color:"#065f46"}}>
+                <strong>Snapshot del día:</strong> La Matriz usará exactamente estos miembros cuando
+                registre producción del <strong>{fechaLabel}</strong>. Puedes definirlo ahora aunque el día no haya llegado.
+              </div>
+            </div>
+
+            {/* Chips seleccionados */}
+            {editDiaMiembros.length>0&&(
+              <div style={{padding:"0.5rem 1.5rem",borderBottom:"1px solid #e2e8f0",
+                background:"#f0fdf4",display:"flex",flexWrap:"wrap",gap:"0.3rem",alignItems:"center"}}>
+                <span style={{fontSize:"0.72rem",fontWeight:"800",color:"#059669",flexShrink:0,marginRight:"0.2rem"}}>
+                  ✅ {editDiaMiembros.length} trabajador(es) ese día:
+                </span>
+                {editDiaMiembros.slice(0,8).map(m=>(
+                  <span key={m.id} style={{background:"#fff",border:"1.5px solid #86efac",
+                    color:"#065f46",borderRadius:"20px",
+                    padding:"0.12rem 0.4rem 0.12rem 0.65rem",
+                    fontSize:"0.72rem",fontWeight:"700",
+                    display:"flex",alignItems:"center",gap:"0.25rem"}}>
+                    {m.nombre.split(" ")[0]}
+                    <button onClick={()=>setEditDiaMiembros(p=>p.filter(x=>x.id!==m.id))}
+                      style={{background:"none",border:"none",cursor:"pointer",color:"#94a3b8",padding:0,display:"flex"}}>
+                      <X size={10}/>
+                    </button>
+                  </span>
+                ))}
+                {editDiaMiembros.length>8&&<span style={{fontSize:"0.72rem",color:"#059669",fontWeight:"700"}}>+{editDiaMiembros.length-8} más</span>}
+                <button onClick={()=>setEditDiaMiembros([])}
+                  style={{marginLeft:"auto",...sty.btnSec,color:"#dc2626",background:"#fee2e2",
+                    fontSize:"0.68rem",padding:"0.18rem 0.55rem"}}>
+                  Limpiar
+                </button>
+              </div>
+            )}
+
+            {/* Busqueda + botones rápidos */}
+            <div style={{padding:"0.65rem 1.5rem",borderBottom:"1px solid #e2e8f0",
+              display:"flex",gap:"0.6rem",alignItems:"center"}}>
+              <input value={editDiaBusqueda} onChange={e=>setEditDiaBusqueda(e.target.value)}
+                placeholder="🔍 Buscar por nombre o cédula..."
+                style={{...sty.inputM,flex:1,marginBottom:0}}/>
+              <button
+                onClick={()=>setEditDiaMiembros(trabajadores.map(t=>({id:t.id,nombre:t.nombre,cedula:t.cedula||""})))}
+                style={{...sty.btnSec,color:"#059669",background:"#d1fae5",fontSize:"0.72rem",padding:"0.4rem 0.65rem",flexShrink:0}}>
+                Todos
+              </button>
+              <button
+                onClick={()=>setEditDiaMiembros([...(editDiaCuadrilla.miembros||[])])}
+                style={{...sty.btnSec,color:"#0B3D91",background:"#eff6ff",fontSize:"0.72rem",padding:"0.4rem 0.65rem",flexShrink:0}}>
+                Base semana
+              </button>
+            </div>
+
+            {/* Lista trabajadores */}
+            <div style={{flex:1,overflowY:"auto",padding:"0.5rem 1rem"}}>
+              {editDiaCargando&&(
+                <div style={{textAlign:"center",padding:"2rem",color:"#94a3b8"}}>
+                  <RefreshCw size={22} style={{animation:"spin 1s linear infinite"}}/>
+                  <div style={{marginTop:"0.5rem",fontSize:"0.85rem"}}>Cargando snapshot...</div>
+                </div>
+              )}
+              {!editDiaCargando&&fuente.map((t,ti)=>{
+                const sel=idsSelec.has(t.id);
+                const cargoPrev=ti>0?(fuente[ti-1].cargo||"Sin cargo"):null;
+                const cargo=t.cargo||"Sin cargo";
+                return(
+                  <div key={t.id}>
+                    {cargoPrev!==cargo&&(
+                      <div style={{fontSize:"0.67rem",fontWeight:"800",color:"#94a3b8",
+                        textTransform:"uppercase",letterSpacing:"0.06em",
+                        padding:"0.5rem 0.5rem 0.15rem",marginTop:ti>0?"0.35rem":0}}>
+                        👷 {cargo}
+                      </div>
+                    )}
+                    <div onClick={()=>toggleDia(t)}
+                      style={{display:"flex",alignItems:"center",gap:"0.65rem",
+                        padding:"0.42rem 0.55rem",borderRadius:"8px",cursor:"pointer",
+                        background:sel?"#f0fdf4":"transparent",
+                        marginBottom:"0.08rem",transition:"background 0.1s"}}
+                      onMouseEnter={e=>{if(!sel)e.currentTarget.style.background="#f8fafc";}}
+                      onMouseLeave={e=>{e.currentTarget.style.background=sel?"#f0fdf4":"transparent";}}>
+                      <div style={{width:"18px",height:"18px",borderRadius:"5px",flexShrink:0,
+                        border:`2px solid ${sel?"#059669":"#e2e8f0"}`,
+                        background:sel?"#059669":"#fff",
+                        display:"flex",alignItems:"center",justifyContent:"center"}}>
+                        {sel&&<CheckCircle size={11} color="#fff" strokeWidth={3}/>}
+                      </div>
+                      <div style={{flex:1,fontWeight:"600",color:"#1e293b",fontSize:"0.87rem",
+                        overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                        {t.nombre}
+                      </div>
+                      <span style={{fontSize:"0.7rem",color:"#94a3b8",fontFamily:"monospace",flexShrink:0}}>
+                        {t.cedula||""}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Footer */}
+            <div style={{padding:"0.9rem 1.5rem",borderTop:"1px solid #e2e8f0",
+              display:"flex",gap:"0.65rem",alignItems:"center"}}>
+              <div style={{flex:1,fontSize:"0.78rem",color:"#64748b"}}>
+                {editDiaMiembros.length>0
+                  ?<><strong style={{color:"#059669"}}>{editDiaMiembros.length}</strong> trabajador(es) para el {diaNombre.toLowerCase()}</>
+                  :"Sin trabajadores seleccionados"}
+              </div>
+              <button onClick={()=>setModalEditDia(false)} disabled={editDiaGuardando}
+                style={{padding:"0.7rem 1.1rem",background:"#f1f5f9",border:"none",
+                  borderRadius:"10px",color:"#475569",fontWeight:"700",cursor:"pointer"}}>
+                Cancelar
+              </button>
+              <button onClick={guardarSnapshotDia}
+                disabled={editDiaGuardando||editDiaMiembros.length===0}
+                style={{padding:"0.7rem 1.4rem",border:"none",borderRadius:"10px",
+                  color:"#fff",fontWeight:"800",fontSize:"0.9rem",
+                  cursor:editDiaMiembros.length>0?"pointer":"not-allowed",
+                  background:editDiaMiembros.length>0?"#059669":"#94a3b8",
+                  display:"flex",alignItems:"center",gap:"0.5rem",
+                  boxShadow:editDiaMiembros.length>0?"0 4px 12px rgba(5,150,105,0.3)":"none"}}>
+                {editDiaGuardando
+                  ?<><RefreshCw size={15} style={{animation:"spin 1s linear infinite"}}/> Guardando...</>
+                  :<><Save size={15}/> Guardar composición del {diaNombre.toLowerCase()}</>}
+              </button>
+            </div>
+          </div>
+        </div>
+        );
+      })()}
+
+      {/* ══ MODAL CUADRILLA SEMANAL (v2: por cuadrilla + lista general) ══ */}
+      {modalSemanal&&(()=>{
+      const toggleSemanal=(t)=>setSemanalMiembros(p=>p.find(m=>m.id===t.id)?p.filter(m=>m.id!==t.id):[...p,{id:t.id,nombre:t.nombre,cedula:t.cedula||""}]);
+      const toggleGrupo=(miembros)=>{
+      const ids=miembros.map(m=>m.id);
+      const todos=ids.every(id=>semanalMiembros.find(m=>m.id===id));
+      if(todos){setSemanalMiembros(p=>p.filter(m=>!ids.includes(m.id)));}
+      else{const nuevos=miembros.filter(m=>!semanalMiembros.find(s=>s.id===m.id));setSemanalMiembros(p=>[...p,...nuevos.map(m=>({id:m.id,nombre:m.nombre,cedula:m.cedula||""}))]);}
+      };
+      const q=semanalBusqueda.trim().toLowerCase();
+      const coincide=(t)=>!q||t.nombre?.toLowerCase().includes(q)||String(t.cedula||"").includes(semanalBusqueda.trim());
+      const idsEnCuadrilla=new Set(cuadrillas.flatMap(c=>(c.miembros||[]).map(m=>m.id)));
+      return(
+      <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:"1rem"}}
+      onClick={e=>{if(e.target===e.currentTarget&&!guardandoSemanal)setModalSemanal(false);}}>
+      <div style={{background:"#fff",borderRadius:"18px",width:"100%",maxWidth:"750px",maxHeight:"94vh",display:"flex",flexDirection:"column",boxShadow:"0 24px 60px rgba(0,0,0,0.22)"}}>
+
+      {/* HEADER */}
+      <div style={{padding:"1rem 1.5rem",background:"linear-gradient(135deg,#059669,#047857)",borderRadius:"18px 18px 0 0",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+      <div>
+      <div style={{fontWeight:"900",color:"#fff",fontSize:"1.1rem"}}>📅 Nueva Cuadrilla Semanal</div>
+      <div style={{color:"rgba(255,255,255,0.8)",fontSize:"0.78rem"}}>Trabaja Lunes–Sábado · Domingos = aviso. Selecciona personal de cuadrillas existentes o de la lista general.</div>
+      </div>
+      <button onClick={()=>setModalSemanal(false)} style={{background:"rgba(255,255,255,0.2)",border:"none",borderRadius:"8px",padding:"0.45rem",cursor:"pointer",color:"#fff",display:"flex"}}><X size={18}/></button>
+      </div>
+
+      {/* CONFIGURACIÓN SEMANA */}
+      <div style={{padding:"0.9rem 1.5rem",borderBottom:"1px solid #e2e8f0",display:"grid",gridTemplateColumns:"1fr 1fr 2fr",gap:"0.75rem",alignItems:"end"}}>
+      <div>
+      <label style={{...sty.label,color:"#059669"}}>📅 Lunes de inicio</label>
+      <input type="date" value={semanalLunes} onChange={e=>setSemanalLunes(getLunesDeSemana(e.target.value))} style={{...sty.inputM,borderColor:"#059669",color:"#059669",fontWeight:"800"}}/>
+      </div>
+      <div>
+        <label style={sty.label}>Sábado (auto)</label>
+          <div style={{padding:"0.7rem 0.9rem",background:"#f0fdf4",border:"1.5px solid #86efac",borderRadius:"10px",color:"#059669",fontWeight:"800"}}>{semanalLunes?getSabadoDeSemana(semanalLunes):"—"}</div>
+        </div>
+        <div>
+        <label style={sty.label}>Nombre <span style={{fontWeight:"400",color:"#94a3b8"}}>(opcional)</span></label>
+      <input value={semanalNombre} onChange={e=>setSemanalNombre(e.target.value)} placeholder={semanalLunes?`SEMANA ${semanalLunes} → ${getSabadoDeSemana(semanalLunes)}`:"Nombre"} style={{...sty.inputM,borderColor:"#d1fae5"}}/>
+      </div>
+      </div>
+
+      {/* CHIPS SELECCIONADOS */}
+      {semanalMiembros.length>0&&(
+      <div style={{padding:"0.55rem 1.5rem",borderBottom:"1px solid #e2e8f0",background:"#f0fdf4",display:"flex",flexWrap:"wrap",gap:"0.3rem",alignItems:"center"}}>
+        <span style={{fontSize:"0.72rem",fontWeight:"800",color:"#059669",flexShrink:0,marginRight:"0.25rem"}}>✅ {semanalMiembros.length} sel.:</span>
+        {semanalMiembros.slice(0,10).map(m=>(
+        <span key={m.id} style={{background:"#fff",border:"1.5px solid #86efac",color:"#065f46",borderRadius:"20px",padding:"0.12rem 0.4rem 0.12rem 0.65rem",fontSize:"0.72rem",fontWeight:"700",display:"flex",alignItems:"center",gap:"0.25rem"}}>
+          {m.nombre.split(" ")[0]}
+              <button onClick={()=>setSemanalMiembros(p=>p.filter(x=>x.id!==m.id))} style={{background:"none",border:"none",cursor:"pointer",color:"#94a3b8",padding:0,display:"flex"}}><X size={9}/></button>
+            </span>
+          ))}
+        {semanalMiembros.length>10&&<span style={{fontSize:"0.72rem",color:"#059669",fontWeight:"700"}}>+{semanalMiembros.length-10} más</span>}
+      <button onClick={()=>setSemanalMiembros([])} style={{marginLeft:"auto",...sty.btnSec,color:"#dc2626",background:"#fee2e2",fontSize:"0.68rem",padding:"0.18rem 0.55rem"}}>Limpiar</button>
+      </div>
+      )}
+
+      {/* TABS + BUSQUEDA */}
+      <div style={{padding:"0.65rem 1.5rem",borderBottom:"1px solid #e2e8f0",display:"flex",gap:"0.7rem",alignItems:"center"}}>
+      <div style={{display:"flex",background:"#f1f5f9",borderRadius:"10px",padding:"3px",gap:"2px",flexShrink:0}}>
+      {[{k:"cuadrillas",l:"👥 Por Cuadrilla"},{k:"general",l:"📝 Lista general"}].map(t=>(
+      <button key={t.k} onClick={()=>{setSemanalTab(t.k);setSemanalBusqueda("");}}
+      style={{padding:"0.4rem 0.85rem",borderRadius:"8px",border:"none",cursor:"pointer",fontWeight:"700",fontSize:"0.79rem",transition:"all 0.15s",background:semanalTab===t.k?"#fff":"transparent",color:semanalTab===t.k?"#059669":"#94a3b8",boxShadow:semanalTab===t.k?"0 2px 6px rgba(0,0,0,0.1)":"none"}}>
+      {t.l}
+      </button>
+      ))}
+      </div>
+      <input value={semanalBusqueda} onChange={e=>setSemanalBusqueda(e.target.value)} placeholder="🔍 Buscar por nombre o cédula..." style={{...sty.inputM,flex:1,marginBottom:0}}/>
+      <button onClick={()=>setSemanalMiembros(trabajadores.map(t=>({id:t.id,nombre:t.nombre,cedula:t.cedula||""})))} style={{...sty.btnSec,color:"#059669",background:"#d1fae5",fontSize:"0.72rem",padding:"0.42rem 0.65rem",flexShrink:0}}>Todos</button>
+      </div>
+
+      {/* CONTENIDO */}
+      <div style={{flex:1,overflowY:"auto"}}>
+
+      {/* TAB: POR CUADRILLA */}
+      {semanalTab==="cuadrillas"&&(
+        <div style={{padding:"0.5rem 1rem"}}>
+        {cuadrillas.length===0&&<div style={{textAlign:"center",padding:"2rem",color:"#94a3b8",fontSize:"0.88rem"}}>Sin cuadrillas creadas. Usa la pestaña «Lista general».</div>}
+        {cuadrillas.map((c,ci)=>{
+          const col=COLORES[ci%COLORES.length];
+        const mFilt=(c.miembros||[]).filter(coincide);
+            if(!mFilt.length&&q) return null;
+              const abierta=semanalCuadExpand[c.id]!==false;
+                const nSel=mFilt.filter(m=>semanalMiembros.find(s=>s.id===m.id)).length;
+                  const todosSel=mFilt.length>0&&nSel===mFilt.length;
+                    return(
+                      <div key={c.id} style={{borderRadius:"12px",border:`1.5px solid ${col}30`,marginBottom:"0.6rem",overflow:"hidden"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:"0.55rem",padding:"0.55rem 0.8rem",background:`${col}10`}}>
+                          {/* Checkbox cuadrilla */}
+                          <div onClick={()=>toggleGrupo(mFilt.length?mFilt:[])} style={{width:"20px",height:"20px",borderRadius:"5px",flexShrink:0,border:`2px solid ${todosSel?col:nSel>0?`${col}60`:"#e2e8f0"}`,background:todosSel?col:nSel>0?`${col}30`:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}>
+                            {todosSel&&<CheckCircle size={12} color="#fff" strokeWidth={3}/>}
+                            {!todosSel&&nSel>0&&<div style={{width:"8px",height:"2px",background:col,borderRadius:"1px"}}/>}
+                          </div>
+                          {/* Nombre */}
+                          <div style={{flex:1,cursor:"pointer"}} onClick={()=>setSemanalCuadExpand(p=>({...p,[c.id]:!abierta}))}>
+                            <div style={{fontWeight:"800",color:col,fontSize:"0.88rem"}}>Cuadrilla {c.nombre}{c.tipo==="semanal"&&<span style={{marginLeft:"0.35rem",fontSize:"0.68rem",background:"#d1fae5",color:"#059669",borderRadius:"4px",padding:"1px 6px"}}>SEMANAL</span>}</div>
+                            <div style={{fontSize:"0.7rem",color:"#64748b"}}>{nSel}/{(c.miembros||[]).length} seleccionado(s)</div>
+                          </div>
+                          {/* Btn toggle cuadrilla */}
+                          <button onClick={()=>toggleGrupo(mFilt.length?mFilt:[])} style={{...sty.btnSec,color:col,background:`${col}15`,fontSize:"0.7rem",padding:"0.25rem 0.6rem",border:`1.5px solid ${col}30`,flexShrink:0}}>
+                            {todosSel?"✔ Deselec.":"⊕ Todos"}
+                          </button>
+                          <span onClick={()=>setSemanalCuadExpand(p=>({...p,[c.id]:!abierta}))} style={{color:"#cbd5e1",cursor:"pointer",fontSize:"0.75rem",flexShrink:0}}>{abierta?"▲":"▼"}</span>
+                        </div>
+                        {abierta&&(
+                          <div style={{background:"#fff",borderTop:`1px solid ${col}20`,padding:"0.25rem 0.5rem"}}>
+                            {(q?mFilt:(c.miembros||[])).map((m,mi,arr)=>{
+                              const sel=!!semanalMiembros.find(s=>s.id===m.id);
+                              return(
+                                <div key={m.id} onClick={()=>toggleSemanal(m)}
+                                  style={{display:"flex",alignItems:"center",gap:"0.6rem",padding:"0.42rem 0.55rem",borderRadius:"8px",cursor:"pointer",background:sel?"#f0fdf4":"transparent",marginBottom:mi<arr.length-1?"0.08rem":0,transition:"background 0.1s"}}
+                                  onMouseEnter={e=>{if(!sel)e.currentTarget.style.background="#f8fafc";}}
+                                  onMouseLeave={e=>{e.currentTarget.style.background=sel?"#f0fdf4":"transparent";}}>
+                                  <div style={{width:"17px",height:"17px",borderRadius:"5px",flexShrink:0,border:`2px solid ${sel?"#059669":"#e2e8f0"}`,background:sel?"#059669":"#fff",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                                    {sel&&<CheckCircle size={10} color="#fff" strokeWidth={3}/>}
+                                  </div>
+                                  <div style={{flex:1,fontWeight:"600",color:"#1e293b",fontSize:"0.85rem",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.nombre}</div>
+                                  <span style={{fontSize:"0.68rem",color:"#94a3b8",fontFamily:"monospace",flexShrink:0}}>{m.cedula||""}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {/* Trabajadores sin cuadrilla */}
+                  {(()=>{
+                    const sc=trabajadores.filter(t=>!idsEnCuadrilla.has(t.id)&&coincide(t));
+                    if(!sc.length) return null;
+                    const key="_sc";
+                    const ab=semanalCuadExpand[key]!==false;
+                    const ns=sc.filter(t=>semanalMiembros.find(m=>m.id===t.id)).length;
+                    const ts=ns===sc.length;
+                    return(
+                      <div style={{borderRadius:"12px",border:"1.5px solid #e2e8f0",marginBottom:"0.6rem",overflow:"hidden"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:"0.55rem",padding:"0.55rem 0.8rem",background:"#f8fafc"}}>
+                          <div onClick={()=>toggleGrupo(sc)} style={{width:"20px",height:"20px",borderRadius:"5px",flexShrink:0,border:`2px solid ${ts?"#64748b":"#e2e8f0"}`,background:ts?"#64748b":"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}>
+                            {ts&&<CheckCircle size={12} color="#fff" strokeWidth={3}/>}
+                          </div>
+                          <div style={{flex:1,cursor:"pointer"}} onClick={()=>setSemanalCuadExpand(p=>({...p,[key]:!ab}))}>
+                            <div style={{fontWeight:"800",color:"#475569",fontSize:"0.88rem"}}>👤 Sin cuadrilla asignada</div>
+                            <div style={{fontSize:"0.7rem",color:"#94a3b8"}}>{ns}/{sc.length} sel.</div>
+                          </div>
+                          <button onClick={()=>toggleGrupo(sc)} style={{...sty.btnSec,color:"#475569",background:"#f1f5f9",fontSize:"0.7rem",padding:"0.25rem 0.6rem",border:"1.5px solid #e2e8f0",flexShrink:0}}>{ts?"✔ Deselec.":"⊕ Todos"}</button>
+                          <span onClick={()=>setSemanalCuadExpand(p=>({...p,[key]:!ab}))} style={{color:"#cbd5e1",cursor:"pointer",fontSize:"0.75rem",flexShrink:0}}>{ab?"▲":"▼"}</span>
+                        </div>
+                        {ab&&(
+                          <div style={{background:"#fff",borderTop:"1px solid #f1f5f9",padding:"0.25rem 0.5rem"}}>
+                            {sc.map((t,ti)=>{
+                              const sel=!!semanalMiembros.find(m=>m.id===t.id);
+                              return(
+                                <div key={t.id} onClick={()=>toggleSemanal(t)}
+                                  style={{display:"flex",alignItems:"center",gap:"0.6rem",padding:"0.42rem 0.55rem",borderRadius:"8px",cursor:"pointer",background:sel?"#f0fdf4":"transparent",marginBottom:ti<sc.length-1?"0.08rem":0}}
+                                  onMouseEnter={e=>{if(!sel)e.currentTarget.style.background="#f8fafc";}}
+                                  onMouseLeave={e=>{e.currentTarget.style.background=sel?"#f0fdf4":"transparent";}}>
+                                  <div style={{width:"17px",height:"17px",borderRadius:"5px",flexShrink:0,border:`2px solid ${sel?"#059669":"#e2e8f0"}`,background:sel?"#059669":"#fff",display:"flex",alignItems:"center",justifyContent:"center"}}>{sel&&<CheckCircle size={10} color="#fff" strokeWidth={3}/>}</div>
+                                  <div style={{flex:1,fontWeight:"600",color:"#1e293b",fontSize:"0.85rem"}}>{t.nombre}</div>
+                                  <span style={{fontSize:"0.68rem",color:"#94a3b8",fontFamily:"monospace"}}>{t.cedula||""}</span>
+                                  {t.cargo&&<span style={{fontSize:"0.67rem",color:"#64748b",background:"#f1f5f9",borderRadius:"4px",padding:"1px 5px"}}>{t.cargo}</span>}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {/* TAB: LISTA GENERAL */}
+              {semanalTab==="general"&&(
+                <div style={{padding:"0.5rem 1rem"}}>
+                  {trabajadores.filter(coincide).length===0&&<div style={{textAlign:"center",padding:"2rem",color:"#94a3b8",fontSize:"0.88rem"}}>Sin resultados para «{semanalBusqueda}»</div>}
+                  {(()=>{
+                    const arr=trabajadores.filter(coincide);
+                    return arr.map((t,ti)=>{
+                      const sel=!!semanalMiembros.find(m=>m.id===t.id);
+                      const cargoPrev=ti>0?(arr[ti-1].cargo||"Sin cargo"):null;
+                      const cargo=t.cargo||"Sin cargo";
+                      return(
+                        <div key={t.id}>
+                          {cargoPrev!==cargo&&<div style={{fontSize:"0.67rem",fontWeight:"800",color:"#94a3b8",textTransform:"uppercase",letterSpacing:"0.06em",padding:"0.5rem 0.6rem 0.18rem",marginTop:ti>0?"0.35rem":0}}>👷 {cargo}</div>}
+                          <div onClick={()=>toggleSemanal(t)}
+                            style={{display:"flex",alignItems:"center",gap:"0.6rem",padding:"0.42rem 0.55rem",borderRadius:"8px",cursor:"pointer",background:sel?"#f0fdf4":"transparent",marginBottom:"0.08rem",transition:"background 0.1s"}}
+                            onMouseEnter={e=>{if(!sel)e.currentTarget.style.background="#f8fafc";}}
+                            onMouseLeave={e=>{e.currentTarget.style.background=sel?"#f0fdf4":"transparent";}}>
+                            <div style={{width:"17px",height:"17px",borderRadius:"5px",flexShrink:0,border:`2px solid ${sel?"#059669":"#e2e8f0"}`,background:sel?"#059669":"#fff",display:"flex",alignItems:"center",justifyContent:"center"}}>{sel&&<CheckCircle size={10} color="#fff" strokeWidth={3}/>}</div>
+                            <div style={{flex:1,fontWeight:"600",color:"#1e293b",fontSize:"0.87rem",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.nombre}</div>
+                            <span style={{fontSize:"0.68rem",color:"#94a3b8",fontFamily:"monospace",flexShrink:0}}>{t.cedula||""}</span>
+                          </div>
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+              )}
+            </div>
+
+            {/* FOOTER */}
+            <div style={{padding:"0.9rem 1.5rem",borderTop:"1px solid #e2e8f0",display:"flex",gap:"0.65rem",alignItems:"center"}}>
+              <div style={{flex:1,fontSize:"0.78rem",color:"#64748b"}}>
+                {semanalMiembros.length>0
+                  ?<><strong style={{color:"#059669"}}>{semanalMiembros.length}</strong> trabajador(es) seleccionado(s) ✔</>
+                  :<span style={{color:"#f97316",fontWeight:"700"}}>☝️ Selecciona trabajadores en las pestañas de arriba para habilitar el botón</span>}
+              </div>
+              <button onClick={()=>setModalSemanal(false)} disabled={guardandoSemanal} style={{padding:"0.7rem 1.1rem",background:"#f1f5f9",border:"none",borderRadius:"10px",color:"#475569",fontWeight:"700",cursor:"pointer"}}>Cancelar</button>
+              <button
+                onClick={crearCuadrillaSemanal}
+                disabled={guardandoSemanal||!semanalMiembros.length||!semanalLunes}
+                title={!semanalMiembros.length?"Selecciona al menos 1 trabajador":!semanalLunes?"Selecciona la semana de inicio":""}
+                style={{padding:"0.7rem 1.4rem",border:"none",borderRadius:"10px",color:"#fff",fontWeight:"800",fontSize:"0.9rem",
+                  cursor:semanalMiembros.length&&semanalLunes?"pointer":"not-allowed",
+                  background:semanalMiembros.length&&semanalLunes?"#059669":"#94a3b8",
+                  display:"flex",alignItems:"center",gap:"0.5rem",
+                  boxShadow:semanalMiembros.length&&semanalLunes?"0 4px 12px rgba(5,150,105,0.3)":"none",
+                  opacity:semanalMiembros.length&&semanalLunes?1:0.7}}>
+                {guardandoSemanal
+                  ?<><RefreshCw size={15} style={{animation:"spin 1s linear infinite"}}/> Creando...</>
+                  :<><Plus size={15}/> Crear semanal ({semanalMiembros.length} trab.)</>}
+              </button>
+            </div>
+          </div>
+        </div>
+        );
+      })()}
+
+      {/* ══ MODAL EDITAR DÍA DEL HISTORIAL ══ */}
+      {modalEditHistorial&&editHistDoc&&editHistDia!==null&&(()=>{
+        const wDelCliente = trabajadores.filter(t=>(t.clienteIds||["spia"]).includes(histClienteId));
+        const q = editHistBusqueda.trim().toLowerCase();
+        const fuente = q
+          ? wDelCliente.filter(t=>t.nombre?.toLowerCase().includes(q)||String(t.cedula||"").includes(editHistBusqueda.trim()))
+          : wDelCliente;
+        const DIAS_NOMBRE=["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
+        const diaNombre = DIAS_NOMBRE[new Date(editHistDoc.anio,editHistDoc.mes-1,editHistDia).getDay()];
+        const fechaLabel = `${diaNombre} ${editHistDia} de ${MESES[(editHistDoc.mes||1)-1]} ${editHistDoc.anio}`;
+
+        const totalConNov = Object.values(editHistNovedades).filter(v=>v!==null&&v!==undefined&&v!=="").length;
+        const totalAsistio = Object.values(editHistNovedades).filter(v=>v===null).length;
+
+        return(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:9999,
+          display:"flex",alignItems:"center",justifyContent:"center",padding:"1rem"}}
+          onClick={e=>{if(e.target===e.currentTarget&&!editHistGuardando)setModalEditHistorial(false);}}>
+          <div style={{background:"#fff",borderRadius:"18px",width:"100%",maxWidth:"680px",
+            maxHeight:"92vh",display:"flex",flexDirection:"column",
+            boxShadow:"0 24px 60px rgba(0,0,0,0.22)"}}>
+
+            {/* HEADER */}
+            <div style={{padding:"1rem 1.5rem",background:`linear-gradient(135deg,${PRIMARY},#1e4db7)`,
+              borderRadius:"18px 18px 0 0",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div>
+                <div style={{fontWeight:"900",color:"#fff",fontSize:"1.05rem"}}>
+                  ✏️ Editar llamado a lista
+                </div>
+                <div style={{color:"rgba(255,255,255,0.82)",fontSize:"0.78rem",marginTop:"0.1rem"}}>
+                  {fechaLabel} · Agrega trabajadores o cambia sus novedades
+                </div>
+              </div>
+              <button onClick={()=>setModalEditHistorial(false)}
+                style={{background:"rgba(255,255,255,0.2)",border:"none",borderRadius:"8px",
+                  padding:"0.45rem",cursor:"pointer",color:"#fff",display:"flex"}}>
+                <X size={18}/>
+              </button>
+            </div>
+
+            {/* CONTADORES */}
+            <div style={{padding:"0.65rem 1.5rem",background:`${PRIMARY}08`,borderBottom:"1px solid #e2e8f0",
+              display:"flex",gap:"0.75rem",alignItems:"center",flexWrap:"wrap"}}>
+              <div style={{background:"#d1fae5",borderRadius:"8px",padding:"0.35rem 0.75rem",textAlign:"center"}}>
+                <span style={{fontWeight:"900",color:"#059669",fontSize:"1rem"}}>{totalAsistio}</span>
+                <span style={{fontSize:"0.68rem",color:"#059669",fontWeight:"700",marginLeft:"0.3rem"}}>Asistieron ✅</span>
+              </div>
+              <div style={{background:"#fee2e2",borderRadius:"8px",padding:"0.35rem 0.75rem",textAlign:"center"}}>
+                <span style={{fontWeight:"900",color:"#dc2626",fontSize:"1rem"}}>{totalConNov}</span>
+                <span style={{fontSize:"0.68rem",color:"#dc2626",fontWeight:"700",marginLeft:"0.3rem"}}>Con novedad ❌</span>
+              </div>
+              <div style={{background:"#f8fafc",borderRadius:"8px",padding:"0.35rem 0.75rem",textAlign:"center"}}>
+                <span style={{fontWeight:"900",color:"#94a3b8",fontSize:"1rem"}}>{wDelCliente.length-totalAsistio-totalConNov}</span>
+                <span style={{fontSize:"0.68rem",color:"#94a3b8",fontWeight:"700",marginLeft:"0.3rem"}}>Sin marcar</span>
+              </div>
+              <div style={{flex:1}}>
+                <input value={editHistBusqueda} onChange={e=>setEditHistBusqueda(e.target.value)}
+                  placeholder="🔍 Buscar trabajador..."
+                  style={{...sty.inputM,background:"#fff"}}/>
+              </div>
+            </div>
+
+            {/* LISTA DE TRABAJADORES */}
+            <div style={{flex:1,overflowY:"auto",padding:"0.5rem 1rem"}}>
+              {fuente.map((w,idx)=>{
+                const cargoPrev = idx>0?(fuente[idx-1].cargo||"Sin cargo"):null;
+                const cargo = w.cargo||"Sin cargo";
+                const cod = editHistNovedades[w.id];
+                const asistio = cod===null;
+                const sinMark = cod===undefined;
+                const novInfo = (cod&&cod!==null)?novMap[cod]:null;
+                return(
+                  <div key={w.id}>
+                    {cargoPrev!==cargo&&(
+                      <div style={{fontSize:"0.67rem",fontWeight:"800",color:"#94a3b8",
+                        textTransform:"uppercase",letterSpacing:"0.06em",
+                        padding:"0.5rem 0.5rem 0.15rem",marginTop:idx>0?"0.4rem":0}}>
+                        👷 {cargo}
+                      </div>
+                    )}
+                    <div style={{
+                      display:"flex",alignItems:"center",gap:"0.75rem",
+                      padding:"0.55rem 0.75rem",borderRadius:"10px",
+                      background:asistio?"#f0fdf4":novInfo?`${novInfo.color}08`:sinMark?"#fafafa":"transparent",
+                      border:`1.5px solid ${asistio?"#86efac":novInfo?novInfo.color+"30":"transparent"}`,
+                      marginBottom:"0.3rem",transition:"all 0.1s",
+                    }}>
+                      {/* Estado icono */}
+                      <div style={{width:"32px",height:"32px",borderRadius:"8px",flexShrink:0,
+                        background:asistio?"#d1fae5":novInfo?.bg||"#f1f5f9",
+                        display:"flex",alignItems:"center",justifyContent:"center",fontSize:"1rem"}}>
+                        {asistio?"\u2705":novInfo?novInfo.emoji:"\u2B1C"}
+                      </div>
+                      {/* Info trabajador */}
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontWeight:"700",color:"#1e293b",fontSize:"0.88rem",
+                          overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                          {w.nombre}
+                        </div>
+                        <div style={{fontSize:"0.7rem",fontFamily:"monospace",color:"#94a3b8"}}>
+                          {w.cedula}{novInfo&&<span style={{marginLeft:"0.4rem",color:novInfo.color,fontWeight:"700"}}>· {novInfo.emoji} {novInfo.label}</span>}
+                        </div>
+                      </div>
+                      {/* Botones de acción */}
+                      <div style={{display:"flex",gap:"0.3rem",flexShrink:0}}>
+                        {!asistio&&(
+                          <button
+                            onClick={()=>setEditHistNovedades(p=>({...p,[w.id]:null}))}
+                            style={{padding:"0.32rem 0.6rem",borderRadius:"7px",
+                              border:"1.5px solid #86efac",background:"#d1fae5",cursor:"pointer",
+                              fontSize:"0.73rem",fontWeight:"700",color:"#059669"}}>
+                            ✓ Asistió
+                          </button>
+                        )}
+                        {/* Selector de novedad */}
+                        <div style={{position:"relative"}}>
+                          <select
+                            value={cod||""}
+                            onChange={e=>{
+                              const v=e.target.value;
+                              setEditHistNovedades(p=>({...p,[w.id]:v===":asistio:"?null:v===":quitar:"?undefined:v}));
+                            }}
+                            style={{padding:"0.32rem 0.6rem",borderRadius:"7px",
+                              border:`1.5px solid ${novInfo?novInfo.color+"60":"#e2e8f0"}`,
+                              background:novInfo?novInfo.bg:"#f8fafc",
+                              color:novInfo?novInfo.color:"#64748b",
+                              fontWeight:novInfo?"700":"500",
+                              fontSize:"0.73rem",cursor:"pointer",outline:"none",
+                              appearance:"none",paddingRight:"1.2rem"}}>
+                            <option value="">-- Novedad --</option>
+                            <option value=":asistio:">\u2705 Asistió (sin novedad)</option>
+                            <option value=":quitar:">\u274c Quitar marca</option>
+                            {novedades.map(n=>(
+                              <option key={n.codigo} value={n.codigo}>
+                                {n.emoji} {n.label} ({n.codigo})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        {(asistio||(cod!==undefined&&cod!==null&&cod!==""))&&(
+                          <button
+                            onClick={()=>setEditHistNovedades(p=>{const n={...p};delete n[w.id];return n;})}
+                            title="Quitar marca"
+                            style={{padding:"0.32rem 0.45rem",borderRadius:"7px",
+                              border:"1.5px solid #e2e8f0",background:"#fff",cursor:"pointer",
+                              color:"#94a3b8",display:"flex"}}>
+                            <X size={12}/>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* FOOTER */}
+            <div style={{padding:"0.9rem 1.5rem",borderTop:"1px solid #e2e8f0",
+              display:"flex",gap:"0.65rem",alignItems:"center"}}>
+              {editHistOk&&(
+                <span style={{flex:1,color:"#059669",fontWeight:"700",fontSize:"0.85rem"}}>
+                  ✅ Guardado correctamente
+                </span>
+              )}
+              {!editHistOk&&<div style={{flex:1}}/>}
+              <button onClick={()=>setModalEditHistorial(false)} disabled={editHistGuardando}
+                style={{padding:"0.7rem 1.1rem",background:"#f1f5f9",border:"none",
+                  borderRadius:"10px",color:"#475569",fontWeight:"700",cursor:"pointer"}}>
+                Cancelar
+              </button>
+              <button onClick={guardarEditHistorial} disabled={editHistGuardando}
+                style={{...sty.btnPrimary,padding:"0.7rem 1.4rem"}}>
+                {editHistGuardando?<><RefreshCw size={15} style={{animation:"spin 1s linear infinite"}}/> Guardando...</>:<><Save size={15}/> Guardar cambios</>}
+              </button>
+            </div>
+          </div>
+        </div>
+        );
+      })()}
 
       {/* ══ MODAL NUEVA CUADRILLA ══ */}
       {modalNueva&&(

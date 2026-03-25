@@ -6,6 +6,8 @@ import { getAuth, onAuthStateChanged } from "firebase/auth";
 
 import { getUserRoleByUid } from "@/utils/getUserRole";
 import { useRouter } from "next/router";
+import LayoutWithSidebar from "@/components/LayoutWithSidebar";
+import PageHeader from "@/components/PageHeader";
 
 export default function TrazabilidadLogins() {
   const [registros, setRegistros] = useState([]);
@@ -22,7 +24,7 @@ export default function TrazabilidadLogins() {
       }
       try {
         const r = await getUserRoleByUid(u.uid);
-        setRol(r);
+        setRol(r || "usuario");
       } catch (e) {
         console.error("Error leyendo rol:", e);
         setRol("usuario");
@@ -32,7 +34,7 @@ export default function TrazabilidadLogins() {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [router]);
 
   const cargarLogins = async () => {
     const q = query(collection(db, "logins"), orderBy("timestamp", "desc"));
@@ -41,7 +43,7 @@ export default function TrazabilidadLogins() {
     setRegistros(lista);
   };
 
-  // 🔹 Nuevo: cargar registros cuando ya terminó la carga del rol/autenticación
+  // Cargar registros cuando ya terminó la carga del rol/autenticación
   useEffect(() => {
     if (!cargandoRol) {
       cargarLogins().catch((e) => console.error("Error cargando logins:", e));
@@ -49,15 +51,19 @@ export default function TrazabilidadLogins() {
   }, [cargandoRol]);
 
   return (
-    <div style={{ padding: 32 }}>
+    <LayoutWithSidebar>
+      <PageHeader titulo="Trazabilidad Logins" />
+  <div style={{ padding: 32 }}>
       <h1 style={{ fontSize: 28, fontWeight: "bold", marginBottom: 24 }}>
         Trazabilidad de Conexiones
       </h1>
+
       <table style={{ width: "100%", borderCollapse: "collapse" }}>
         <thead>
           <tr>
             <th style={estiloCelda}>Email</th>
             <th style={estiloCelda}>UID</th>
+            <th style={estiloCelda}>Rol</th>
             <th style={estiloCelda}>Fecha y Hora</th>
           </tr>
         </thead>
@@ -66,34 +72,20 @@ export default function TrazabilidadLogins() {
             <tr key={registro.id}>
               <td style={estiloCelda}>{registro.email}</td>
               <td style={estiloCelda}>{registro.uid}</td>
+              <td style={estiloCelda}>{registro.role || "usuario"}</td>
               <td style={estiloCelda}>
-                {registro.timestamp?.toDate().toLocaleString()}
+                {registro.timestamp?.toDate
+                  ? registro.timestamp.toDate().toLocaleString()
+                  : ""}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
 
-      {/* Botón regresar fijo */}
-      <button
-        style={{
-          position: "fixed",
-          bottom: "20px",
-          left: "20px",
-          backgroundColor: "#2980b9",
-          color: "white",
-          padding: "10px 20px",
-          border: "none",
-          borderRadius: "5px",
-          cursor: "pointer",
-          zIndex: 1000,
-          boxShadow: "0 4px 8px rgba(0,0,0,0.1)",
-        }}
-        onClick={() => router.push("/")}
-      >
-        ⬅ Regresar
-      </button>
+
     </div>
+  </LayoutWithSidebar>
   );
 }
 

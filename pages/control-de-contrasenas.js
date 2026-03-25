@@ -10,6 +10,8 @@ import {
   getDocs,
   serverTimestamp,
 } from "firebase/firestore";
+import LayoutWithSidebar from "@/components/LayoutWithSidebar";
+import PageHeader from "@/components/PageHeader";
 
 /* =========================
    Configuración de módulos
@@ -527,7 +529,9 @@ export default function ControlDeContrasenas() {
   const [selectedUsers, setSelectedUsers] = useState([]);
 
   return (
-    <div style={{ padding: 20, fontFamily: "Arial, sans-serif" }}>
+    <LayoutWithSidebar>
+      <PageHeader titulo="Control de Contraseñas" />
+      <div style={{ padding: 20, fontFamily: "Arial, sans-serif" }}>
       {/* Encabezado */}
       <div
         style={{
@@ -608,26 +612,9 @@ export default function ControlDeContrasenas() {
         ))}
       </div>
 
-      {/* Botón fijo Regresar */}
-      <Link
-        href="/"
-        style={{
-          position: "fixed",
-          bottom: 20,
-          left: 20,
-          backgroundColor: "#007acc",
-          color: "white",
-          padding: "10px 16px",
-          borderRadius: 8,
-          boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-          zIndex: 1000,
-          textDecoration: "none",
-          fontWeight: 700,
-        }}
-      >
-        ⬅ Regresar
-      </Link>
+
     </div>
+    </LayoutWithSidebar>
   );
 }
 

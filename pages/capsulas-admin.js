@@ -1,587 +1,473 @@
-// pages/capsulas-admin.js
-import { useEffect, useRef, useState } from "react";
-import {
-  collection,
-  onSnapshot,
-  addDoc,
-  serverTimestamp,
-  deleteDoc,
+// pages/capsulas-admin.js - Administración de Cápsulas de Seguridad LOGISPORT
+import { useState, useEffect } from "react";
+import { useRouter } from "next/router";
+import { 
+  collection, 
+  addDoc, 
+  getDocs, 
+  updateDoc, 
+  deleteDoc, 
   doc,
-  query,
-  orderBy,
+  serverTimestamp,
 } from "firebase/firestore";
 import { db } from "@/firebase/firebaseConfig";
-import { useRouter } from "next/router";
-import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { getUserRoleByUid } from "@/utils/getUserRole";
+import { getAuth } from "firebase/auth";
+import LayoutWithSidebar from "@/components/LayoutWithSidebar";
+import PageHeader from "@/components/PageHeader";
+import { 
+  Plus, Edit2, Trash2, Eye, EyeOff, Save, X, AlertCircle 
+} from "lucide-react";
 
-// ------------------------------
-// Config
-// ------------------------------
-const DEFAULT_FIELD_CANDIDATES = [
-  "mensaje",
-  "mensajeCapsula",
-  "texto",
-  "text",
-  "body",
-  "contenido",
-  "description",
-  "mensaje1",
-  "msg",
-  "detalle",
-  "detalles",
-  "descripcion",
-  "title",
-  "titulo",
-  "content",
-  "notes",
-];
+const FORM_DEFAULT = {
+  id: null,
+  titulo: "",
+  contenido: "",
+  activa: true,
+  prioridad: 1,
+  tipo: "informacion",
+  fechaInicio: "",
+  fechaFin: "",
+  duracionDias: 30,
+  intervaloSegundos: 5,
+  intervaloRecurrencia: 30,
+  duracionPantalla: 10,
+  fechaCreacion: null,
+};
 
-const PERIOD_MS = 50_000;  // cada cuánto mostramos una nueva cápsula
-const DISPLAY_MS = 12_000; // cuánto tiempo permanece visible
-
-// Extrae texto “mostrable”
-function extractTextFromDoc(data, preferredFieldName = "", candidates = DEFAULT_FIELD_CANDIDATES) {
-  if (preferredFieldName) {
-    const v = data?.[preferredFieldName];
-    if (typeof v === "string" && v.trim()) return v.trim();
-    if (v != null && v.toString && v.toString().trim()) return v.toString().trim();
-  }
-  for (const k of candidates) {
-    const v = data?.[k];
-    if (typeof v === "string" && v.trim()) return v.trim();
-  }
-  for (const [, v] of Object.entries(data || {})) {
-    if (typeof v === "string" && v.trim()) return v.trim();
-  }
-  return "";
-}
-
-function shuffle(arr) {
-  const a = arr.slice();
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
-
-// ------------------------------
-// Emergente
-// ------------------------------
-function CapsulasEmergentesInner({
-  collectionName = "capsulas",
-  fieldCandidates = DEFAULT_FIELD_CANDIDATES,
-  preferredFieldName = "",
-  debug = false,
-}) {
-  const [visible, setVisible] = useState(false);
-  const [msg, setMsg] = useState("");
-  const [status, setStatus] = useState("");
-
-  const usableRef = useRef([]);        // [{id, text}]
-  const orderRef = useRef([]);         // orden barajado de índices
-  const orderPosRef = useRef(0);       // posición actual en el orden
-  const hideTimerRef = useRef(null);   // timeout para ocultar
-  const nextTimerRef = useRef(null);   // timeout para la siguiente
-  const lastIdRef = useRef("");        // última cápsula mostrada
-
-  const clearHide = () => {
-    if (hideTimerRef.current) {
-      clearTimeout(hideTimerRef.current);
-      hideTimerRef.current = null;
-    }
-  };
-  const clearNext = () => {
-    if (nextTimerRef.current) {
-      clearTimeout(nextTimerRef.current);
-      nextTimerRef.current = null;
-    }
-  };
-
-  const ensureOrder = () => {
-    const n = usableRef.current.length;
-    if (n === 0) {
-      orderRef.current = [];
-      orderPosRef.current = 0;
-      return;
-    }
-    if (!orderRef.current.length || orderPosRef.current >= orderRef.current.length) {
-      const base = shuffle([...Array(n).keys()]);
-      if (n > 1 && lastIdRef.current) {
-        const firstIdx = base[0];
-        const firstId = usableRef.current[firstIdx]?.id;
-        if (firstId === lastIdRef.current) {
-          const swapWith = Math.floor(Math.random() * (n - 1)) + 1; // 1..n-1
-          [base[0], base[swapWith]] = [base[swapWith], base[0]];
-        }
-      }
-      orderRef.current = base;
-      orderPosRef.current = 0;
-    }
-  };
-
-  const showNext = () => {
-    clearHide();
-    clearNext();
-
-    const list = usableRef.current;
-    if (!list.length) {
-      setVisible(false);
-      setMsg("");
-      if (debug) setStatus(`No hay cápsulas con texto utilizable en «${collectionName}».`);
-      return;
-    }
-
-    ensureOrder();
-    const idx = orderRef.current[orderPosRef.current++];
-    const chosen = list[idx];
-    if (!chosen) return;
-
-    lastIdRef.current = chosen.id;
-    setMsg(chosen.text);
-    setVisible(true);
-
-    hideTimerRef.current = setTimeout(() => setVisible(false), DISPLAY_MS);
-    nextTimerRef.current = setTimeout(showNext, PERIOD_MS);
-
-    if (debug) {
-      setStatus(
-        `Mostrando cápsula ${lastIdRef.current}. Disponibles: ${list.length}. ` +
-        `Quedan en ciclo: ${orderRef.current.length - orderPosRef.current}. ` +
-        `Próxima en ${Math.round(PERIOD_MS / 1000)}s.`
-      );
-    }
-  };
-
-  // Suscripción
-  useEffect(() => {
-    const qy = query(collection(db, collectionName));
-    const unsub = onSnapshot(
-      qy,
-      (snap) => {
-        const arr = snap.docs
-          .map((d) => {
-            const data = d.data() || {};
-            const text = extractTextFromDoc(data, preferredFieldName, fieldCandidates);
-            return { id: d.id, text: String(text || "").trim() };
-          })
-          .filter((x) => x.text);
-
-        usableRef.current = arr;
-
-        if (arr.length === 0) {
-          setVisible(false);
-          setMsg("");
-          clearHide();
-          clearNext();
-          if (debug) setStatus(`No hay cápsulas válidas en «${collectionName}».`);
-          return;
-        }
-
-        orderRef.current = [];
-        orderPosRef.current = 0;
-        clearNext();
-
-        // Primera aparición tras 2s (para simular exactamente el global)
-        setTimeout(showNext, 2000);
-      },
-      (err) => {
-        setVisible(false);
-        setMsg("");
-        clearHide();
-        clearNext();
-        if (debug) setStatus("Error leyendo cápsulas: " + (err?.message || String(err)));
-      }
-    );
-
-    return () => {
-      unsub();
-      clearHide();
-      clearNext();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [collectionName, preferredFieldName, JSON.stringify(fieldCandidates), debug]);
-
-  const DebugPanel = () =>
-    debug && status ? (
-      <div
-        style={{
-          position: "fixed",
-          bottom: 16,
-          left: 16,
-          background: "#eef2ff",
-          color: "#1e3a8a",
-          border: "1px solid #c7d2fe",
-          padding: "8px 10px",
-          borderRadius: 8,
-          fontSize: 12,
-          zIndex: 30000,
-          maxWidth: 420,
-          whiteSpace: "pre-wrap",
-        }}
-      >
-        {status}
-      </div>
-    ) : null;
-
-  if (!visible || !msg) return <DebugPanel />;
-
-  return (
-    <>
-      <div
-        style={{
-          position: "fixed",
-          bottom: 120,
-          left: 24,
-          backgroundColor: "#fffae6",
-          padding: 16,
-          borderRadius: 10,
-          boxShadow: "0 6px 16px rgba(0,0,0,0.2)",
-          zIndex: 20000,
-          width: 320,           // tamaño fijo
-          maxWidth: 320,
-          border: "1px solid #f7c873",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-          <div style={{ fontSize: 20, lineHeight: "20px" }}>💡</div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 800, marginBottom: 6, color: "#7c2d12" }}>
-              Ciberseguridad
-            </div>
-            <div style={{ fontSize: 14, color: "#1f2937", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-              {msg}
-            </div>
-          </div>
-          <button
-            onClick={() => {
-              setVisible(false);
-              clearHide();
-            }}
-            aria-label="Cerrar"
-            title="Cerrar"
-            style={{
-              border: "none",
-              background: "transparent",
-              cursor: "pointer",
-              fontWeight: "bold",
-              fontSize: 16,
-              lineHeight: "16px",
-            }}
-          >
-            ×
-          </button>
-        </div>
-      </div>
-      <DebugPanel />
-    </>
-  );
-}
-
-// ------------------------------
-// Panel Admin
-// ------------------------------
-function AdminPanel({ collectionName, onAfterChange }) {
-  const [mensaje, setMensaje] = useState("");
-  const [importLog, setImportLog] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [caps, setCaps] = useState([]);
-
-  useEffect(() => {
-    const qy = query(collection(db, collectionName), orderBy("createdAt", "desc"));
-    const unsub = onSnapshot(qy, (snap) => {
-      const arr = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      setCaps(arr);
-    });
-    return () => unsub();
-  }, [collectionName]);
-
-  const crearCapsula = async () => {
-    const text = String(mensaje || "").trim();
-    if (!text) return alert("Escribe el mensaje de la cápsula.");
-    setLoading(true);
-    try {
-      await addDoc(collection(db, collectionName), {
-        mensaje: text,
-        createdAt: serverTimestamp(),
-      });
-      setMensaje("");
-      onAfterChange?.();
-    } catch (e) {
-      console.error(e);
-      alert("Error creando cápsula: " + e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const eliminarCapsula = async (id) => {
-    if (!confirm("¿Eliminar esta cápsula?")) return;
-    setLoading(true);
-    try {
-      await deleteDoc(doc(db, collectionName, id));
-      onAfterChange?.();
-    } catch (e) {
-      console.error(e);
-      alert("Error eliminando cápsula: " + e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleFile = async (file) => {
-    if (!file) return;
-    setImportLog("Leyendo archivo...");
-    const txt = await file.text();
-    try {
-      let rows = [];
-      if (file.name.toLowerCase().endsWith(".json")) {
-        const data = JSON.parse(txt);
-        if (!Array.isArray(data)) throw new Error("El JSON debe ser un arreglo.");
-        rows = data;
-      } else {
-        rows = csvToObjects(txt);
-      }
-
-      let count = 0;
-      setImportLog("Importando...");
-      for (const row of rows) {
-        const text = pickAnyStringField(row);
-        if (text) {
-          await addDoc(collection(db, collectionName), {
-            mensaje: text,
-            createdAt: serverTimestamp(),
-          });
-          count++;
-        }
-      }
-      setImportLog(`Importación completa. Insertadas: ${count}`);
-      onAfterChange?.();
-    } catch (e) {
-      console.error(e);
-      setImportLog("Error en importación: " + e.message);
-    }
-  };
-
-  const csvToObjects = (source) => {
-    const lines = source.split(/\r?\n/).filter(Boolean);
-    if (!lines.length) return [];
-    const headers = lines[0].split(",").map((h) => h.trim());
-    const objs = [];
-    for (let i = 1; i < lines.length; i++) {
-      const cols = lines[i].split(",");
-      const o = {};
-      headers.forEach((h, idx) => (o[h] = (cols[idx] ?? "").trim()));
-      objs.push(o);
-    }
-    return objs;
-  };
-
-  const pickAnyStringField = (o) => {
-    for (const k of [
-      "mensaje",
-      "mensajeCapsula",
-      "texto",
-      "text",
-      "contenido",
-      "description",
-      "descripcion",
-      "msg",
-    ]) {
-      const v = o?.[k];
-      if (typeof v === "string" && v.trim()) return v.trim();
-    }
-    for (const [, v] of Object.entries(o || {})) {
-      if (typeof v === "string" && v.trim()) return v.trim();
-    }
-    return "";
-  };
-
-  return (
-    <div style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, marginBottom: 24 }}>
-      <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 12 }}>
-        Panel de administración de cápsulas
-      </h2>
-
-      {/* Crear */}
-      <div style={{ display: "grid", gap: 8, marginBottom: 16 }}>
-        <label style={{ fontWeight: 600 }}>Nueva cápsula</label>
-        <textarea
-          value={mensaje}
-          onChange={(e) => setMensaje(e.target.value)}
-          placeholder="Escribe el contenido de la cápsula…"
-          rows={4}
-          style={{ padding: 8, border: "1px solid #d1d5db", borderRadius: 8 }}
-        />
-        <button
-          onClick={crearCapsula}
-          disabled={loading}
-          style={{
-            alignSelf: "start",
-            backgroundColor: "#16a34a",
-            color: "white",
-            border: "none",
-            padding: "10px 16px",
-            borderRadius: 8,
-            cursor: "pointer",
-            boxShadow: "0 2px 6px rgba(0,0,0,0.12)",
-          }}
-        >
-          {loading ? "Guardando..." : "Guardar cápsula"}
-        </button>
-      </div>
-
-      {/* Importar */}
-      <div style={{ display: "grid", gap: 8, marginBottom: 16 }}>
-        <label style={{ fontWeight: 600 }}>Importar cápsulas (CSV o JSON)</label>
-        <input type="file" accept=".csv,.json,text/csv,application/json" onChange={(e) => handleFile(e.target.files?.[0])} />
-        <small style={{ color: "#6b7280" }}>
-          CSV recomendado con encabezado <code>mensaje</code>. Ejemplo:<br />
-          <code>mensaje</code><br />
-          <code>Actualiza tu antivirus.</code><br />
-          <code>No compartas contraseñas.</code>
-        </small>
-        {!!importLog && (
-          <pre style={{ background: "#f9fafb", padding: 8, borderRadius: 8, whiteSpace: "pre-wrap" }}>
-            {importLog}
-          </pre>
-        )}
-      </div>
-
-      {/* Lista / eliminar */}
-      <div style={{ display: "grid", gap: 8 }}>
-        <label style={{ fontWeight: 600 }}>Cápsulas existentes</label>
-        {caps.length === 0 ? (
-          <div style={{ color: "#6b7280" }}>No hay cápsulas aún.</div>
-        ) : (
-          <div style={{ display: "grid", gap: 8 }}>
-            {caps.map((c) => (
-              <div
-                key={c.id}
-                style={{
-                  border: "1px solid #e5e7eb",
-                  borderRadius: 8,
-                  padding: 8,
-                  display: "flex",
-                  alignItems: "flex-start",
-                  gap: 12,
-                  justifyContent: "space-between",
-                }}
-              >
-                <div style={{ whiteSpace: "pre-wrap", color: "#111827", flex: 1 }}>
-                  {c.mensaje || c.texto || c.description || c.contenido || c.msg || "(sin texto)"}
-                  <div style={{ color: "#6b7280", fontSize: 12, marginTop: 4 }}>
-                    {c.createdAt?.toDate?.().toLocaleString?.() || ""}
-                  </div>
-                </div>
-                <button
-                  onClick={() => eliminarCapsula(c.id)}
-                  style={{
-                    background: "#dc2626",
-                    color: "white",
-                    border: "none",
-                    padding: "8px 12px",
-                    borderRadius: 8,
-                    cursor: "pointer",
-                  }}
-                >
-                  Eliminar
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ------------------------------
-// Página: envuelve admin + emergente
-// ------------------------------
-export default function CapsulasAdminPage() {
+export default function CapsulasSeguridadAdmin() {
   const router = useRouter();
+  const [capsulas, setCapsulas] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [mensaje, setMensaje] = useState({ texto: "", tipo: "" });
+  const [modalAbierto, setModalAbierto] = useState(false);
+  const [rol, setRol] = useState("");
+  const [formData, setFormData] = useState(FORM_DEFAULT);
 
-  // Auth + rol
-  const [cargandoRol, setCargandoRol] = useState(true);
-  const [rol, setRol] = useState("usuario");
-
+  // Verificar permisos
   useEffect(() => {
     const auth = getAuth();
-    const unsub = onAuthStateChanged(auth, async (u) => {
-      if (!u) {
-        router.push("/login");
-        return;
+    const user = auth.currentUser;
+    if (!user) { router.push("/login"); return; }
+    const verificar = async () => {
+      const userRole = await getUserRoleByUid(user.uid);
+      setRol(userRole);
+      if (userRole !== "admin" && userRole !== "owner") {
+        setMensaje({ texto: "No tienes permisos para acceder a esta sección", tipo: "error" });
+        setTimeout(() => router.push("/"), 3000);
       }
-      try {
-        const r = await getUserRoleByUid(u.uid);
-        setRol(r || "usuario");
-      } catch (e) {
-        console.error("Error rol:", e);
-        setRol("usuario");
-      } finally {
-        setCargandoRol(false);
-      }
-    });
-    return () => unsub();
+    };
+    verificar();
   }, [router]);
 
-  // Overrides por querystring
-  const colQS = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("col") : null;
-  const fieldQS = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("field") : null;
-  const debugQS = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("debug") : null;
+  const cargarCapsulas = async () => {
+    try {
+      setLoading(true);
+      const snapshot = await getDocs(collection(db, "capsulas"));
+      let data = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      data.sort((a, b) => (a.prioridad || 999) - (b.prioridad || 999));
+      setCapsulas(data);
+    } catch (error) {
+      console.error("❌ Error cargando cápsulas:", error);
+      setMensaje({ texto: "Error al cargar las cápsulas: " + error.message, tipo: "error" });
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  const collectionName = (colQS && colQS.trim()) || "capsulas";
-  const preferredFieldName = (fieldQS && fieldQS.trim()) || "";
-  const debug = debugQS === "1" || debugQS === "true";
+  useEffect(() => {
+    if (rol === "admin" || rol === "owner") cargarCapsulas();
+  }, [rol]);
 
-  const [tick, setTick] = useState(0);
-  const forceRefresh = () => setTick((t) => t + 1);
+  const flash = (texto, tipo = "success") => {
+    setMensaje({ texto, tipo });
+    setTimeout(() => setMensaje({ texto: "", tipo: "" }), 3000);
+  };
+
+  const abrirModal = (capsula = null) => {
+    if (capsula) {
+      setFormData({
+        id: capsula.id,
+        titulo: capsula.titulo || "",
+        contenido: capsula.contenido || "",
+        activa: capsula.activa !== false,
+        prioridad: capsula.prioridad || 1,
+        tipo: capsula.tipo || "informacion",
+        fechaInicio: capsula.fechaInicio || "",
+        fechaFin: capsula.fechaFin || "",
+        duracionDias: capsula.duracionDias || 30,
+        intervaloSegundos: capsula.intervaloSegundos || 5,
+        intervaloRecurrencia: capsula.intervaloRecurrencia || 30,
+        duracionPantalla: capsula.duracionPantalla || 10,
+        fechaCreacion: capsula.fechaCreacion,
+      });
+    } else {
+      setFormData(FORM_DEFAULT);
+    }
+    setModalAbierto(true);
+  };
+
+  const cerrarModal = () => { setModalAbierto(false); setFormData(FORM_DEFAULT); };
+
+  const handleGuardar = async () => {
+    if (!formData.titulo.trim()) { flash("El título es obligatorio", "error"); return; }
+    if (!formData.contenido.trim()) { flash("El contenido es obligatorio", "error"); return; }
+    try {
+      const dataToSave = {
+        titulo: formData.titulo.trim(),
+        contenido: formData.contenido.trim(),
+        activa: formData.activa,
+        prioridad: parseInt(formData.prioridad) || 1,
+        tipo: formData.tipo,
+        fechaInicio: formData.fechaInicio || null,
+        fechaFin: formData.fechaFin || null,
+        duracionDias: parseInt(formData.duracionDias) || 30,
+        intervaloSegundos: Math.max(3, parseInt(formData.intervaloSegundos) || 5),
+        intervaloRecurrencia: Math.max(1, parseInt(formData.intervaloRecurrencia) || 30),
+        duracionPantalla: Math.max(3, parseInt(formData.duracionPantalla) || 10),
+        fechaActualizacion: serverTimestamp(),
+      };
+      if (formData.id) {
+        await updateDoc(doc(db, "capsulas", formData.id), dataToSave);
+        flash("Cápsula actualizada exitosamente");
+      } else {
+        dataToSave.fechaCreacion = serverTimestamp();
+        await addDoc(collection(db, "capsulas"), dataToSave);
+        flash("Cápsula creada exitosamente");
+      }
+      cerrarModal();
+      await cargarCapsulas();
+    } catch (error) {
+      console.error("Error guardando cápsula:", error);
+      flash("Error al guardar la cápsula", "error");
+    }
+  };
+
+  const handleEliminar = async (id) => {
+    if (!window.confirm("¿Eliminar esta cápsula? Esta acción no se puede deshacer.")) return;
+    try {
+      await deleteDoc(doc(db, "capsulas", id));
+      flash("Cápsula eliminada exitosamente");
+      await cargarCapsulas();
+    } catch (error) {
+      flash("Error al eliminar la cápsula", "error");
+    }
+  };
+
+  const toggleActiva = async (capsula) => {
+    try {
+      await updateDoc(doc(db, "capsulas", capsula.id), {
+        activa: !capsula.activa,
+        fechaActualizacion: serverTimestamp(),
+      });
+      flash(`Cápsula ${!capsula.activa ? "activada" : "desactivada"} exitosamente`);
+      await cargarCapsulas();
+    } catch (error) {
+      flash("Error al cambiar el estado", "error");
+    }
+  };
+
+  const getTipoColor = (tipo) => {
+    switch (tipo) {
+      case "critica": return { bg: "#fee2e2", border: "#dc2626", text: "#7f1d1d" };
+      case "alerta":  return { bg: "#fef3c7", border: "#f59e0b", text: "#78350f" };
+      default:        return { bg: "#dbeafe", border: "#3b82f6", text: "#1e3a8a" };
+    }
+  };
+
+  if (loading) return (
+    <LayoutWithSidebar>
+      <PageHeader titulo="Cápsulas de Seguridad" />
+      <div style={S.loadingContainer}>
+        <div style={S.spinner} />
+        <p style={S.loadingText}>Cargando cápsulas...</p>
+      </div>
+    </LayoutWithSidebar>
+  );
+
+  if (rol !== "admin" && rol !== "owner") return (
+    <LayoutWithSidebar>
+      <PageHeader titulo="Cápsulas de Seguridad" />
+      <div style={S.errorContainer}>
+        <AlertCircle size={48} color="#dc2626" />
+        <p style={S.errorText}>No tienes permisos para acceder a esta sección</p>
+      </div>
+    </LayoutWithSidebar>
+  );
 
   return (
-    <div style={{ padding: 24 }}>
-      <h1 style={{ fontSize: 24, fontWeight: 800, marginBottom: 12 }}>Cápsulas (admin)</h1>
-      <p style={{ marginBottom: 16, color: "#374151" }}>
-        Administra tus cápsulas de ciberseguridad y visualiza el emergente. Puedes forzar colección y
-        campo por URL: <code>?col=miColeccion&amp;field=miCampo</code>. Depuración: <code>?debug=1</code>.
-      </p>
+    <LayoutWithSidebar>
+      <PageHeader titulo="Administración de Cápsulas de Seguridad" />
+      <div style={S.container}>
 
-      <div style={{ marginBottom: 16 }}>
-        <button
-          onClick={() => router.push("/")}
-          style={{
-            backgroundColor: "#2563eb",
-            color: "white",
-            border: "none",
-            padding: "10px 16px",
-            borderRadius: 8,
-            cursor: "pointer",
-            boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
-          }}
-        >
-          ⬅ Regresar
-        </button>
-      </div>
+        {mensaje.texto && (
+          <div style={{
+            ...S.alert,
+            background: mensaje.tipo === "success" ? "#d1fae5" : "#fee2e2",
+            color: mensaje.tipo === "success" ? "#065f46" : "#991b1b",
+            borderColor: mensaje.tipo === "success" ? "#10b981" : "#dc2626",
+          }}>{mensaje.texto}</div>
+        )}
 
-      {/* Panel admin solo para rol admin */}
-      {cargandoRol ? (
-        <div style={{ color: "#6b7280", marginBottom: 16 }}>Verificando permisos…</div>
-      ) : rol === "admin" ? (
-        <AdminPanel collectionName={collectionName} onAfterChange={forceRefresh} />
-      ) : (
-        <div style={{ color: "#6b7280", marginBottom: 16 }}>
-          Tu rol no es <b>admin</b>. Solo verás el emergente.
+        <div style={S.header}>
+          <div>
+            <h2 style={S.title}>Cápsulas de Seguridad</h2>
+            <p style={S.subtitle}>Gestiona los mensajes informativos que verán los usuarios al iniciar sesión</p>
+          </div>
+          <button onClick={() => abrirModal()} style={S.btnPrimary}>
+            <Plus size={20} /><span>Nueva Cápsula</span>
+          </button>
         </div>
-      )}
 
-      {/* Emergente */}
-      <CapsulasEmergentesInner
-        key={tick}
-        collectionName={collectionName}
-        preferredFieldName={preferredFieldName}
-        debug={debug}
-      />
-    </div>
+        <div style={S.infoBox}>
+          <AlertCircle size={20} color="#0B3D91" />
+          <div>
+            <strong>¿Cómo funcionan las cápsulas?</strong>
+            <p style={{ margin: "0.25rem 0 0 0", color: "#6b7280" }}>
+              Aparecen automáticamente a los usuarios después del delay configurado, se repiten según la recurrencia
+              y permanecen en pantalla el tiempo indicado. Solo se muestran las cápsulas <strong>activas</strong> y dentro de su vigencia.
+            </p>
+          </div>
+        </div>
+
+        {capsulas.length === 0 ? (
+          <div style={S.emptyState}>
+            <AlertCircle size={48} color="#9ca3af" />
+            <h3 style={{ color: "#6b7280", margin: "1rem 0 0.5rem 0" }}>No hay cápsulas creadas</h3>
+            <p style={{ color: "#9ca3af", margin: 0 }}>Crea tu primera cápsula para comenzar</p>
+          </div>
+        ) : (
+          <div style={S.grid}>
+            {capsulas.map((capsula) => {
+              const colores = getTipoColor(capsula.tipo);
+              return (
+                <div key={capsula.id} style={{
+                  ...S.card,
+                  borderLeft: `4px solid ${colores.border}`,
+                  opacity: capsula.activa ? 1 : 0.6,
+                }}>
+                  <div style={S.cardHeader}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                        <h3 style={S.cardTitle}>{capsula.titulo || "[Sin título]"}</h3>
+                        <span style={{ ...S.badge, background: colores.bg, color: colores.text, border: `1px solid ${colores.border}` }}>
+                          {capsula.tipo || "informacion"}
+                        </span>
+                      </div>
+                      <span style={S.priority}>Prioridad: {capsula.prioridad || 1}</span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                      {capsula.activa ? <Eye size={20} color="#10b981" /> : <EyeOff size={20} color="#ef4444" />}
+                      <span style={{
+                        ...S.statusBadge,
+                        background: capsula.activa ? "#d1fae5" : "#fee2e2",
+                        color: capsula.activa ? "#065f46" : "#991b1b",
+                      }}>
+                        {capsula.activa ? "Activa" : "Inactiva"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div style={S.cardContent}>
+                    <p style={S.contentText}>{capsula.contenido || "[Sin contenido]"}</p>
+                    <div style={{ marginTop: "1rem", padding: "0.75rem", background: "#f9fafb", borderRadius: "6px", fontSize: "0.8rem", color: "#6b7280" }}>
+                      <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
+                        <span>🕒 Delay: <strong>{capsula.intervaloSegundos || 5}s</strong></span>
+                        <span>🔁 Cada: <strong>{capsula.intervaloRecurrencia || 30} min</strong></span>
+                        <span>⏱️ Visible: <strong>{capsula.duracionPantalla || 10}s</strong></span>
+                      </div>
+                      {(capsula.fechaInicio || capsula.fechaFin) && (
+                        <div style={{ display: "flex", gap: "1rem", marginTop: "0.5rem" }}>
+                          {capsula.fechaInicio && <span>📅 Desde: <strong>{capsula.fechaInicio}</strong></span>}
+                          {capsula.fechaFin && <span>📅 Hasta: <strong>{capsula.fechaFin}</strong></span>}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div style={S.cardActions}>
+                    <button onClick={() => toggleActiva(capsula)}
+                      style={{ ...S.btnSecondary, background: capsula.activa ? "#fef3c7" : "#d1fae5", color: capsula.activa ? "#78350f" : "#065f46" }}>
+                      {capsula.activa ? <EyeOff size={16} /> : <Eye size={16} />}
+                      <span>{capsula.activa ? "Desactivar" : "Activar"}</span>
+                    </button>
+                    <button onClick={() => abrirModal(capsula)} style={S.btnSecondary}>
+                      <Edit2 size={16} /><span>Editar</span>
+                    </button>
+                    <button onClick={() => handleEliminar(capsula.id)} style={{ ...S.btnSecondary, color: "#dc2626" }}>
+                      <Trash2 size={16} /><span>Eliminar</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* ── MODAL ── */}
+        {modalAbierto && (
+          <div style={S.modalOverlay} onClick={cerrarModal}>
+            <div style={S.modal} onClick={(e) => e.stopPropagation()}>
+              <div style={S.modalHeader}>
+                <h3 style={S.modalTitle}>{formData.id ? "Editar Cápsula" : "Nueva Cápsula"}</h3>
+                <button onClick={cerrarModal} style={S.closeBtn}><X size={24} /></button>
+              </div>
+
+              <div style={S.modalBody}>
+                {/* Título */}
+                <div style={S.formGroup}>
+                  <label style={S.label}>Título <span style={{ color: "#dc2626" }}>*</span></label>
+                  <input type="text" value={formData.titulo} maxLength={100} style={S.input}
+                    placeholder="Ej: Actualización del sistema"
+                    onChange={(e) => setFormData({ ...formData, titulo: e.target.value })} />
+                  <small style={S.helpText}>{formData.titulo.length}/100 caracteres</small>
+                </div>
+
+                {/* Tipo y Prioridad */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+                  <div style={S.formGroup}>
+                    <label style={S.label}>Tipo</label>
+                    <select value={formData.tipo} style={S.input}
+                      onChange={(e) => setFormData({ ...formData, tipo: e.target.value })}>
+                      <option value="informacion">Información</option>
+                      <option value="alerta">Alerta</option>
+                      <option value="critica">Crítica</option>
+                    </select>
+                  </div>
+                  <div style={S.formGroup}>
+                    <label style={S.label}>Prioridad</label>
+                    <input type="number" min="1" max="100" value={formData.prioridad} style={S.input}
+                      onChange={(e) => setFormData({ ...formData, prioridad: e.target.value })} />
+                    <small style={S.helpText}>1 = Mayor prioridad</small>
+                  </div>
+                </div>
+
+                {/* Contenido */}
+                <div style={S.formGroup}>
+                  <label style={S.label}>Contenido <span style={{ color: "#dc2626" }}>*</span></label>
+                  <textarea value={formData.contenido} maxLength={500}
+                    style={{ ...S.input, minHeight: "120px", resize: "vertical" }}
+                    placeholder="Escribe el mensaje que verán los usuarios..."
+                    onChange={(e) => setFormData({ ...formData, contenido: e.target.value })} />
+                  <small style={S.helpText}>{formData.contenido.length}/500 caracteres</small>
+                </div>
+
+                {/* Temporizadores */}
+                <div style={{ marginBottom: "1.5rem", padding: "1rem", background: "#f0f9ff", borderRadius: "8px", border: "2px solid #0B3D91" }}>
+                  <label style={{ ...S.label, marginBottom: "0.75rem", fontSize: "1rem" }}>⏱️ Configuración de Temporizadores</label>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "1rem" }}>
+                    <div>
+                      <label style={{ ...S.label, fontSize: "0.875rem" }}>Delay inicial (seg)</label>
+                      <input type="number" min="3" max="60" value={formData.intervaloSegundos} style={S.input}
+                        onChange={(e) => setFormData({ ...formData, intervaloSegundos: e.target.value })} />
+                      <small style={S.helpText}>Espera antes de la 1ª aparición</small>
+                    </div>
+                    <div>
+                      <label style={{ ...S.label, fontSize: "0.875rem" }}>Recurrencia (min)</label>
+                      <input type="number" min="1" max="1440" value={formData.intervaloRecurrencia} style={S.input}
+                        onChange={(e) => setFormData({ ...formData, intervaloRecurrencia: e.target.value })} />
+                      <small style={S.helpText}>Cada cuántos minutos reaparece</small>
+                    </div>
+                    <div>
+                      <label style={{ ...S.label, fontSize: "0.875rem" }}>Visible (seg)</label>
+                      <input type="number" min="3" max="60" value={formData.duracionPantalla} style={S.input}
+                        onChange={(e) => setFormData({ ...formData, duracionPantalla: e.target.value })} />
+                      <small style={S.helpText}>Tiempo en pantalla</small>
+                    </div>
+                  </div>
+                  <div style={{ marginTop: "0.75rem", padding: "0.75rem", background: "white", borderRadius: "6px", fontSize: "0.875rem" }}>
+                    <strong>👁️ Comportamiento:</strong> Aparece {formData.intervaloSegundos}s después de cargar,
+                    luego cada <strong>{formData.intervaloRecurrencia} min</strong> y
+                    permanece visible <strong>{formData.duracionPantalla}s</strong>.
+                  </div>
+                </div>
+
+                {/* Vigencia */}
+                <div style={{ marginBottom: "1.5rem", padding: "1rem", background: "#f9fafb", borderRadius: "8px" }}>
+                  <label style={{ ...S.label, marginBottom: "0.75rem" }}>Vigencia (Opcional)</label>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+                    <div>
+                      <label style={{ ...S.label, fontSize: "0.875rem" }}>Fecha Inicio</label>
+                      <input type="date" value={formData.fechaInicio} style={S.input}
+                        onChange={(e) => setFormData({ ...formData, fechaInicio: e.target.value })} />
+                    </div>
+                    <div>
+                      <label style={{ ...S.label, fontSize: "0.875rem" }}>Fecha Fin</label>
+                      <input type="date" value={formData.fechaFin} style={S.input}
+                        onChange={(e) => setFormData({ ...formData, fechaFin: e.target.value })} />
+                    </div>
+                  </div>
+                  <small style={S.helpText}>Dejar en blanco para que no expire.</small>
+                </div>
+
+                {/* Estado */}
+                <div style={S.formGroup}>
+                  <label style={S.checkboxLabel}>
+                    <input type="checkbox" checked={formData.activa} style={{ marginRight: "0.5rem" }}
+                      onChange={(e) => setFormData({ ...formData, activa: e.target.checked })} />
+                    <span>Activar cápsula inmediatamente</span>
+                  </label>
+                  <small style={S.helpText}>Solo las cápsulas activas son visibles para los usuarios.</small>
+                </div>
+              </div>
+
+              <div style={S.modalFooter}>
+                <button onClick={cerrarModal} style={S.btnCancel}>Cancelar</button>
+                <button onClick={handleGuardar} style={S.btnSave}>
+                  <Save size={20} /><span>{formData.id ? "Actualizar" : "Crear"}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </LayoutWithSidebar>
   );
+}
+
+const S = {
+  container: { padding: "0" },
+  loadingContainer: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "60vh" },
+  spinner: { width: "60px", height: "60px", border: "4px solid #e5e7eb", borderTop: "4px solid #0B3D91", borderRadius: "50%", animation: "spin 1s linear infinite" },
+  loadingText: { marginTop: "1rem", color: "#6b7280", fontWeight: "600" },
+  errorContainer: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "60vh", gap: "1rem" },
+  errorText: { color: "#dc2626", fontSize: "1.125rem", fontWeight: "600" },
+  alert: { padding: "1rem", borderRadius: "12px", marginBottom: "1.5rem", fontWeight: "600", border: "2px solid", textAlign: "center" },
+  header: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1.5rem", gap: "1rem", flexWrap: "wrap" },
+  title: { fontSize: "1.875rem", fontWeight: "800", color: "#0B3D91", margin: 0 },
+  subtitle: { color: "#6b7280", margin: "0.5rem 0 0 0", fontSize: "0.95rem" },
+  infoBox: { background: "#f0f9ff", border: "2px solid #0B3D91", borderRadius: "12px", padding: "1rem", marginBottom: "1.5rem", display: "flex", gap: "0.75rem", alignItems: "flex-start" },
+  btnPrimary: { display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.75rem 1.5rem", background: "#0B3D91", color: "#fff", border: "none", borderRadius: "10px", fontWeight: "700", cursor: "pointer", boxShadow: "0 4px 12px rgba(11,61,145,0.3)" },
+  emptyState: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "4rem 2rem", background: "#fff", borderRadius: "12px", border: "2px dashed #d1d5db" },
+  grid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(350px, 1fr))", gap: "1.5rem" },
+  card: { background: "#fff", borderRadius: "12px", padding: "1.25rem", boxShadow: "0 2px 8px rgba(0,0,0,0.08)", border: "1px solid #e5e7eb" },
+  cardHeader: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1rem", paddingBottom: "1rem", borderBottom: "1px solid #f3f4f6" },
+  cardTitle: { margin: 0, fontSize: "1.125rem", fontWeight: "700", color: "#111827" },
+  badge: { padding: "0.25rem 0.75rem", borderRadius: "999px", fontSize: "0.75rem", fontWeight: "700", textTransform: "uppercase" },
+  priority: { fontSize: "0.875rem", color: "#6b7280", fontWeight: "600" },
+  statusBadge: { padding: "0.25rem 0.75rem", borderRadius: "999px", fontSize: "0.75rem", fontWeight: "700" },
+  cardContent: { marginBottom: "1rem" },
+  contentText: { color: "#374151", lineHeight: "1.6", margin: 0 },
+  cardActions: { display: "flex", gap: "0.5rem", flexWrap: "wrap" },
+  btnSecondary: { display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.5rem 1rem", background: "#f3f4f6", color: "#374151", border: "none", borderRadius: "8px", fontWeight: "600", fontSize: "0.875rem", cursor: "pointer" },
+  modalOverlay: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: "1rem" },
+  modal: { background: "#fff", borderRadius: "16px", maxWidth: "600px", width: "100%", maxHeight: "90vh", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" },
+  modalHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "1.5rem", borderBottom: "1px solid #e5e7eb" },
+  modalTitle: { margin: 0, fontSize: "1.5rem", fontWeight: "800", color: "#0B3D91" },
+  closeBtn: { background: "transparent", border: "none", cursor: "pointer", color: "#6b7280", padding: "0.25rem", borderRadius: "6px" },
+  modalBody: { padding: "1.5rem", overflowY: "auto", flex: 1 },
+  formGroup: { marginBottom: "1.25rem" },
+  label: { display: "block", marginBottom: "0.5rem", fontWeight: "700", color: "#374151", fontSize: "0.95rem" },
+  input: { width: "100%", padding: "0.75rem", borderRadius: "8px", border: "2px solid #e5e7eb", fontSize: "1rem", outline: "none" },
+  helpText: { display: "block", marginTop: "0.25rem", color: "#9ca3af", fontSize: "0.875rem" },
+  checkboxLabel: { display: "flex", alignItems: "center", cursor: "pointer", fontWeight: "600", color: "#374151" },
+  modalFooter: { display: "flex", justifyContent: "flex-end", gap: "0.75rem", padding: "1.5rem", borderTop: "1px solid #e5e7eb" },
+  btnCancel: { padding: "0.75rem 1.5rem", background: "#f3f4f6", color: "#374151", border: "none", borderRadius: "8px", fontWeight: "700", cursor: "pointer" },
+  btnSave: { display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.75rem 1.5rem", background: "#0B3D91", color: "#fff", border: "none", borderRadius: "8px", fontWeight: "700", cursor: "pointer", boxShadow: "0 4px 12px rgba(11,61,145,0.3)" },
+};
+
+if (typeof document !== "undefined") {
+  const style = document.createElement("style");
+  style.textContent = `@keyframes spin { to { transform: rotate(360deg); } } input:focus, textarea:focus, select:focus { border-color: #0B3D91 !important; box-shadow: 0 0 0 3px rgba(11,61,145,0.1); }`;
+  document.head.appendChild(style);
 }
