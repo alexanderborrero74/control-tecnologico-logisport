@@ -1780,6 +1780,12 @@ export default function NominaMatriz() {
   const [showMiniCuad,   setShowMiniCuad]   = useState(false);
   const [showConjuntos,  setShowConjuntos]  = useState(false);
 
+  // Modal Detalle por trabajador
+  const [showDetalleModal, setShowDetalleModal] = useState(false);
+  const [filtroDetNombre,  setFiltroDetNombre]  = useState("");
+  const [filtroDetCedula,  setFiltroDetCedula]  = useState("");
+  const [filtroDetServicio,setFiltroDetServicio]= useState("");
+
   // Modal eliminación
   const [modalElim, setModalElim] = useState(null);
 
@@ -3918,6 +3924,12 @@ export default function NominaMatriz() {
                   </button>
                 ))}
               </div>
+              <button onClick={()=>setShowDetalleModal(true)}
+                style={{background:"#f0fdf4",border:"1.5px solid #6ee7b7",borderRadius:"8px",
+                  padding:"0.45rem 0.85rem",cursor:"pointer",color:"#065f46",
+                  fontWeight:"700",fontSize:"0.78rem",display:"flex",alignItems:"center",gap:"0.4rem"}}>
+                📊 Detalle / Excel
+              </button>
               {vistaTabla==="registros"&&(<>
                 <div style={{position:"relative"}}>
                   <Search size={13} style={{position:"absolute",left:"0.6rem",top:"50%",transform:"translateY(-50%)",color:"#94a3b8"}}/>
@@ -4149,6 +4161,103 @@ export default function NominaMatriz() {
       </div>
 
       {/* ── Modal eliminación ── */}
+      {/* ══ MODAL DETALLE POR TRABAJADOR ══ */}
+      {showDetalleModal && (() => {
+        const filas = [];
+        operaciones.filter(op=>(op.clienteId||"spia")===clienteActivo).forEach(op => {
+          const asisten = op.trabajadoresAsisten||[];
+          if (asisten.length===0) {
+            filas.push({nombre:op.trabajadorNombre||op.cuadrillaNombre||"",cedula:op.trabajadorCedula||"",fecha:op.fechaStr||"",cuadrilla:op.cuadrillaNombre||op.cuadrilla||"",servicio:op.servicioNombre||"",cantidad:op.cantidad||1,neto:op.netoAPagar||0});
+          } else {
+            asisten.forEach(w=>filas.push({nombre:w.nombre||"",cedula:w.cedula||"",fecha:op.fechaStr||"",cuadrilla:op.cuadrillaNombre||op.cuadrilla||"",servicio:op.servicioNombre||"",cantidad:op.cantidad||1,neto:op.netoAPagar||0}));
+          }
+        });
+        const qN=filtroDetNombre.toLowerCase().trim();
+        const qC=filtroDetCedula.trim();
+        const qS=filtroDetServicio.toLowerCase().trim();
+        const filasFilt=filas.filter(f=>(!qN||f.nombre.toLowerCase().includes(qN))&&(!qC||f.cedula.includes(qC))&&(!qS||f.servicio.toLowerCase().includes(qS))).sort((a,b)=>{const n=a.nombre.localeCompare(b.nombre,"es");return n!==0?n:a.fecha.localeCompare(b.fecha);});
+        const totalFilt=filasFilt.reduce((s,f)=>s+f.neto,0);
+        const serviciosUnicos=[...new Set(filas.map(f=>f.servicio).filter(Boolean))].sort();
+        const exportarCSV=()=>{
+          const BOM='\uFEFF';
+          const csv=BOM+[["Trabajador","Cédula","Fecha","Cuadrilla","Servicio","Cantidad","Neto"],...filasFilt.map(f=>[f.nombre,f.cedula,f.fecha,f.cuadrilla,f.servicio,f.cantidad,f.neto])].map(r=>r.map(c=>'"'+String(c==null?'':c).replace(/"/g,'""')+'"').join(',')).join('\n');
+          const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});const url=URL.createObjectURL(blob);const a=document.createElement('a');
+          a.href=url;a.download=`detalle_${periodoDesde}_${periodoHasta}.csv`;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+        };
+        return (
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:9999,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"1.5rem",overflowY:"auto"}}
+            onClick={e=>{if(e.target===e.currentTarget)setShowDetalleModal(false);}}>
+            <div style={{background:"#fff",borderRadius:"16px",width:"100%",maxWidth:"1100px",boxShadow:"0 20px 60px rgba(0,0,0,0.3)",overflow:"hidden"}}>
+              <div style={{background:`linear-gradient(135deg,${PRIMARY} 0%,#1a56c4 100%)`,padding:"1rem 1.5rem",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                <div>
+                  <div style={{fontWeight:"800",color:"#fff",fontSize:"1.1rem"}}>📊 Detalle por Trabajador</div>
+                  <div style={{color:"rgba(255,255,255,0.8)",fontSize:"0.8rem"}}>{periodoDesde} al {periodoHasta} · {filasFilt.length} registros · Total: {formatCOP(totalFilt)}</div>
+                </div>
+                <div style={{display:"flex",gap:"0.5rem"}}>
+                  <button onClick={exportarCSV} style={{background:"#22c55e",border:"none",borderRadius:"8px",padding:"0.5rem 1rem",cursor:"pointer",color:"#fff",fontWeight:"700",fontSize:"0.82rem",display:"flex",alignItems:"center",gap:"0.4rem"}}>⬇️ Exportar CSV</button>
+                  <button onClick={()=>setShowDetalleModal(false)} style={{background:"rgba(255,255,255,0.15)",border:"none",borderRadius:"8px",padding:"0.5rem",cursor:"pointer",color:"#fff"}}><X size={18}/></button>
+                </div>
+              </div>
+              <div style={{padding:"0.85rem 1.5rem",background:"#f8fafc",borderBottom:"1px solid #e2e8f0",display:"flex",gap:"0.6rem",flexWrap:"wrap",alignItems:"center"}}>
+                <div style={{position:"relative",flex:"1",minWidth:"170px"}}>
+                  <Search size={13} style={{position:"absolute",left:"0.6rem",top:"50%",transform:"translateY(-50%)",color:"#94a3b8",pointerEvents:"none"}}/>
+                  <input value={filtroDetNombre} onChange={e=>setFiltroDetNombre(e.target.value)} placeholder="Nombre..." style={{...inputSt,padding:"0.45rem 0.75rem 0.45rem 2rem"}}/>
+                </div>
+                <div style={{flex:"0 0 140px"}}>
+                  <input value={filtroDetCedula} onChange={e=>setFiltroDetCedula(e.target.value)} placeholder="Cédula..." style={{...inputSt,padding:"0.45rem 0.75rem"}}/>
+                </div>
+                <div style={{position:"relative",flex:"1",minWidth:"200px"}}>
+                  <select value={filtroDetServicio} onChange={e=>setFiltroDetServicio(e.target.value)} style={{...selectSt,padding:"0.45rem 2rem 0.45rem 0.75rem"}}>
+                    <option value="">Todos los servicios</option>
+                    {serviciosUnicos.map(s=>(<option key={s} value={s.toLowerCase()}>{s}</option>))}
+                  </select>
+                  <ChevronDown size={13} style={{position:"absolute",right:"0.65rem",top:"50%",transform:"translateY(-50%)",color:"#94a3b8",pointerEvents:"none"}}/>
+                </div>
+                {(filtroDetNombre||filtroDetCedula||filtroDetServicio)&&(
+                  <button onClick={()=>{setFiltroDetNombre("");setFiltroDetCedula("");setFiltroDetServicio("");}} style={{background:"#fee2e2",border:"1px solid #fecaca",borderRadius:"8px",padding:"0.45rem 0.75rem",cursor:"pointer",color:"#dc2626",fontWeight:"700",fontSize:"0.78rem"}}>× Limpiar</button>
+                )}
+              </div>
+              <div style={{overflowX:"auto",maxHeight:"62vh",overflowY:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:"0.83rem"}}>
+                  <thead style={{position:"sticky",top:0,zIndex:2}}>
+                    <tr style={{background:PRIMARY}}>
+                      {["#","Trabajador","Cédula","Fecha","Cuadrilla","Servicio","Cant.","Neto"].map(h=>(
+                        <th key={h} style={{padding:"0.7rem 0.8rem",textAlign:"left",color:"#fff",fontWeight:"700",fontSize:"0.75rem",whiteSpace:"nowrap"}}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filasFilt.length===0?(<tr><td colSpan={8} style={{textAlign:"center",padding:"3rem",color:"#94a3b8"}}>Sin registros con los filtros actuales</td></tr>)
+                    :filasFilt.map((f,i)=>(
+                      <tr key={i} style={{borderBottom:"1px solid #f1f5f9",background:i%2===0?"#fff":"#f8fafc"}}
+                        onMouseEnter={e=>e.currentTarget.style.background="#eff6ff"}
+                        onMouseLeave={e=>e.currentTarget.style.background=i%2===0?"#fff":"#f8fafc"}>
+                        <td style={{...tdSt,color:"#94a3b8",fontSize:"0.72rem"}}>{i+1}</td>
+                        <td style={{...tdSt,fontWeight:"700",color:"#1e293b",whiteSpace:"nowrap"}}>{f.nombre}</td>
+                        <td style={{...tdSt,fontFamily:"monospace",color:"#64748b",fontSize:"0.8rem"}}>{f.cedula||"—"}</td>
+                        <td style={{...tdSt,color:"#475569",whiteSpace:"nowrap"}}>{f.fecha}</td>
+                        <td style={{...tdSt}}><span style={{background:"#f0f9ff",color:"#0ea5e9",borderRadius:"6px",padding:"2px 8px",fontSize:"0.78rem",fontWeight:"700",whiteSpace:"nowrap"}}>{f.cuadrilla}</span></td>
+                        <td style={{...tdSt,maxWidth:"200px"}}><div style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"#374151"}}>{f.servicio}</div></td>
+                        <td style={{...tdSt,textAlign:"center",fontWeight:"700"}}>{f.cantidad}</td>
+                        <td style={{...tdSt,fontWeight:"900",color:SUCCESS,fontFamily:"monospace",whiteSpace:"nowrap",background:"#f0fdf4"}}>{formatCOP(f.neto)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  {filasFilt.length>0&&(
+                    <tfoot style={{position:"sticky",bottom:0}}>
+                      <tr style={{background:"#f0fdf4",borderTop:`2px solid ${SUCCESS}`}}>
+                        <td colSpan={7} style={{padding:"0.75rem 0.8rem",fontWeight:"700",color:"#065f46"}}>TOTAL — {filasFilt.length} registros</td>
+                        <td style={{padding:"0.75rem 0.8rem",fontWeight:"900",color:"#065f46",fontFamily:"monospace",fontSize:"1rem",whiteSpace:"nowrap"}}>{formatCOP(totalFilt)}</td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {modalElim&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:"1rem"}}
           onClick={e=>{if(e.target===e.currentTarget&&!modalElim.procesando)cerrarModalElim();}}>
