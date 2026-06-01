@@ -26,7 +26,7 @@ import { db } from "@/firebase/firebaseConfig";
 import { getUserRoleByUid } from "@/utils/getUserRole";
 import LayoutWithSidebar from "@/components/LayoutWithSidebar";
 import {
-  calcularNominaEmpleado, formatCOP,
+  calcularNominaEmpleado, calcularNominaCiamsa, formatCOP,
   SUBSIDIO_TRANSPORTE_MENSUAL, SMMLV,
   HORAS_EXTRAS_2026, calcularHorasExtras,
 } from "@/utils/nominaCalculos";
@@ -601,23 +601,59 @@ export default function NominaLiquidar() {
     e.target.value = "";
   };
 
+  // ── Clientes que usan fórmula Ciamsa (destajo puro) ──
+  const isCiamsaCliente = ["cliente1", "cliente2", "cliente3"].includes(clienteActivo);
+
   const filasCalculadas = filas.map((f, i) => {
-    const prodData       = produccion[String(f.cedula).trim()] || { total: 0, ops: [] };
+    const prodData        = produccion[String(f.cedula).trim()] || { total: 0, ops: [] };
     const totalProduccion = prodData.total;
-    const { total: totalExtras, desglose: desgloseExtras } = calcularHorasExtras(
-      f.basicoMensual || 0,
-      f.horasExtras || {}
-    );
     const mots = motivosMap[String(f.cedula).trim()] || {};
-    const calc = calcularNominaEmpleado({
-      basicoMensual:     f.basicoMensual || 0,
-      totalProduccion,
-      diasTrabajados:    parseInt(f.dias) || 0,
-      retroactivo:       parseFloat(f.retroactivo) || 0,
-      totalHorasExtras:  totalExtras,
-      diasIncapacidad:   mots["IR"]     || 0,   // 66.67% — IR
-      diasIncapacidad100: mots["IR-100"] || 0,  // 100%   — IR-100
-    });
+
+    let calc;
+    if (isCiamsaCliente) {
+      // Fórmula Terrestre / Ciamsa 2 / Ciamsa 3
+      const raw = calcularNominaCiamsa({
+        basicoMensual:   f.basicoMensual || 0,
+        totalProduccion,
+        diasTrabajados:  parseInt(f.dias) || 0,
+        adelanto:        parseFloat(f.retroactivo) || 0, // campo retroactivo se usa como descuento manual
+        esTerrestre:     clienteActivo === "cliente1",
+      });
+      // Normalizar al mismo shape que calcularNominaEmpleado para que el render no cambie
+      calc = {
+        salarioBasicoQuincena:   raw.salarioBasicoQuincena,
+        productividad:           raw.productividad,
+        complementoSalario:      0,
+        produccionEfectiva:      totalProduccion,
+        baseCotizacion:          totalProduccion,
+        salud:                   raw.salud,
+        pension:                 raw.pension,
+        salarioMenosDeducciones: raw.menosSP,
+        subsidioTransporte:      raw.transporte,
+        diasIncapacidad:         0,
+        valorIncapacidad:        0,
+        diasIncapacidad100:      0,
+        valorIncapacidad100:     0,
+        totalHorasExtras:        0,
+        netoAPagar:              raw.netoAPagar,
+      };
+    } else {
+      // Fórmula SPIA original
+      const { total: totalExtras } = calcularHorasExtras(f.basicoMensual || 0, f.horasExtras || {});
+      calc = calcularNominaEmpleado({
+        basicoMensual:      f.basicoMensual || 0,
+        totalProduccion,
+        diasTrabajados:     parseInt(f.dias) || 0,
+        retroactivo:        parseFloat(f.retroactivo) || 0,
+        totalHorasExtras:   totalExtras,
+        diasIncapacidad:    mots["IR"]     || 0,
+        diasIncapacidad100: mots["IR-100"] || 0,
+      });
+    }
+
+    const { total: totalExtras, desglose: desgloseExtras } = isCiamsaCliente
+      ? { total: 0, desglose: {} }
+      : calcularHorasExtras(f.basicoMensual || 0, f.horasExtras || {});
     // Calcular primera fecha de cada novedad desde las ops (fallback si no hay fechas formales)
     const primeraFechaNovedad = {};
     prodData.ops.forEach(op => {

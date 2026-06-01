@@ -78,9 +78,12 @@ export default function InformeGestion() {
     const solPendientes = solicitudes.filter(s => !s.atendida).length;
     const solAtendidas = solicitudes.filter(s => s.atendida).length;
     
-    const eqActivos = equipos.filter(e => !e.dadoDeBaja).length;
-    const eqBaja = equipos.filter(e => e.dadoDeBaja).length;
-    console.log('📊 STATS EQUIPOS:', { totalEquipos: equipos.length, eqActivos, eqBaja, equipos });
+    const eqBaja = equipos.filter(e =>
+      e.estado === "Baja" || e.estado === "Dado de baja" ||
+      e.estado === "baja" || e.dadoDeBaja === true
+    ).length;
+    const eqActivos = equipos.length - eqBaja;
+    const totalEquipos = equipos.length;
 
     return {
       totalServicios: total,
@@ -133,8 +136,8 @@ export default function InformeGestion() {
   ].filter(d => d.value > 0);
 
   const dataEquipos = [
-    { name: 'Activos', value: stats.eqActivos, color: '#007acc' },
-    { name: 'Baja', value: stats.eqBaja, color: '#dc2626' }
+    { name: 'Activos', value: stats.eqActivos || stats.totalEquipos, color: '#007acc' },
+    ...(stats.eqBaja > 0 ? [{ name: 'Baja', value: stats.eqBaja, color: '#dc2626' }] : [])
   ].filter(d => d.value > 0);
 
   if (loading) {
@@ -193,7 +196,7 @@ export default function InformeGestion() {
               { titulo: 'Total Servicios Técnicos', valor: stats.totalServicios, icono: '🔧', color: '#007acc', sub: `${stats.tasaResolucion}% resueltos` },
               { titulo: 'Solicitudes de Servicio', valor: stats.totalSolicitudes, icono: '📋', color: '#00c49f', sub: `${stats.solAtendidas} atendidas` },
               { titulo: 'Tasa de Resolución', valor: `${stats.tasaResolucion}%`, icono: '✅', color: '#ffbb28', sub: 'Servicios técnicos' },
-              { titulo: 'Equipos Activos', valor: stats.eqActivos, icono: '💻', color: '#8884d8', sub: `${stats.eqBaja} dados de baja` }
+              { titulo: 'Equipos en Inventario', valor: stats.totalEquipos, icono: '💻', color: '#8884d8', sub: `${stats.eqActivos} activos / ${stats.eqBaja} baja` },
             ].map((kpi, i) => (
               <div key={i} style={{ background: 'white', padding: 24, borderRadius: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.08)', border: '1px solid #e5e7eb', borderTop: `4px solid ${kpi.color}`, display: 'flex', alignItems: 'center', gap: 16 }}>
                 <div style={{ fontSize: 40 }}>{kpi.icono}</div>

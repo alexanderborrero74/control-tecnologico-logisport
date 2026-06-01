@@ -11,14 +11,54 @@ export async function getUserRoleByUid(uid) {
   if (!uid) return "usuario";
   
   try {
+    // 1. Buscar en coleccion "usuarios" por UID (documento con ID = uid)
     const ref = doc(db, "usuarios", uid);
     const snap = await getDoc(ref);
 
-    if (!snap.exists()) {
-      return "usuario";
-    }
+    let raw = null;
 
-    const raw = snap.data().rol;
+    if (snap.exists()) {
+      raw = snap.data().rol;
+    } else {
+      const { collection, query, where, getDocs, setDoc } = await import("firebase/firestore");
+
+      // 2. Buscar en usuariosCatalogo por uid
+      let snapCat = null;
+      let datosCat = null;
+
+      const q1 = query(collection(db, "usuariosCatalogo"), where("uid", "==", uid));
+      const res1 = await getDocs(q1);
+      if (!res1.empty) {
+        snapCat = res1.docs[0];
+        datosCat = res1.docs[0].data();
+      }
+
+      // 3. Fallback: buscar en "tecnicos" por uid
+      if (!datosCat) {
+        const q2 = query(collection(db, "tecnicos"), where("uid", "==", uid));
+        const res2 = await getDocs(q2);
+        if (!res2.empty) {
+          // Es un técnico registrado en la colección tecnicos
+          datosCat = { ...res2.docs[0].data(), rol: "tecnico" };
+        }
+      }
+
+      if (datosCat) {
+        raw = datosCat.rol || (datosCat.empresa !== undefined ? "tecnico" : null);
+        // Sincronizar a usuarios para próximas consultas
+        if (raw && raw !== "usuario") {
+          try {
+            await setDoc(ref, {
+              rol:            raw,
+              nombre:         datosCat.nombre || "",
+              email:          datosCat.email  || "",
+              uid:            uid,
+              sincronizadoEn: new Date().toISOString(),
+            });
+          } catch { /* silencioso */ }
+        }
+      }
+    }
     if (!raw) {
       return "usuario";
     }
@@ -70,12 +110,16 @@ export function tieneAcceso(rol, path) {
   ];
   if (rutasPublicas.includes(path)) return true;
 
-  // Técnico: servicios técnicos y seguimiento
+  // Técnico: acceso ampliado
   if (rol === "tecnico") {
     const rutasTecnico = [
       "/servicios-tecnicos",
-      "/solicitudserviciotecnico",
-      "/seguimiento-codigos-asociados"
+      "/seguimiento-codigos-asociados",
+      "/monitoreo",
+      "/hoja-vida",
+      "/control-de-contrasenas",
+      "/registro-fotografico",
+      "/admin-usuarios",
     ];
     return rutasTecnico.includes(path);
   }

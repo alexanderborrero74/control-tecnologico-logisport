@@ -257,7 +257,7 @@ export default function MonitoreoPage() {
 
   // Cliente por defecto
   const defaultClient =
-    process.env.NEXT_PUBLIC_DEFAULT_CLIENT_ID || "AGENCIA DE ADUANAS SIDECOMEX";
+    process.env.NEXT_PUBLIC_DEFAULT_CLIENT_ID || process.env.NEXT_PUBLIC_APP_NAME || "LOGISPORT";
   const clientId = String(router.query.clientId || defaultClient);
 
   // Cargar listado principal
@@ -304,37 +304,48 @@ export default function MonitoreoPage() {
     try {
       if (!db) throw new Error("No se encontró Firestore (db)");
 
+      // Cargar sin orderBy para evitar error por tipo mixto de registradoEn
       const constraints = [where("clientId", "==", clientId)];
       if (selectedDeviceId) constraints.push(where("deviceId", "==", selectedDeviceId));
-      constraints.push(orderBy("registradoEn", "desc"));
 
       const histQuery = fsQuery(collection(db, HIST_COLLECTION), ...constraints);
       const snap = await getDocs(histQuery);
 
       const list = snap.docs.map((d) => {
         const data = d.data();
-        const ts = data?.registradoEn?.toDate?.();
-        const fecha = ts
-          ? new Date(ts).toLocaleDateString()
-          : data.fecha || data.fechaEvento || "";
-        const hora = ts ? new Date(ts).toLocaleTimeString() : data.hora || "";
+
+        // registradoEn puede ser Timestamp de Firestore o string ISO
+        let fechaObj = null;
+        if (data?.registradoEn?.toDate) {
+          fechaObj = data.registradoEn.toDate();
+        } else if (data?.registradoEn) {
+          fechaObj = new Date(data.registradoEn);
+        } else if (data?.fechaEventoIso) {
+          fechaObj = new Date(data.fechaEventoIso);
+        }
+
+        const fecha = fechaObj ? fechaObj.toLocaleDateString("es-CO") : (data.fecha || "—");
+        const hora  = fechaObj ? fechaObj.toLocaleTimeString("es-CO") : (data.hora  || "—");
+        const fechaSort = fechaObj ? fechaObj.getTime() : 0;
+
         return {
           id: d.id,
-          hostname: data?.hostname || data?.equipo || "—",
-          username: data?.username || data?.usuario || "—",
+          hostname:     data?.hostname     || data?.equipo  || "—",
+          username:     data?.username     || data?.usuario || "—",
           agentVersion: data?.agentVersion || data?.version || "—",
+          fechaLocal:   data?.fechaEventoLocal || "—",
           fecha,
           hora,
+          fechaSort,
         };
-      });
+      })
+      // Ordenar por fecha descendente en el cliente
+      .sort((a, b) => b.fechaSort - a.fechaSort);
 
       setHistorialEventos(list);
     } catch (err) {
       console.error("Historial ERROR:", err);
-      setErrorHistorial(
-        (err?.message || "No se pudo cargar el historial") +
-          " — Si Firestore pide un índice, haz clic en el link que sale en la consola del navegador."
-      );
+      setErrorHistorial(err?.message || "No se pudo cargar el historial");
     } finally {
       setLoadingHistorial(false);
     }
@@ -451,10 +462,20 @@ export default function MonitoreoPage() {
 Mostrando {filtered.length} de {items.length}
           </div>
 
+          {/* Botón Descargar Agente */}
+          <a
+            href="/agents/agente-logisport.zip"
+            download="agente-logisport.zip"
+            className="bg-blue-700 text-white px-4 py-2 rounded-xl hover:bg-blue-800 transition text-sm flex items-center gap-2"
+            title="Descargar agente de monitoreo para instalar en los equipos"
+          >
+            ⬇️ Descargar Agente
+          </a>
+
           {/* Botón Historial */}
           <button
             onClick={() => {
-              setSelectedDeviceId(null); // global por cliente
+              setSelectedDeviceId(null);
               setOpenHistorial(true);
             }}
             className="bg-red-600 text-white px-4 py-2 rounded-xl hover:bg-red-700 transition text-sm"
@@ -542,7 +563,6 @@ Mostrando {filtered.length} de {items.length}
                   "Marca",
                   "Modelo",
                   "Serial",
-                  "ServiceTag",
                   "CPU Marca",
                   "CPU Modelo",
                   "SO",
@@ -560,7 +580,8 @@ Mostrando {filtered.length} de {items.length}
                   "Escritorio",
                   "Office",
                   "Tags",
-                  "Versión",
+                  "Versión Agente",
+                  "Última lectura",
                   "Actualizado",
                 ].map((h) => (
                   <th key={h}>{h}</th>
@@ -570,14 +591,14 @@ Mostrando {filtered.length} de {items.length}
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={26} className="px-3 py-4 text-center text-gray-600">
+                  <td colSpan={25} className="px-3 py-4 text-center text-gray-600">
                     Cargando…
                   </td>
                 </tr>
               )}
               {!loading && filtered.length === 0 && (
                 <tr>
-                  <td colSpan={26} className="px-3 py-4 text-center text-gray-600">
+                  <td colSpan={25} className="px-3 py-4 text-center text-gray-600">
                     No hay equipos que coincidan con el filtro.
                   </td>
                 </tr>
@@ -680,9 +701,14 @@ Mostrando {filtered.length} de {items.length}
                       </td>
 
                       <td className="minw-agent">{u.agentVersion || "—"}</td>
+                      <td className="minw-upd" style={{ whiteSpace: "nowrap", color: u.ts ? "#059669" : "#9ca3af", fontWeight: u.ts ? 700 : 400 }}>
+                        {u.ts
+                          ? new Date(u.ts).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+                          : "—"}
+                      </td>
                       <td className="minw-upd">
                         {it.updatedAt
-                          ? new Date(it.updatedAt).toLocaleString()
+                          ? new Date(it.updatedAt).toLocaleString("es-CO")
                           : "—"}
                       </td>
                     </tr>
@@ -735,8 +761,8 @@ Mostrando {filtered.length} de {items.length}
               <tr>
                 <th className="px-4 py-2 text-left font-bold">Equipo</th>
                 <th className="px-4 py-2 text-left font-bold">Usuario</th>
-                <th className="px-4 py-2 text-left font-bold">Fecha</th>
-                <th className="px-4 py-2 text-left font-bold">Hora</th>
+                <th className="px-4 py-2 text-left font-bold">Fecha y hora del apagado</th>
+                <th className="px-4 py-2 text-left font-bold">Hora registro</th>
                 <th className="px-4 py-2 text-left font-bold">Versión Agente</th>
               </tr>
             </thead>
@@ -756,10 +782,10 @@ Mostrando {filtered.length} de {items.length}
               ) : (
                 historialEventos.map((ev) => (
                   <tr key={ev.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-2">{ev.hostname}</td>
+                    <td className="px-4 py-2 font-bold text-red-700">{ev.hostname}</td>
                     <td className="px-4 py-2">{ev.username}</td>
-                    <td className="px-4 py-2">{ev.fecha}</td>
-                    <td className="px-4 py-2">{ev.hora}</td>
+                    <td className="px-4 py-2 font-mono text-sm">{ev.fechaLocal || `${ev.fecha} ${ev.hora}`}</td>
+                    <td className="px-4 py-2 text-gray-500 text-xs">{ev.fecha} {ev.hora}</td>
                     <td className="px-4 py-2">{ev.agentVersion}</td>
                   </tr>
                 ))

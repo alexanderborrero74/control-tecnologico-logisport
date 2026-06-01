@@ -62,6 +62,19 @@ const FORM_INIT = {
   novedad: "",      // novedad del trabajador individual ese día
 };
 
+// ── Formulario Cuadrilla Diaria (Terrestre, Ciamsa 2, Ciamsa 3) ──
+// El supervisor selecciona múltiples trabajadores por día y registra servicios grupales
+const CUADRILLA_DIA_FORM_INIT = {
+  fecha: hoy(),
+  trabajadoresSeleccionados: [],  // [{id, nombre, cedula, cargo}]
+  servicioId: "", servicioNombre: "", tarifaUnitaria: 0, unidad: "ton",
+  cantidad: "",
+  nPersonas: 0,   // auto = trabajadoresSeleccionados.length
+  per: 0,         // cantidad / nPersonas
+  netoCalculado: 0, // per × tarifaUnitaria
+  motivo: "",
+};
+
 // ── Formulario Cliente 2 (por días trabajados) ──
 const CIAMSA2_FORM_INIT = {
   trabajadorId:"", trabajadorNombre:"", trabajadorCedula:"",
@@ -107,7 +120,7 @@ function diasDeCuadrillaSemanal(c) {
 }
 
 // ── Selector con búsqueda para Cuadrilla / Trabajador Individual ──
-function SearchableCuadrillaSelect({ cuadrillas, trabajadores, value, onChange, color, onFechaChange, diasSeleccionados, onDiasChange }) {
+function SearchableCuadrillaSelect({ cuadrillas, trabajadores, value, onChange, color, onFechaChange, diasSeleccionados, onDiasChange, onMiniClick }) {
   const [query, setQuery]   = useState("");
   const [open,  setOpen]    = useState(false);
   const wrapRef             = useRef(null);
@@ -353,18 +366,31 @@ function SearchableCuadrillaSelect({ cuadrillas, trabajadores, value, onChange, 
                   👥 CUADRILLAS PERMANENTES
                 </div>
                 {cuadNormales.map(c => (
-                  <div key={c.id} onClick={() => select(c.id)}
+                  <div key={c.id}
                     style={{padding:"0.55rem 0.9rem",fontSize:"0.88rem",cursor:"pointer",
                       background:value===c.id?"#eff6ff":"transparent",
                       color:value===c.id?"#0B3D91":"#1e293b",
                       fontWeight:value===c.id?"700":"500",
-                      borderBottom:"1px solid #f8fafc",transition:"background 0.1s"}}
+                      borderBottom:"1px solid #f8fafc",transition:"background 0.1s",
+                      display:"flex",alignItems:"center",justifyContent:"space-between",gap:"0.5rem"}}
                     onMouseEnter={e=>{ if(value!==c.id) e.currentTarget.style.background="#f0f9ff"; }}
                     onMouseLeave={e=>{ if(value!==c.id) e.currentTarget.style.background="transparent"; }}>
-                    Cuadrilla {c.nombre}
-                    <span style={{marginLeft:"0.4rem",fontSize:"0.72rem",color:"#94a3b8",fontWeight:"400"}}>
-                      · {c.miembros?.length||0} miembros
-                    </span>
+                    <div onClick={() => select(c.id)} style={{flex:1,cursor:"pointer"}}>
+                      Cuadrilla {c.nombre}
+                      <span style={{marginLeft:"0.4rem",fontSize:"0.72rem",color:"#94a3b8",fontWeight:"400"}}>
+                        · {c.miembros?.length||0} miembros
+                      </span>
+                    </div>
+                    {onMiniClick && (
+                      <button
+                        onClick={e=>{ e.stopPropagation(); onMiniClick(c); setOpen(false); }}
+                        style={{background:"#fff1f2",border:"1px solid #fecdd3",borderRadius:"6px",
+                          padding:"2px 8px",cursor:"pointer",color:"#e11d48",fontSize:"0.68rem",
+                          fontWeight:"800",whiteSpace:"nowrap",flexShrink:0,
+                          display:"flex",alignItems:"center",gap:"3px"}}>
+                        ⚡ Mini
+                      </button>
+                    )}
                   </div>
                 ))}
               </>
@@ -570,6 +596,403 @@ function FilaResumen({ t, i, formatCOP }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// CONJUNTOS — Panel embebido en Matriz
+// Un «conjunto» agrupa trabajadores de distintas cuadrillas para una operación
+// ─────────────────────────────────────────────────────────────────────────────
+const CONJUNTO_FORM_INIT = {
+  nombre: "",
+  fecha: "",
+  trabajadoresSeleccionados: [], // [{id, nombre, cedula, cuadrillaNombre}]
+  servicioId: "",
+  servicioNombre: "",
+  servicioValor: 0,
+  cantidad: 1,
+  netoCalculado: 0,
+};
+
+function ConjuntosPanel({ cuadrillas, servicios, clienteId, onGuardado, onClose }) {
+  const [form, setForm]   = useState({ ...CONJUNTO_FORM_INIT, fecha: hoy() });
+  const [guardando, setGuardando] = useState(false);
+  const [okMsg, setOkMsg] = useState("");
+  const [historial, setHistorial] = useState([]);
+  const [cargando, setCargando]   = useState(false);
+  const [busq, setBusq]           = useState("");
+  const [cuadExpandida, setCuadExpandida] = useState(null);
+
+  const recalc = (f) => {
+    const n    = f.trabajadoresSeleccionados.length || 1;
+    const neto = Math.round(calcularNetoOperacion(parseFloat(f.servicioValor)||0, n, parseInt(f.cantidad)||1)*100)/100;
+    return { ...f, netoCalculado: neto };
+  };
+
+  const setF = (key, val) => setForm(prev => {
+    const next = { ...prev, [key]: val };
+    return ["servicioValor","cantidad","trabajadoresSeleccionados"].includes(key) ? recalc(next) : next;
+  });
+
+  const toggleTrab = (t, cuadNom) => {
+    const sel = form.trabajadoresSeleccionados;
+    const ya  = sel.some(x => x.id === t.id);
+    const nuevo = ya
+      ? sel.filter(x => x.id !== t.id)
+      : [...sel, { id:t.id, nombre:t.nombre, cedula:t.cedula||"", cuadrillaNombre: cuadNom }];
+    setF("trabajadoresSeleccionados", nuevo);
+  };
+
+  const selServicio = (id) => {
+    const s = servicios.find(x => x.id === id);
+    if (!s) { setForm(prev => recalc({...prev, servicioId:"", servicioNombre:"", servicioValor:0})); return; }
+    setForm(prev => recalc({...prev, servicioId:s.id, servicioNombre:s.nombre, servicioValor:s.valor||s.tarifa||0}));
+  };
+
+  const cargarHistorial = async () => {
+    setCargando(true);
+    try {
+      const snap = await getDocs(query(collection(db,"nomina_conjuntos"), orderBy("creadoEn","desc")));
+      setHistorial(snap.docs.slice(0,15).map(d=>({id:d.id,...d.data()})));
+    } catch(e) { console.error(e); }
+    setCargando(false);
+  };
+
+  useEffect(() => { cargarHistorial(); }, []);
+
+  const guardar = async () => {
+    if (!form.nombre.trim())                    { alert("Escribe un nombre para el conjunto."); return; }
+    if (form.trabajadoresSeleccionados.length===0) { alert("Selecciona al menos un trabajador."); return; }
+    if (!form.servicioId)                       { alert("Selecciona el servicio."); return; }
+    if (!form.fecha)                            { alert("Indica la fecha."); return; }
+    setGuardando(true);
+    try {
+      const n    = form.trabajadoresSeleccionados.length;
+      const neto = Math.round(calcularNetoOperacion(parseFloat(form.servicioValor)||0, n, parseInt(form.cantidad)||1)*100)/100;
+      // 1. Guardar en colección propia
+      const ref = await addDoc(collection(db,"nomina_conjuntos"), {
+        clienteId,
+        nombre:        form.nombre.trim().toUpperCase(),
+        fecha:         form.fecha,
+        trabajadores:  form.trabajadoresSeleccionados,
+        servicioId:    form.servicioId,
+        servicioNombre: form.servicioNombre,
+        servicioValor:  parseFloat(form.servicioValor)||0,
+        cantidad:       parseInt(form.cantidad)||1,
+        netoAPagar:    neto,
+        creadoEn: new Date(),
+      });
+      // 2. Guardar en nomina_operaciones
+      await addDoc(collection(db,"nomina_operaciones"), {
+        clienteId,
+        modoCiamsa:      false,
+        esConjunto:      true,
+        conjuntoId:      ref.id,
+        cuadrillaId:     `conjunto_${ref.id}`,
+        cuadrillaNombre: `🔗 ${form.nombre.trim().toUpperCase()}`,
+        cuadrilla:       `🔗 ${form.nombre.trim().toUpperCase()}`,
+        cuadrillaPersonas: n,
+        fecha:    Timestamp.fromDate(new Date(form.fecha+"T12:00:00")),
+        fechaStr: form.fecha,
+        servicioNombre:        form.servicioNombre.toUpperCase(),
+        servicioValorUnitario: parseFloat(form.servicioValor)||0,
+        servicioValor:         (parseFloat(form.servicioValor)||0) * (parseInt(form.cantidad)||1),
+        cantidad:  parseInt(form.cantidad)||1,
+        personas:  n,
+        modoHorasExtras: false,
+        horasExtras: null,
+        netoAPagar:  neto,
+        trabajadoresAsisten:  form.trabajadoresSeleccionados.map(t=>({id:t.id,nombre:t.nombre,cedula:t.cedula||"" })),
+        trabajadoresAusentes: [],
+        creadoEn:      new Date(),
+        actualizadoEn: new Date(),
+      });
+      setOkMsg(`✅ Conjunto "${form.nombre.trim().toUpperCase()}" guardado — ${n} trabajadores`);
+      setTimeout(()=>setOkMsg(""),4000);
+      setForm({...CONJUNTO_FORM_INIT, fecha:form.fecha});
+      setBusq("");
+      await cargarHistorial();
+      onGuardado();
+    } catch(e) { alert("Error: "+e.message); }
+    setGuardando(false);
+  };
+
+  const eliminarConjunto = async (c) => {
+    if (!confirm(`¿Eliminar conjunto "${c.nombre}"?`)) return;
+    try {
+      await deleteDoc(doc(db,"nomina_conjuntos",c.id));
+      const opSnap = await getDocs(query(collection(db,"nomina_operaciones"),where("conjuntoId","==",c.id)));
+      for (const d of opSnap.docs) await deleteDoc(d.ref);
+      await cargarHistorial();
+      onGuardado();
+    } catch(e) { alert("Error: "+e.message); }
+  };
+
+  const CONJ_COLOR = "#7c3aed";
+  const q = busq.toLowerCase().trim();
+
+  return (
+    <div style={{background:"#fff",borderRadius:"16px",
+      boxShadow:"0 4px 24px rgba(124,58,237,0.10)",
+      border:`2px solid ${CONJ_COLOR}30`,
+      marginBottom:"1.5rem",overflow:"hidden"}}>
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",
+        padding:"0.9rem 1.25rem",
+        background:`linear-gradient(135deg,${CONJ_COLOR}15 0%,#f5f3ff 100%)`,
+        borderBottom:`2px solid ${CONJ_COLOR}20`}}>
+        <div style={{display:"flex",alignItems:"center",gap:"0.6rem"}}>
+          <div style={{background:CONJ_COLOR,borderRadius:"10px",padding:"0.5rem",
+            display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <Users size={18} color="#fff"/>
+          </div>
+          <div>
+            <div style={{fontWeight:"800",fontSize:"1rem",color:CONJ_COLOR}}>🔗 Conjuntos de Cuadrillas</div>
+            <div style={{fontSize:"0.75rem",color:"#94a3b8"}}>Agrupa trabajadores de distintas cuadrillas en una operación</div>
+          </div>
+        </div>
+        <button onClick={onClose}
+          style={{background:"#f1f5f9",border:"none",borderRadius:"8px",padding:"0.5rem",cursor:"pointer",color:"#64748b"}}>
+          <X size={16}/>
+        </button>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0"}}>
+        {/* ── COLUMNA IZQ: Formulario ── */}
+        <div style={{padding:"1.25rem",borderRight:`1px solid ${CONJ_COLOR}15`}}>
+          <div style={{fontWeight:"800",fontSize:"0.82rem",color:CONJ_COLOR,
+            textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:"1rem"}}>
+            📋 Nuevo Conjunto
+          </div>
+
+          {/* Nombre */}
+          <div style={{marginBottom:"0.9rem"}}>
+            <label style={{...labelSt,color:CONJ_COLOR}}>1️⃣ Nombre del conjunto *</label>
+            <input value={form.nombre} onChange={e=>setF("nombre",e.target.value)}
+              placeholder="Ej: ALFA, BETA, TOTAL..."
+              style={{...inputSt,border:`1.5px solid ${CONJ_COLOR}60`,fontWeight:"700",textTransform:"uppercase"}}/>
+          </div>
+
+          {/* Fecha */}
+          <div style={{marginBottom:"0.9rem"}}>
+            <label style={labelSt}>📅 Fecha *</label>
+            <input type="date" value={form.fecha} onChange={e=>setF("fecha",e.target.value)}
+              style={{...inputSt,border:`1.5px solid ${CONJ_COLOR}60`}}/>
+          </div>
+
+          {/* Buscador + lista de trabajadores por cuadrilla */}
+          <div style={{marginBottom:"0.9rem"}}>
+            <label style={{...labelSt,color:CONJ_COLOR}}>2️⃣ Seleccionar trabajadores
+              <span style={{fontWeight:"400",color:"#94a3b8",marginLeft:"0.4rem"}}>
+                ({form.trabajadoresSeleccionados.length} seleccionados)
+              </span>
+            </label>
+            <input value={busq} onChange={e=>setBusq(e.target.value)}
+              placeholder="🔍 Buscar por nombre o cédula..."
+              style={{...inputSt,padding:"0.45rem 0.75rem",fontSize:"0.82rem",marginBottom:"0.4rem"}}/>
+            <div style={{border:`1.5px solid ${CONJ_COLOR}30`,borderRadius:"10px",overflow:"hidden",maxHeight:"260px",overflowY:"auto"}}>
+              {cuadrillas.filter(c=>c.tipo!=="semanal").map(c => {
+                const miembrosFilt = (c.miembros||[]).filter(m =>
+                  !q || m.nombre?.toLowerCase().includes(q) || String(m.cedula||'').includes(busq)
+                );
+                if (miembrosFilt.length===0) return null;
+                const expanded = cuadExpandida===c.id || q.length>0;
+                const selEnCuad = form.trabajadoresSeleccionados.filter(x=>
+                  (c.miembros||[]).some(m=>m.id===x.id)
+                ).length;
+                return (
+                  <div key={c.id}>
+                    {/* Header cuadrilla */}
+                    <div onClick={()=>setCuadExpandida(expanded&&!q?null:c.id)}
+                      style={{padding:"0.4rem 0.75rem",background:`${CONJ_COLOR}08`,
+                        borderBottom:`1px solid ${CONJ_COLOR}15`,
+                        display:"flex",alignItems:"center",justifyContent:"space-between",
+                        cursor:"pointer",position:"sticky",top:0}}>
+                      <span style={{fontWeight:"700",fontSize:"0.78rem",color:CONJ_COLOR}}>
+                        👥 Cuadrilla {c.nombre}
+                        <span style={{fontWeight:"400",color:"#94a3b8",marginLeft:"0.3rem"}}>
+                          · {c.miembros?.length||0} miembros
+                        </span>
+                      </span>
+                      {selEnCuad>0 && (
+                        <span style={{background:CONJ_COLOR,color:"#fff",borderRadius:"12px",
+                          padding:"1px 8px",fontSize:"0.68rem",fontWeight:"800"}}>
+                          {selEnCuad} ✓
+                        </span>
+                      )}
+                    </div>
+                    {/* Miembros */}
+                    {(expanded) && miembrosFilt.map(m => {
+                      const sel = form.trabajadoresSeleccionados.some(x=>x.id===m.id);
+                      return (
+                        <div key={m.id} onClick={()=>toggleTrab(m, c.nombre)}
+                          style={{display:"flex",alignItems:"center",gap:"0.5rem",
+                            padding:"0.38rem 0.75rem",
+                            background:sel?`${CONJ_COLOR}10`:"#fff",
+                            borderBottom:`1px solid ${CONJ_COLOR}08`,
+                            cursor:"pointer"}}
+                          onMouseEnter={e=>{if(!sel)e.currentTarget.style.background="#f5f3ff";}}
+                          onMouseLeave={e=>{if(!sel)e.currentTarget.style.background="#fff";}}>
+                          <div style={{width:"15px",height:"15px",borderRadius:"4px",flexShrink:0,
+                            border:`2px solid ${sel?CONJ_COLOR:"#cbd5e1"}`,
+                            background:sel?CONJ_COLOR:"#fff",
+                            display:"flex",alignItems:"center",justifyContent:"center"}}>
+                            {sel&&<CheckCircle size={9} color="#fff" strokeWidth={3}/>}
+                          </div>
+                          <span style={{flex:1,fontSize:"0.82rem",fontWeight:sel?"700":"400",
+                            color:sel?CONJ_COLOR:"#1e293b",
+                            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                            {m.nombre}
+                          </span>
+                          <span style={{fontSize:"0.7rem",fontFamily:"monospace",color:"#94a3b8"}}>
+                            {m.cedula||""}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+            {/* Chips seleccionados */}
+            {form.trabajadoresSeleccionados.length>0 && (
+              <div style={{marginTop:"0.4rem",display:"flex",flexWrap:"wrap",gap:"0.25rem"}}>
+                {form.trabajadoresSeleccionados.map(t=>(
+                  <span key={t.id} onClick={()=>setF("trabajadoresSeleccionados",
+                    form.trabajadoresSeleccionados.filter(x=>x.id!==t.id))}
+                    style={{background:`${CONJ_COLOR}15`,color:CONJ_COLOR,
+                      border:`1px solid ${CONJ_COLOR}30`,borderRadius:"20px",
+                      padding:"0.18rem 0.55rem",fontSize:"0.72rem",fontWeight:"700",
+                      cursor:"pointer",display:"flex",alignItems:"center",gap:"0.25rem"}}>
+                    {t.nombre.split(" ")[0]}
+                    <X size={9}/>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Servicio + cantidad */}
+          <div style={{marginBottom:"0.9rem"}}>
+            <label style={labelSt}>3️⃣ Servicio *</label>
+            <div style={{position:"relative"}}>
+              <select value={form.servicioId} onChange={e=>selServicio(e.target.value)}
+                style={{...selectSt,border:`1.5px solid ${CONJ_COLOR}60`}}>
+                <option value="">— Seleccionar servicio —</option>
+                {servicios.map(s=>(
+                  <option key={s.id} value={s.id}>{s.nombre} · {formatCOP(s.valor||s.tarifa||0)}</option>
+                ))}
+              </select>
+              <ChevronDown size={14} style={{position:"absolute",right:"0.65rem",top:"50%",transform:"translateY(-50%)",color:"#94a3b8",pointerEvents:"none"}}/>
+            </div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.6rem",marginBottom:"1rem"}}>
+            <div>
+              <label style={labelSt}>📦 Cantidad</label>
+              <input type="number" min="1" value={form.cantidad}
+                onChange={e=>setF("cantidad",e.target.value)}
+                style={{...inputSt,border:`1.5px solid ${CONJ_COLOR}60`,textAlign:"center"}}/>
+            </div>
+            <div>
+              <label style={{...labelSt,color:"#065f46"}}>💰 Neto por persona</label>
+              <div style={{...readonlySt,background:form.netoCalculado>0?"#f0fdf4":"#f8fafc",
+                border:`1.5px solid ${form.netoCalculado>0?"#6ee7b7":"#e2e8f0"}`,
+                fontWeight:"900",color:"#065f46",fontFamily:"monospace",fontSize:"1rem"}}>
+                {form.netoCalculado>0?formatCOP(form.netoCalculado):"—"}
+              </div>
+            </div>
+          </div>
+
+          {okMsg && (
+            <div style={{background:"#f0fdf4",border:"1.5px solid #6ee7b7",borderRadius:"10px",
+              padding:"0.6rem 0.9rem",color:"#065f46",fontWeight:"700",fontSize:"0.85rem",
+              marginBottom:"0.75rem"}}>{okMsg}</div>
+          )}
+          <button onClick={guardar} disabled={guardando}
+            style={{width:"100%",padding:"0.8rem",
+              background:guardando?"#94a3b8":CONJ_COLOR,
+              border:"none",borderRadius:"10px",color:"#fff",
+              fontWeight:"800",fontSize:"0.9rem",cursor:"pointer",
+              display:"flex",alignItems:"center",justifyContent:"center",gap:"0.5rem"}}>
+            {guardando?<><RefreshCw size={16} style={{animation:"spin 1s linear infinite"}}/> Guardando...</>
+              :<><Users size={16}/> Crear Conjunto</>}
+          </button>
+        </div>
+
+        {/* ── COLUMNA DER: Historial ── */}
+        <div style={{padding:"1.25rem",background:"#fafafa"}}>
+          <div style={{fontWeight:"800",fontSize:"0.82rem",color:"#64748b",
+            textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:"1rem",
+            display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <span>🔗 Conjuntos Recientes</span>
+            <button onClick={cargarHistorial}
+              style={{background:"transparent",border:"none",cursor:"pointer",color:"#94a3b8"}}>
+              <RefreshCw size={13}/>
+            </button>
+          </div>
+          {cargando?(
+            <div style={{textAlign:"center",padding:"2rem",color:"#94a3b8"}}>
+              <RefreshCw size={20} style={{animation:"spin 1s linear infinite"}}/>
+            </div>
+          ):historial.length===0?(
+            <div style={{textAlign:"center",padding:"2rem",color:"#cbd5e1"}}>
+              <Users size={32} color="#e2e8f0" style={{marginBottom:"0.5rem"}}/>
+              <div style={{fontSize:"0.85rem"}}>Sin conjuntos creados</div>
+            </div>
+          ):(
+            <div style={{display:"flex",flexDirection:"column",gap:"0.6rem",maxHeight:"520px",overflowY:"auto"}}>
+              {historial.map(c=>(
+                <div key={c.id} style={{background:"#fff",borderRadius:"10px",
+                  border:`1.5px solid ${CONJ_COLOR}25`,padding:"0.75rem",fontSize:"0.82rem",
+                  boxShadow:`0 1px 4px ${CONJ_COLOR}10`}}>
+                  <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:"0.35rem"}}>
+                    <div>
+                      <span style={{background:`${CONJ_COLOR}15`,color:CONJ_COLOR,
+                        borderRadius:"6px",padding:"1px 8px",fontWeight:"800",fontSize:"0.78rem"}}>
+                        🔗 {c.nombre}
+                      </span>
+                      <span style={{marginLeft:"0.4rem",color:"#64748b",fontSize:"0.72rem",fontFamily:"monospace"}}>
+                        {c.fecha}
+                      </span>
+                    </div>
+                    <button onClick={()=>eliminarConjunto(c)}
+                      style={{background:"#fff1f2",border:"none",borderRadius:"6px",
+                        padding:"2px 5px",cursor:"pointer",color:"#ef4444"}}>
+                      <Trash2 size={11}/>
+                    </button>
+                  </div>
+                  <div style={{color:"#334155",fontWeight:"600",marginBottom:"0.25rem"}}>{c.servicioNombre}</div>
+                  <div style={{display:"flex",gap:"0.4rem",flexWrap:"wrap"}}>
+                    <span style={{background:"#f0f9ff",color:"#0ea5e9",borderRadius:"5px",
+                      padding:"1px 7px",fontSize:"0.7rem",fontWeight:"700"}}>
+                      👥 {c.trabajadores?.length||0} trabajadores
+                    </span>
+                    <span style={{background:"#f0fdf4",color:"#065f46",borderRadius:"5px",
+                      padding:"1px 7px",fontSize:"0.7rem",fontWeight:"900",fontFamily:"monospace"}}>
+                      {formatCOP(c.netoAPagar)}/p
+                    </span>
+                  </div>
+                  <div style={{marginTop:"0.35rem",display:"flex",flexWrap:"wrap",gap:"0.2rem"}}>
+                    {(c.trabajadores||[]).slice(0,5).map(t=>(
+                      <span key={t.id} style={{background:"#f8fafc",borderRadius:"5px",
+                        padding:"1px 6px",fontSize:"0.67rem",color:"#475569",
+                        border:"1px solid #e2e8f0"}}>
+                        {t.nombre.split(" ")[0]}
+                        {t.cuadrillaNombre&&<span style={{color:"#94a3b8",fontSize:"0.6rem"}}> C{t.cuadrillaNombre}</span>}
+                      </span>
+                    ))}
+                    {(c.trabajadores||[]).length>5&&(
+                      <span style={{fontSize:"0.68rem",color:"#94a3b8"}}>+{(c.trabajadores||[]).length-5} más</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
 // MINI CUADRILLAS — Panel embebido en Matriz
 // Una «mini cuadrilla» es un subconjunto de la cuadrilla principal que trabaja
 // las horas restantes del día para completar contenedores pendientes.
@@ -589,12 +1012,13 @@ const MINI_FORM_INIT = {
   netoCalculado: 0,
 };
 
-function MiniCuadrillaPanel({ cuadrillas, servicios, clienteId, onGuardado, onClose }) {
+function MiniCuadrillaPanel({ cuadrillas, servicios, clienteId, onGuardado, onClose, todosTrabajadores, clientes }) {
   const [miniForm, setMiniForm] = useState({ ...MINI_FORM_INIT, fecha: hoy() });
   const [guardando, setGuardando] = useState(false);
   const [okMsg, setOkMsg] = useState("");
   const [miniCuadrillas, setMiniCuadrillas] = useState([]);
   const [cargandoLista, setCargandoLista] = useState(false);
+  const [busqAdicional, setBusqAdicional] = useState("");
 
   // Calcular neto cada vez que cambian los valores
   const recalcMini = (f) => {
@@ -844,6 +1268,96 @@ function MiniCuadrillaPanel({ cuadrillas, servicios, clienteId, onGuardado, onCl
             </div>
           )}
 
+          {/* 3️⃣ Personal adicional de otros clientes */}
+          {cuadActual && (todosTrabajadores||[]).length > 0 && (() => {
+            const idsEnCuad = new Set((cuadActual?.miembros||[]).map(m=>m.id));
+            const yaSelIds  = new Set(miniForm.miembrosSeleccionados.map(m=>m.id));
+            const qa = busqAdicional.toLowerCase().trim();
+            const adicionales = (todosTrabajadores||[])
+              .filter(t => !idsEnCuad.has(t.id))
+              .filter(t => !qa || t.nombre?.toLowerCase().includes(qa) || String(t.cedula||'').includes(busqAdicional.trim()));
+            const clienteMap = {};
+            (clientes||[]).forEach(c=>{ clienteMap[c.id]=c; });
+            const COLS=["#0B3D91","#10b981","#8b5cf6","#f59e0b","#ef4444"];
+            const NOMS={spia:"SPIA",cliente1:"C1",cliente2:"CIAMSA 2",cliente3:"CIAMSA 3"};
+            return (
+              <div style={{ marginBottom:"0.9rem" }}>
+                <label style={{ ...labelSt, color:"#7c3aed" }}>
+                  3️⃣ Personal adicional
+                  <span style={{ fontWeight:"400", color:"#94a3b8", marginLeft:"0.4rem" }}>
+                    ({adicionales.length} de otros clientes)
+                  </span>
+                </label>
+                <div style={{ border:"1.5px solid #ede9fe", borderRadius:"10px", overflow:"hidden" }}>
+                  <div style={{ padding:"0.35rem 0.6rem", background:"#faf5ff", borderBottom:"1px solid #ede9fe" }}>
+                    <input value={busqAdicional} onChange={e=>setBusqAdicional(e.target.value)}
+                      placeholder="🔍 Buscar por nombre o cédula..."
+                      style={{ width:"100%", padding:"0.3rem 0.55rem", border:"1.5px solid #ede9fe",
+                        borderRadius:"7px", fontSize:"0.8rem", outline:"none", boxSizing:"border-box" }}/>
+                  </div>
+                  <div style={{ maxHeight:"180px", overflowY:"auto" }}>
+                    {adicionales.length===0 ? (
+                      <div style={{ padding:"0.75rem", textAlign:"center", color:"#94a3b8", fontSize:"0.78rem" }}>
+                        {qa ? "Sin resultados" : "Todos los trabajadores ya están en la cuadrilla"}
+                      </div>
+                    ) : adicionales.map(t => {
+                      const sel = yaSelIds.has(t.id);
+                      const cIds = t.clienteIds||["spia"];
+                      const borderCol = sel ? "#7c3aed" : "#c4b5fd";
+                      const bgCol = sel ? "#7c3aed" : "#fff";
+                      const rowBg = sel ? "#f5f3ff" : "#fff";
+                      return (
+                        <div key={t.id}
+                          onClick={()=>toggleMiembro({...t,cedula:t.cedula||""})}
+                          style={{ display:"flex", alignItems:"center", gap:"0.5rem",
+                            padding:"0.4rem 0.7rem",
+                            background:rowBg,
+                            borderBottom:"1px solid #f3f0ff",
+                            cursor:"pointer" }}>
+                          <div style={{ width:"16px", height:"16px", borderRadius:"4px", flexShrink:0,
+                            border:"2px solid "+borderCol,
+                            background:bgCol,
+                            display:"flex", alignItems:"center", justifyContent:"center" }}>
+                            {sel&&<CheckCircle size={10} color="#fff" strokeWidth={3}/>}
+                          </div>
+                          <div style={{ flex:1, minWidth:0 }}>
+                            <div style={{ fontWeight:sel?"700":"500", fontSize:"0.82rem",
+                              color:sel?"#7c3aed":"#1e293b",
+                              overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{t.nombre}</div>
+                            <div style={{ fontSize:"0.68rem", color:"#94a3b8", fontFamily:"monospace" }}>{t.cedula||""}</div>
+                          </div>
+                          <div style={{ display:"flex", gap:"0.2rem", flexWrap:"wrap", maxWidth:"100px" }}>
+                            {cIds.map((cid,ci)=>{
+                              const cl=clienteMap[cid];
+                              const col=cl?.color||COLS[ci%COLS.length];
+                              return(
+                                <span key={cid} style={{ background:col+"18", color:col,
+                                  border:"1px solid "+col+"40", borderRadius:"5px",
+                                  padding:"1px 4px", fontSize:"0.6rem", fontWeight:"800", whiteSpace:"nowrap" }}>
+                                  {cl?.nombre||NOMS[cid]||cid.toUpperCase()}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {(() => {
+                    const nadics = miniForm.miembrosSeleccionados.filter(m=>!idsEnCuad.has(m.id));
+                    if(nadics.length===0) return null;
+                    return (
+                      <div style={{ padding:"0.3rem 0.7rem", background:"#ede9fe",
+                        borderTop:"1px solid #ddd6fe", fontSize:"0.72rem", color:"#7c3aed", fontWeight:"700" }}>
+                        {nadics.length} adicional(es) seleccionado(s)
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Fecha y horas */}
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:"0.6rem", marginBottom:"0.9rem" }}>
             <div style={{ gridColumn:"1/-1" }}>
@@ -1020,7 +1534,7 @@ function MiniCuadrillaPanel({ cuadrillas, servicios, clienteId, onGuardado, onCl
                     <span style={{ background:"#f0fdf4", color:"#065f46",
                       borderRadius:"5px", padding:"1px 7px", fontSize:"0.7rem",
                       fontWeight:"900", fontFamily:"monospace" }}>
-                      {formatCOP(mc.netoAPagar)}/p
+                      {formatCOP(mc.netoAPagar)} p.p.
                     </span>
                   </div>
                   {/* Miembros */}
@@ -1057,7 +1571,28 @@ export default function NominaMatriz() {
   // Catálogos
   const [cuadrillasAsistencia, setCuadrillasAsistencia] = useState([]);
   const [listaTrabajadores,    setListaTrabajadores]    = useState([]);
+  const [todosTrabajadores,    setTodosTrabajadores]    = useState([]); // todos sin filtro de cliente
   const [servicios,            setServicios]            = useState([]);
+
+  // Vista Excel / Detalle
+  const [showDetalleExcel, setShowDetalleExcel] = useState(false);
+  const [tabDetalle,       setTabDetalle]       = useState("trabajadores");
+  const [filtroExcelServ,  setFiltroExcelServ]  = useState("");
+  const [filtroExcelCuad,  setFiltroExcelCuad]  = useState("");
+  const [filtroExcelTrab,  setFiltroExcelTrab]  = useState("");
+
+  const exportarCSV = (filas, nombre) => {
+    const BOM = '\uFEFF';
+    const csv = BOM + filas.map(row =>
+      row.map(c => '"'+String(c==null?'':c).replace(/"/g,'""')+'"').join(',')
+    ).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = nombre + '.csv';
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
+  };
 
   // Período
   const [periodoDesde, setPeriodoDesde] = useState(primerDiaMes());
@@ -1074,6 +1609,41 @@ export default function NominaMatriz() {
   // ── Multi-día semanal — días seleccionados para guardar en lote
   // Cada elemento: { id, cuadId, cuadNombre, fecha, label }
   const [diasSemanalSeleccionados, setDiasSemanalSeleccionados] = useState([]);
+
+  // ── Cuadrilla Diaria (Terrestre / Ciamsa 2 / Ciamsa 3) ──
+  const [cuadrillaDiaForm,       setCuadrillaDiaForm]       = useState(CUADRILLA_DIA_FORM_INIT);
+  const [cuadrillaDiaGuardando,  setCuadrillaDiaGuardando]  = useState(false);
+  const [cuadrillaDiaOk,         setCuadrillaDiaOk]         = useState(false);
+  const [busqTrabCiamsa,         setBusqTrabCiamsa]         = useState("");
+  const [busqSpiaCiamsa,         setBusqSpiaCiamsa]         = useState("");
+
+  // ── Multi-servicio SPIA ──
+  const [serviciosMulti, setServiciosMulti] = useState([]);
+  // serviciosMulti = [{ uid, servicioId, servicioNombre, servicioValor, cantidad, netoCalculado }]
+  const sMultiNext = useRef(1);
+
+  const sMultiAdd = () => setServiciosMulti(prev => [
+    ...prev,
+    { uid: sMultiNext.current++, servicioId:"", servicioNombre:"", servicioValor:0, cantidad:"", netoCalculado:0 }
+  ]);
+
+  const sMultiUpdate = (uid, field, val) => setServiciosMulti(prev => prev.map(s => {
+    if (s.uid !== uid) return s;
+    const next = { ...s, [field]: val };
+    if (field === "servicioId") {
+      const srv = servicios.find(x => x.id === val);
+      next.servicioNombre = srv?.nombre || "";
+      next.servicioValor  = srv?.valor  || srv?.tarifa || 0;
+    }
+    const tarifa = parseFloat(next.servicioValor) || 0;
+    const cant   = parseFloat(next.cantidad)       || 0;
+    const pers   = parseInt(form.personas)         || 1;
+    next.netoCalculado = Math.round((tarifa * cant / pers) * 100) / 100;
+    if (field === "servicioId" || field === "cantidad") next.netoCalculado = Math.round(calcularNetoOperacion(tarifa, pers, parseFloat(next.cantidad)||1)*100)/100;
+    return next;
+  }));
+
+  const sMultiRemove = (uid) => setServiciosMulti(prev => prev.filter(s => s.uid !== uid));
 
   // ── Formulario SPIA/C1 ──
   const [form,       setForm]      = useState(FORM_INIT);
@@ -1098,8 +1668,15 @@ export default function NominaMatriz() {
   const [ciamsaOk,        setCiamsaOk]        = useState(false);
   const [ciamsaEditId,    setCiamsaEditId]    = useState(null);
 
-  // Mini cuadrillas
-  const [showMiniCuad, setShowMiniCuad] = useState(false);
+  // ── Cuadrilla del Día — Terrestre / Ciamsa 2 / Ciamsa 3 ──
+  const [cuadDiaFecha,        setCuadDiaFecha]        = useState(hoy());
+  const [cuadDiaTrabajadores, setCuadDiaTrabajadores] = useState([]); // quiénes trabajan hoy
+  const [trabsServicio,       setTrabsServicio]       = useState([]); // quiénes hicieron este servicio
+  const [cuadDiaBusq,         setCuadDiaBusq]         = useState('');
+
+  // Mini cuadrillas y Conjuntos
+  const [showMiniCuad,   setShowMiniCuad]   = useState(false);
+  const [showConjuntos,  setShowConjuntos]  = useState(false);
 
   // Modal eliminación
   const [modalElim, setModalElim] = useState(null);
@@ -1120,15 +1697,18 @@ export default function NominaMatriz() {
   const tablaRef = useRef(null);
 
   // ─── Identificadores de modelo por cliente ───
-  // Cliente 2 = CIAMSA 2 (destajo) | Cliente 3 = CIAMSA 3 (destajo) — misma fórmula, catálogos distintos
+  // Terrestre/CIAMSA 2/CIAMSA 3 = destajo (formulario CIAMSA) | SPIA = cuadrilla
+  const isCliente1  = clienteActivo === "cliente1";
   const isCliente2  = clienteActivo === "cliente2";
   const isCliente3  = clienteActivo === "cliente3";
-  const isCiamsa    = isCliente2 || isCliente3;  // ambos usan formulario destajo
-  const colorCiamsa = isCliente2 ? PURPLE : ORANGE;
-  // Nombre oficial de cada cliente CIAMSA para etiquetas
-  const nombreCiamsa = isCliente2
-    ? (clientes.find(c=>c.id==="cliente2")?.nombre || "Cliente 2")
-    : (clientes.find(c=>c.id==="cliente3")?.nombre || "Cliente 3");
+  const isCiamsa    = isCliente1 || isCliente2 || isCliente3;  // todos usan formulario destajo
+  const colorCiamsa = isCliente1 ? "#14b8a6" : isCliente2 ? PURPLE : ORANGE;
+  // Nombre oficial de cada cliente para etiquetas
+  const nombreCiamsa = isCliente1
+    ? (clientes.find(c=>c.id==="cliente1")?.nombre || "Terrestre")
+    : isCliente2
+    ? (clientes.find(c=>c.id==="cliente2")?.nombre || "CIAMSA 2")
+    : (clientes.find(c=>c.id==="cliente3")?.nombre || "CIAMSA 3");
 
   /* ── Auth ── */
   useEffect(() => {
@@ -1156,6 +1736,9 @@ export default function NominaMatriz() {
       setDiasSemanalSeleccionados([]);
       setAsistentesForm([]);
       setAusentesForm([]);
+      setCuadrillaDiaForm(CUADRILLA_DIA_FORM_INIT);
+      setBusqTrabCiamsa("");
+      setBusqSpiaCiamsa("");
       setC2Form(CIAMSA2_FORM_INIT);
       setC2EditId(null);
       setCiamsaForm(CIAMSA_FORM_INIT);
@@ -1338,10 +1921,10 @@ export default function NominaMatriz() {
       const t = await getDocs(query(collection(db,"nomina_trabajadores"), orderBy("nombre")));
       if(!t.empty) {
         const all = t.docs.map(d=>({id:d.id,...d.data()}));
-        // Solo trabajadores ACTIVOS (activo !== false)
         const activos   = all.filter(w => w.activo !== false);
         const filtered  = activos.filter(w=>(w.clienteIds||["spia"]).includes(cActivo));
         setListaTrabajadores(filtered.length>0?filtered:activos);
+        setTodosTrabajadores(activos); // todos los activos sin filtro de cliente
       }
     } catch {}
   };
@@ -1430,6 +2013,100 @@ export default function NominaMatriz() {
       setOperaciones(ops);
     } catch(e) { console.error(e); setOperaciones([]); }
     finally { setCargandoOps(false); }
+  };
+
+  /* ── CUADRILLA DIARIA: lógica (Terrestre, Ciamsa 2, Ciamsa 3) ──
+     El supervisor selecciona qué trabajadores trabajan ese día,
+     registra el servicio y la cantidad total del grupo.
+     Fórmula: PER = CANTIDAD / N° PERSONAS  →  Neto = PER × TARIFA (por persona)
+  */
+  const cuadrillaDiaRecalcular = (f) => {
+    const n       = f.trabajadoresSeleccionados.length || 1;
+    const cant    = parseFloat(f.cantidad) || 0;
+    const tarifa  = parseFloat(f.tarifaUnitaria) || 0;
+    const unidad  = f.unidad || "ton";
+    // Si el servicio es por día (valor fijo por persona/día), neto = tarifa × 1
+    // Si es por tonelada, neto = (cant / n) × tarifa
+    const per = (unidad === "dia" || unidad === "hora") ? cant : (n > 0 ? cant / n : 0);
+    const neto = Math.round(per * tarifa * 100) / 100;
+    return { ...f, nPersonas: n, per: Math.round(per * 10000) / 10000, netoCalculado: neto };
+  };
+
+  const cuadrillaDiaSetField = (key, val) =>
+    setCuadrillaDiaForm(prev => cuadrillaDiaRecalcular({ ...prev, [key]: val }));
+
+  const cuadrillaDiaToggleTrabajador = (t) => {
+    setCuadrillaDiaForm(prev => {
+      const ya = prev.trabajadoresSeleccionados.some(x => x.id === t.id);
+      const nuevos = ya
+        ? prev.trabajadoresSeleccionados.filter(x => x.id !== t.id)
+        : [...prev.trabajadoresSeleccionados, { id: t.id, nombre: t.nombre, cedula: String(t.cedula || ""), cargo: t.cargo || "" }];
+      return cuadrillaDiaRecalcular({ ...prev, trabajadoresSeleccionados: nuevos });
+    });
+  };
+
+  const cuadrillaDiaSelServicio = (servId) => {
+    const s = servicios.find(x => x.id === servId);
+    if (!s) { setCuadrillaDiaForm(prev => cuadrillaDiaRecalcular({ ...prev, servicioId: "", servicioNombre: "", tarifaUnitaria: 0, unidad: "ton" })); return; }
+    setCuadrillaDiaForm(prev => cuadrillaDiaRecalcular({ ...prev, servicioId: s.id, servicioNombre: s.nombre, tarifaUnitaria: s.valor || s.tarifa || 0, unidad: s.unidad || "ton" }));
+  };
+
+  const cuadrillaDiaGuardar = async () => {
+    const f = cuadrillaDiaForm;
+    if (f.trabajadoresSeleccionados.length === 0) { alert("Selecciona al menos un trabajador."); return; }
+    if (!f.servicioNombre) { alert("Selecciona el servicio."); return; }
+    if (!f.cantidad) { alert("Ingresa la cantidad."); return; }
+    if (!f.fecha) { alert("Indica la fecha."); return; }
+    setCuadrillaDiaGuardando(true);
+    const n      = f.trabajadoresSeleccionados.length;
+    const cant   = parseFloat(f.cantidad) || 0;
+    const unidad = f.unidad || "ton";
+    const per    = (unidad === "dia" || unidad === "hora") ? cant : (n > 0 ? cant / n : 0);
+    const neto   = Math.round(per * f.tarifaUnitaria * 100) / 100;
+    const data = {
+      periodoDesde, periodoHasta,
+      clienteId:  clienteActivo,
+      modoCiamsa: true,
+      modoCuadrillaDiaria: true,
+      quincenaId:   `${periodoDesde} al ${periodoHasta}`,
+      quincenaLabel:`${periodoDesde} al ${periodoHasta}`,
+      cuadrillaId:       `diaria_${f.fecha.replace(/-/g, "")}`,
+      cuadrillaNombre:   `CUADRILLA ${f.fecha}`,
+      cuadrillaPersonas: n,
+      fecha:      Timestamp.fromDate(new Date(f.fecha + "T12:00:00")),
+      fechaStr:   f.fecha,
+      servicioId:     f.servicioId,
+      servicioNombre: f.servicioNombre.trim().toUpperCase(),
+      tarifaUnitaria: f.tarifaUnitaria,
+      unidad,
+      cantidadTons:   cant,
+      nPersonas:      n,
+      per:            Math.round(per * 10000) / 10000,
+      servicioValorUnitario: f.tarifaUnitaria,
+      servicioValor:  neto,
+      cantidad:       n,
+      personas:       n,
+      netoAPagar:     neto,   // neto por persona — liquidar.js suma esto por trabajador
+      trabajadoresAsisten: f.trabajadoresSeleccionados.map(t => ({
+        id: t.id, nombre: t.nombre, cedula: String(t.cedula || ""),
+      })),
+      trabajadoresAusentes: [],
+      actualizadoEn: new Date(),
+    };
+    try {
+      await addDoc(collection(db, "nomina_operaciones"), { ...data, creadoEn: new Date() });
+      await cargarOperaciones();
+      // Conserva fecha y trabajadores para el siguiente registro del mismo día
+      setCuadrillaDiaForm(prev => ({
+        ...CUADRILLA_DIA_FORM_INIT,
+        fecha: prev.fecha,
+        trabajadoresSeleccionados: prev.trabajadoresSeleccionados,
+      }));
+      setCuadrillaDiaOk(true);
+      setTimeout(() => setCuadrillaDiaOk(false), 2500);
+      tablaRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch(e) { alert("Error: " + e.message); }
+    setCuadrillaDiaGuardando(false);
   };
 
   /* ── SPIA: cálculo neto ── */
@@ -1628,6 +2305,23 @@ export default function NominaMatriz() {
       } else {
         await addDoc(collection(db,"nomina_operaciones"),{...data,creadoEn:new Date()});
       }
+      // ── Guardar servicios adicionales (multi-servicio) ──
+      for (const sm of serviciosMulti) {
+        if (!sm.servicioNombre || !sm.cantidad) continue;
+        const cantSm  = parseInt(sm.cantidad)||1;
+        const personasSm = parseInt(form.personas)||1;
+        const netoSm  = Math.round(calcularNetoOperacion(parseFloat(sm.servicioValor)||0, personasSm, cantSm)*100)/100;
+        await addDoc(collection(db,"nomina_operaciones"),{
+          ...data,
+          servicioNombre:        sm.servicioNombre.trim().toUpperCase(),
+          servicioValorUnitario: parseFloat(sm.servicioValor)||0,
+          servicioValor:         (parseFloat(sm.servicioValor)||0) * cantSm,
+          cantidad:              cantSm,
+          netoAPagar:            netoSm,
+          creadoEn:              new Date(),
+          actualizadoEn:         new Date(),
+        });
+      }
       // Guardar novedad del trabajador individual (campo novedad)
       if (form.tipoSeleccion==="trabajador" && form.novedad && form.fecha) {
         const trabId = form.cuadrillaId.replace("trab_","");
@@ -1644,6 +2338,7 @@ export default function NominaMatriz() {
       }
       await cargarOperaciones();
       setForm({...FORM_INIT,cuadrillaId:form.cuadrillaId,cuadrillaNombre:form.cuadrillaNombre,cuadrillaPersonas:form.cuadrillaPersonas,personas:form.cuadrillaPersonas||1,fecha:form.fecha});
+      setServiciosMulti([]);
       setGuardadoOk(true);
       setTimeout(()=>setGuardadoOk(false),2000);
       tablaRef.current?.scrollIntoView({behavior:"smooth",block:"start"});
@@ -1994,7 +2689,7 @@ export default function NominaMatriz() {
                 : "Registro diario por cuadrilla · asistencia en tiempo real"}
             </p>
           </div>
-          {!isCiamsa && (
+          {clienteActivo === "spia" && (
             <button onClick={() => setShowMiniCuad(p => !p)}
               style={{
                 background: showMiniCuad ? "#e11d48" : "#fff5f7",
@@ -2029,7 +2724,7 @@ export default function NominaMatriz() {
                   fontWeight:"700",fontSize:"0.82rem",cursor:"pointer",transition:"all 0.15s",
                   boxShadow:activo?`0 2px 8px ${c.color||PRIMARY}40`:"none"}}>
                 {c.emoji||"🏢"} {c.nombre}
-                {(c.id==="cliente2"||c.id==="cliente3") && (
+                {(c.id==="cliente1"||c.id==="cliente2"||c.id==="cliente3") && (
                   <span style={{marginLeft:"0.4rem",fontSize:"0.65rem",background:"rgba(255,255,255,0.25)",padding:"1px 5px",borderRadius:"8px"}}>
                     DESTAJO
                   </span>
@@ -2083,168 +2778,386 @@ export default function NominaMatriz() {
         </div>
 
         {/* ════════════════════════════════════════════════
-            FORMULARIO CIAMSA (destajo)
+            FORMULARIO CUADRILLA DIARIA
+            Terrestre (cliente1), Ciamsa 2 (cliente2), Ciamsa 3 (cliente3)
             ════════════════════════════════════════════════ */}
-        {isCiamsa && (
-          <div style={{background:"#fff",borderRadius:"14px",
-            boxShadow:`0 4px 20px ${colorCiamsa}20`,
-            border:`2px solid ${ciamsaEditId?"#f59e0b":colorCiamsa}`,
-            marginBottom:"1.75rem",overflow:"hidden"}}>
+        {clienteActivo !== "spia" && (() => {
+          const f   = cuadrillaDiaForm;
+          const sel = f.trabajadoresSeleccionados;
+          // Trabajadores del cliente activo
+          const trabCliente = listaTrabajadores;
+          // Trabajadores de SPIA disponibles para incluir
+          const trabSpia = todosTrabajadores.filter(t =>
+            !(t.clienteIds || ["spia"]).includes(clienteActivo) &&
+            (t.clienteIds || ["spia"]).includes("spia")
+          );
+          const qC = busqTrabCiamsa.toLowerCase().trim();
+          const qS = busqSpiaCiamsa.toLowerCase().trim();
+          const filtCliente = qC
+            ? trabCliente.filter(t => t.nombre?.toLowerCase().includes(qC) || String(t.cedula||"").includes(busqTrabCiamsa))
+            : trabCliente;
+          const filtSpia = qS
+            ? trabSpia.filter(t => t.nombre?.toLowerCase().includes(qS) || String(t.cedula||"").includes(busqSpiaCiamsa))
+            : trabSpia;
 
-            {/* Header */}
-            <div style={{background:ciamsaEditId?"#fffbeb":`linear-gradient(135deg,${colorCiamsa} 0%,${colorCiamsa}cc 100%)`,
-              padding:"1rem 1.5rem",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-              <div style={{display:"flex",alignItems:"center",gap:"0.6rem"}}>
-                <span style={{fontSize:"1.2rem"}}>{ciamsaEditId?"✏️":"⚖️"}</span>
-                <div>
-                  <div style={{fontWeight:"800",color:ciamsaEditId?"#92400e":"#fff",fontSize:"1rem"}}>
-                    {ciamsaEditId?"Editando operación destajo":
-                      `Nueva operación destajo — ${clienteActivo==="cliente2"?"CIAMSA 2":"CIAMSA 3"}`}
+          // Acumulado por trabajador en el período actual
+          const acum = {};
+          opsFiltradas.forEach(op => {
+            (op.trabajadoresAsisten || []).forEach(w => {
+              if (!acum[w.id]) acum[w.id] = { nombre: w.nombre, cedula: w.cedula || "", total: 0, registros: 0 };
+              acum[w.id].total    += op.netoAPagar || 0;
+              acum[w.id].registros++;
+            });
+          });
+          const acumLista = Object.values(acum).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+
+          return (
+            <div style={{ marginBottom: "1.75rem" }}>
+
+              {/* ── PANEL SUPERIOR: Fecha + Acumulado ── */}
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 2fr", gap:"1rem", marginBottom:"1rem" }}>
+
+                {/* Fecha */}
+                <div style={{ background:"#fff", borderRadius:"14px", padding:"1.25rem",
+                  boxShadow:"0 2px 10px rgba(0,0,0,0.06)", border:`1.5px solid ${colorCiamsa}30` }}>
+                  <div style={{ fontWeight:"800", fontSize:"0.82rem", color:colorCiamsa,
+                    textTransform:"uppercase", letterSpacing:"0.05em", marginBottom:"0.75rem" }}>
+                    📅 Fecha de operación
                   </div>
-                  <div style={{color:ciamsaEditId?"#b45309":"rgba(255,255,255,0.80)",fontSize:"0.78rem"}}>
-                    Fórmula: <strong style={{fontFamily:"monospace"}}>PER = Cantidad ÷ N°Personas</strong> · 
-                    <strong style={{fontFamily:"monospace"}}> Neto = PER × Tarifa</strong>
+                  <input type="date" value={f.fecha}
+                    onChange={e => cuadrillaDiaSetField("fecha", e.target.value)}
+                    style={{ ...inputSt, border:`1.5px solid ${colorCiamsa}60`, fontSize:"1rem", fontWeight:"700", color:colorCiamsa }} />
+                  <div style={{ marginTop:"0.6rem", fontSize:"0.75rem", color:"#64748b" }}>
+                    Período: {periodoDesde} → {periodoHasta}
                   </div>
                 </div>
-              </div>
-              {ciamsaEditId && (
-                <button onClick={ciamsaCancelar}
-                  style={{background:"#fef3c7",border:"1.5px solid #fcd34d",borderRadius:"8px",padding:"0.4rem 0.8rem",cursor:"pointer",color:"#92400e",fontWeight:"700",fontSize:"0.82rem",display:"flex",alignItems:"center",gap:"0.4rem"}}>
-                  <X size={14}/> Cancelar
-                </button>
-              )}
-            </div>
 
-            <div style={{padding:"1.5rem"}}>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:"1rem"}}>
-
-                {/* Trabajador */}
-                <div style={{gridColumn:"span 2"}}>
-                  <label style={labelSt}>👤 Trabajador *</label>
-                  <div style={{position:"relative"}}>
-                    <select value={ciamsaForm.trabajadorId} onChange={e=>ciamsaSeleccionarTrabajador(e.target.value)} style={{...selectSt,border:`1.5px solid ${colorCiamsa}50`}}>
-                      <option value="">— Seleccionar trabajador —</option>
-                      {listaTrabajadores.map(t=>(
-                        <option key={t.id} value={t.id}>
-                          {t.nombre}{t.cedula?` · ${t.cedula}`:""}{t.cargo?` (${t.cargo})`:""}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown size={15} style={{position:"absolute",right:"0.75rem",top:"50%",transform:"translateY(-50%)",color:"#94a3b8",pointerEvents:"none"}}/>
+                {/* Acumulado quincena */}
+                <div style={{ background:"#fff", borderRadius:"14px", padding:"1.25rem",
+                  boxShadow:"0 2px 10px rgba(0,0,0,0.06)", border:"1.5px solid #e2e8f0" }}>
+                  <div style={{ fontWeight:"800", fontSize:"0.82rem", color:"#475569",
+                    textTransform:"uppercase", letterSpacing:"0.05em", marginBottom:"0.6rem",
+                    display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                    <span>📊 Acumulado quincena</span>
+                    <span style={{ fontSize:"0.72rem", color:colorCiamsa, fontWeight:"700" }}>
+                      Total: {formatCOP(acumLista.reduce((s, t) => s + t.total, 0))}
+                    </span>
                   </div>
-                  {ciamsaForm.trabajadorNombre && (
-                    <div style={{marginTop:"0.35rem",fontSize:"0.78rem",color:colorCiamsa,background:`${colorCiamsa}10`,padding:"0.3rem 0.7rem",borderRadius:"6px",display:"inline-block",fontWeight:"700"}}>
-                      ✅ {ciamsaForm.trabajadorNombre} · {ciamsaForm.trabajadorCedula||"sin cédula"}
+                  {acumLista.length === 0 ? (
+                    <div style={{ fontSize:"0.8rem", color:"#94a3b8" }}>Sin registros aún en este período</div>
+                  ) : (
+                    <div style={{ display:"flex", flexWrap:"wrap", gap:"0.4rem", maxHeight:"110px", overflowY:"auto" }}>
+                      {acumLista.map(t => (
+                        <div key={t.cedula} style={{ background:`${colorCiamsa}10`,
+                          border:`1px solid ${colorCiamsa}30`, borderRadius:"8px",
+                          padding:"0.35rem 0.65rem", fontSize:"0.75rem" }}>
+                          <div style={{ fontWeight:"700", color:"#1e293b" }}>{t.nombre.split(" ")[0]} {t.nombre.split(" ")[2]||""}</div>
+                          <div style={{ fontWeight:"900", color:colorCiamsa, fontFamily:"monospace" }}>{formatCOP(t.total)}</div>
+                          <div style={{ fontSize:"0.65rem", color:"#94a3b8" }}>{t.registros} reg.</div>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
-
-                {/* Motivo / Novedad */}
-                <div>
-                  <label style={labelSt}>📋 Novedad <span style={{fontWeight:"400",color:"#94a3b8"}}>(opcional)</span></label>
-                  <SelectMotivo
-                    value={ciamsaForm.motivo}
-                    onChange={v => ciamsaSetField("motivo", v)}
-                    novedades={novedades}
-                    color={colorCiamsa}
-                  />
-                </div>
-
-                {/* Fecha */}
-                <div>
-                  <label style={labelSt}>📅 Fecha *</label>
-                  <input type="date" value={ciamsaForm.fecha} onChange={e=>ciamsaSetField("fecha",e.target.value)} style={inputSt}/>
-                </div>
-
-                {/* Servicio */}
-                <div style={{gridColumn:"span 2"}}>
-                  <label style={labelSt}>🔧 Servicio / Labor *</label>
-                  <div style={{position:"relative"}}>
-                    <select value={ciamsaForm.servicioId} onChange={e=>ciamsaSeleccionarServicio(e.target.value)} style={{...selectSt,border:`1.5px solid ${colorCiamsa}50`}}>
-                      <option value="">— Seleccionar servicio —</option>
-                      {servicios.map(s=>(
-                        <option key={s.id} value={s.id}>
-                          {s.nombre}{(s.tarifa||s.valor)>0?` · ${formatCOP(s.tarifa||s.valor||0)}/${s.unidad||"ton"}`:""}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown size={15} style={{position:"absolute",right:"0.75rem",top:"50%",transform:"translateY(-50%)",color:"#94a3b8",pointerEvents:"none"}}/>
-                  </div>
-                </div>
-
               </div>
 
-              {/* ── Banner novedad activa CIAMSA — bloquea producción cuando hay novedad en Llamado a Lista ── */}
-              {novedadActivaWorker && ciamsaForm.trabajadorId && (()=>{
-                const ncat = novMapState[novedadActivaWorker.novedad]||{emoji:"📅",label:novedadActivaWorker.novedad,color:"#7c3aed",bg:"#ede9fe"};
-                return (
-                  <div style={{borderRadius:"12px",overflow:"hidden",border:`2px solid ${ncat.color}`,marginTop:"0.75rem",marginBottom:"0.5rem"}}>
-                    <div style={{background:ncat.color,padding:"0.75rem 1.1rem",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                      <div style={{display:"flex",alignItems:"center",gap:"0.6rem"}}>
-                        <span style={{fontSize:"1.4rem"}}>{ncat.emoji}</span>
-                        <div>
-                          <div style={{fontWeight:"800",color:"#fff",fontSize:"0.95rem"}}>{ncat.label} — Novedad marcada en Llamado a Lista</div>
-                          <div style={{color:"rgba(255,255,255,0.85)",fontSize:"0.75rem"}}>Registrada para el {ciamsaForm.fecha}</div>
-                        </div>
+              {/* ── PANEL PRINCIPAL: Cuadrilla del día + Servicio ── */}
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"1rem" }}>
+
+                {/* COLUMNA IZQUIERDA: Selección de trabajadores */}
+                <div style={{ background:"#fff", borderRadius:"14px", padding:"1.25rem",
+                  boxShadow:"0 2px 10px rgba(0,0,0,0.06)", border:`2px solid ${colorCiamsa}40` }}>
+                  <div style={{ fontWeight:"800", fontSize:"0.82rem", color:colorCiamsa,
+                    textTransform:"uppercase", letterSpacing:"0.05em", marginBottom:"0.75rem",
+                    display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                    <span>👷 Cuadrilla del día — {f.fecha}</span>
+                    <span style={{ background:`${colorCiamsa}18`, color:colorCiamsa,
+                      borderRadius:"8px", padding:"2px 10px", fontSize:"0.75rem" }}>
+                      {sel.length} seleccionados
+                    </span>
+                  </div>
+
+                  {/* Trabajadores del cliente */}
+                  <div style={{ fontSize:"0.72rem", fontWeight:"700", color:"#64748b",
+                    textTransform:"uppercase", letterSpacing:"0.05em", marginBottom:"0.35rem" }}>
+                    {nombreCiamsa}
+                    {filtCliente.length !== trabCliente.length && ` (${filtCliente.length}/${trabCliente.length})`}
+                  </div>
+                  <input value={busqTrabCiamsa} onChange={e => setBusqTrabCiamsa(e.target.value)}
+                    placeholder="🔍 Buscar trabajador..."
+                    style={{ ...inputSt, padding:"0.45rem 0.75rem", fontSize:"0.82rem", marginBottom:"0.5rem" }} />
+                  <div style={{ border:`1px solid ${colorCiamsa}25`, borderRadius:"10px",
+                    overflow:"hidden", maxHeight:"220px", overflowY:"auto", marginBottom:"0.75rem" }}>
+                    {/* Seleccionar todos */}
+                    <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
+                      padding:"0.35rem 0.65rem", background:`${colorCiamsa}08`,
+                      borderBottom:`1px solid ${colorCiamsa}15`, position:"sticky", top:0 }}>
+                      <span style={{ fontSize:"0.7rem", color:"#64748b", fontWeight:"600" }}>
+                        {sel.filter(x => trabCliente.some(t => t.id === x.id)).length}/{trabCliente.length}
+                      </span>
+                      <div style={{ display:"flex", gap:"0.35rem" }}>
+                        <button onClick={() => setCuadrillaDiaForm(prev => cuadrillaDiaRecalcular({
+                          ...prev,
+                          trabajadoresSeleccionados: [
+                            ...prev.trabajadoresSeleccionados.filter(x => !trabCliente.some(t => t.id === x.id)),
+                            ...trabCliente.map(t => ({ id:t.id, nombre:t.nombre, cedula:String(t.cedula||""), cargo:t.cargo||""})),
+                          ]
+                        }))}
+                          style={{ fontSize:"0.68rem", background:colorCiamsa, color:"#fff",
+                            border:"none", borderRadius:"5px", padding:"2px 8px", cursor:"pointer", fontWeight:"700" }}>
+                          Todos
+                        </button>
+                        <button onClick={() => setCuadrillaDiaForm(prev => cuadrillaDiaRecalcular({
+                          ...prev,
+                          trabajadoresSeleccionados: prev.trabajadoresSeleccionados.filter(x => !trabCliente.some(t => t.id === x.id))
+                        }))}
+                          style={{ fontSize:"0.68rem", background:"#f1f5f9", color:"#64748b",
+                            border:"1px solid #e2e8f0", borderRadius:"5px", padding:"2px 8px", cursor:"pointer" }}>
+                          Ninguno
+                        </button>
                       </div>
-                      <span style={{background:"rgba(255,255,255,0.2)",color:"#fff",borderRadius:"8px",padding:"3px 10px",fontSize:"0.72rem",fontWeight:"800",fontFamily:"monospace"}}>{novedadActivaWorker.novedad}</span>
                     </div>
-                    <div style={{background:ncat.bg,padding:"0.85rem 1.1rem"}}>
-                      <div style={{fontWeight:"700",color:ncat.color,fontSize:"0.88rem",marginBottom:"0.4rem"}}>
-                        ⚠️ Este trabajador tiene novedad registrada para el <strong>{ciamsaForm.fecha}</strong> desde el Llamado a Lista.
+                    {filtCliente.map(t => {
+                      const selec = sel.some(x => x.id === t.id);
+                      return (
+                        <div key={t.id} onClick={() => cuadrillaDiaToggleTrabajador(t)}
+                          style={{ display:"flex", alignItems:"center", gap:"0.5rem",
+                            padding:"0.4rem 0.65rem",
+                            background: selec ? `${colorCiamsa}12` : "#fff",
+                            borderBottom:`1px solid ${colorCiamsa}10`,
+                            cursor:"pointer", transition:"background 0.1s" }}
+                          onMouseEnter={e=>{ if(!selec) e.currentTarget.style.background="#f8fafc"; }}
+                          onMouseLeave={e=>{ if(!selec) e.currentTarget.style.background="#fff"; }}>
+                          <div style={{ width:"15px", height:"15px", borderRadius:"4px", flexShrink:0,
+                            border:`2px solid ${selec ? colorCiamsa : "#cbd5e1"}`,
+                            background: selec ? colorCiamsa : "#fff",
+                            display:"flex", alignItems:"center", justifyContent:"center" }}>
+                            {selec && <CheckCircle size={9} color="#fff" strokeWidth={3}/>}
+                          </div>
+                          <div style={{ flex:1, minWidth:0 }}>
+                            <div style={{ fontWeight: selec?"700":"500", fontSize:"0.83rem",
+                              color: selec ? colorCiamsa : "#1e293b",
+                              overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                              {t.nombre}
+                            </div>
+                            <div style={{ fontSize:"0.68rem", color:"#94a3b8", fontFamily:"monospace" }}>{t.cedula}</div>
+                          </div>
+                          <span style={{ fontSize:"0.65rem", color:"#94a3b8", flexShrink:0 }}>{t.cargo}</span>
+                        </div>
+                      );
+                    })}
+                    {filtCliente.length === 0 && (
+                      <div style={{ padding:"1rem", textAlign:"center", color:"#94a3b8", fontSize:"0.8rem" }}>
+                        Sin resultados
                       </div>
-                      <div style={{fontSize:"0.8rem",color:ncat.color,opacity:0.85,marginBottom:"0.75rem"}}>
-                        No genera producción este día. Solo puedes guardar la novedad en la matriz.
+                    )}
+                  </div>
+
+                  {/* Personal SPIA adicional */}
+                  {trabSpia.length > 0 && (
+                    <>
+                      <div style={{ fontSize:"0.72rem", fontWeight:"700", color:"#0B3D91",
+                        textTransform:"uppercase", letterSpacing:"0.05em", marginBottom:"0.35rem" }}>
+                        🧳 Personal SPIA adicional
                       </div>
-                      <button
-                        onClick={async()=>{
-                          if(!ciamsaForm.trabajadorNombre||!ciamsaForm.fecha)return;
-                          setCiamsaGuardando(true);
-                          try{
-                            const codNov=novedadActivaWorker.novedad;
-                            const data={
-                              periodoDesde,periodoHasta,
-                              clienteId:clienteActivo,modoCiamsa:true,modoNovedad:true,
-                              quincenaId:`${periodoDesde} al ${periodoHasta}`,
-                              quincenaLabel:`${periodoDesde} al ${periodoHasta}`,
-                              cuadrillaId:`trab_${ciamsaForm.trabajadorId}`,
-                              cuadrillaNombre:ciamsaForm.trabajadorNombre,
-                              cuadrilla:ciamsaForm.trabajadorNombre,
-                              cuadrillaPersonas:1,
-                              trabajadorId:ciamsaForm.trabajadorId,
-                              trabajadorNombre:ciamsaForm.trabajadorNombre,
-                              trabajadorCedula:ciamsaForm.trabajadorCedula,
-                              fecha:Timestamp.fromDate(new Date(ciamsaForm.fecha+"T12:00:00")),
-                              fechaStr:ciamsaForm.fecha,
-                              servicioNombre:codNov,novedad:codNov,
-                              netoAPagar:0,personas:1,cantidad:1,
-                              modoHorasExtras:false,horasExtras:null,
-                              trabajadoresAsisten:[{id:ciamsaForm.trabajadorId,nombre:ciamsaForm.trabajadorNombre,cedula:ciamsaForm.trabajadorCedula}],
-                              trabajadoresAusentes:[],
-                              actualizadoEn:new Date(),
-                            };
-                            await addDoc(collection(db,"nomina_operaciones"),{...data,creadoEn:new Date()});
-                            await guardarMotivoEnRegistro(ciamsaForm.trabajadorId,ciamsaForm.fecha,codNov);
-                            await cargarOperaciones();
-                            setCiamsaOk(true);
-                            setTimeout(()=>setCiamsaOk(false),2500);
-                            tablaRef.current?.scrollIntoView({behavior:"smooth",block:"start"});
-                          }catch(e){alert("Error: "+e.message);}
-                          setCiamsaGuardando(false);
-                        }}
-                        disabled={ciamsaGuardando}
-                        style={{background:ncat.color,border:"2px solid rgba(255,255,255,0.4)",borderRadius:"10px",padding:"0.75rem 1.5rem",color:"#fff",fontWeight:"800",fontSize:"0.9rem",cursor:"pointer",display:"flex",alignItems:"center",gap:"0.5rem",boxShadow:`0 4px 12px ${ncat.color}50`}}>
-                        {ciamsaGuardando?<><RefreshCw size={16} style={{animation:"spin 1s linear infinite"}}/> Guardando...</>
-                          :ciamsaOk?<><CheckCircle size={16}/> ¡Registrado!</>
-                          :<><Save size={16}/> Registrar {ncat.emoji} {ncat.label} (neto $0)</>}
-                      </button>
+                      <input value={busqSpiaCiamsa} onChange={e => setBusqSpiaCiamsa(e.target.value)}
+                        placeholder="🔍 Buscar SPIA..."
+                        style={{ ...inputSt, padding:"0.45rem 0.75rem", fontSize:"0.82rem", marginBottom:"0.5rem" }} />
+                      <div style={{ border:"1px solid #dbeafe", borderRadius:"10px",
+                        overflow:"hidden", maxHeight:"140px", overflowY:"auto" }}>
+                        {filtSpia.map(t => {
+                          const selec = sel.some(x => x.id === t.id);
+                          return (
+                            <div key={t.id} onClick={() => cuadrillaDiaToggleTrabajador(t)}
+                              style={{ display:"flex", alignItems:"center", gap:"0.5rem",
+                                padding:"0.4rem 0.65rem",
+                                background: selec ? "#eff6ff" : "#fff",
+                                borderBottom:"1px solid #f0f9ff",
+                                cursor:"pointer" }}
+                              onMouseEnter={e=>{ if(!selec) e.currentTarget.style.background="#f0f9ff"; }}
+                              onMouseLeave={e=>{ if(!selec) e.currentTarget.style.background="#fff"; }}>
+                              <div style={{ width:"15px", height:"15px", borderRadius:"4px", flexShrink:0,
+                                border:`2px solid ${selec ? "#0B3D91" : "#cbd5e1"}`,
+                                background: selec ? "#0B3D91" : "#fff",
+                                display:"flex", alignItems:"center", justifyContent:"center" }}>
+                                {selec && <CheckCircle size={9} color="#fff" strokeWidth={3}/>}
+                              </div>
+                              <div style={{ flex:1, minWidth:0 }}>
+                                <div style={{ fontWeight: selec?"700":"400", fontSize:"0.82rem",
+                                  color: selec ? "#0B3D91" : "#1e293b",
+                                  overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                                  {t.nombre}
+                                </div>
+                                <div style={{ fontSize:"0.67rem", color:"#94a3b8", fontFamily:"monospace" }}>{t.cedula}</div>
+                              </div>
+                              <span style={{ fontSize:"0.6rem", background:"#dbeafe", color:"#1d4ed8",
+                                borderRadius:"4px", padding:"1px 5px", fontWeight:"700", flexShrink:0 }}>SPIA</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* COLUMNA DERECHA: Registro del servicio */}
+                <div style={{ background:"#fff", borderRadius:"14px", padding:"1.25rem",
+                  boxShadow:"0 2px 10px rgba(0,0,0,0.06)",
+                  border:`2px solid ${cuadrillaDiaGuardando || cuadrillaDiaOk ? colorCiamsa : "#e2e8f0"}` }}>
+                  <div style={{ fontWeight:"800", fontSize:"0.82rem", color:"#475569",
+                    textTransform:"uppercase", letterSpacing:"0.05em", marginBottom:"1rem" }}>
+                    ⚖️ Registrar servicio
+                  </div>
+
+                  {/* Servicio */}
+                  <div style={{ marginBottom:"0.9rem" }}>
+                    <label style={labelSt}>🔧 Servicio *</label>
+                    <div style={{ position:"relative" }}>
+                      <select value={f.servicioId} onChange={e => cuadrillaDiaSelServicio(e.target.value)}
+                        style={{ ...selectSt, border:`1.5px solid ${colorCiamsa}50` }}>
+                        <option value="">— Seleccionar servicio —</option>
+                        {servicios.map(s => (
+                          <option key={s.id} value={s.id}>
+                            {s.nombre}{(s.valor||s.tarifa) > 0 ? ` · ${formatCOP(s.valor||s.tarifa||0)}/${s.unidad||"ton"}` : ""}
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown size={15} style={{ position:"absolute", right:"0.75rem", top:"50%",
+                        transform:"translateY(-50%)", color:"#94a3b8", pointerEvents:"none" }}/>
                     </div>
                   </div>
-                );
-              })()}
 
-              {/* Solo mostrar cálculo y botón guardar cuando NO hay novedad activa del llamado */}
-              {!novedadActivaWorker && (<>
+                  {/* Cálculo destajo */}
+                  {f.servicioId && (
+                    <div style={{ background:`${colorCiamsa}06`, border:`1.5px solid ${colorCiamsa}20`,
+                      borderRadius:"12px", padding:"1rem", marginBottom:"0.9rem" }}>
+                      <div style={{ fontSize:"0.7rem", fontWeight:"800", color:colorCiamsa,
+                        textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:"0.75rem" }}>
+                        {f.unidad === "dia" ? "📅 Días trabajados por persona" :
+                         f.unidad === "hora" ? "⏰ Horas trabajadas por persona" :
+                         "⚖️ Destajo — PER = Cantidad ÷ N° Personas"}
+                      </div>
+                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0.75rem", alignItems:"end" }}>
+                        <div>
+                          <label style={labelSt}>
+                            {f.unidad === "dia" ? "📅 Días *" :
+                             f.unidad === "hora" ? "⏰ Horas *" :
+                             "📦 Cantidad total del grupo *"}
+                          </label>
+                          <input type="number" step="0.01" min="0" value={f.cantidad}
+                            onChange={e => cuadrillaDiaSetField("cantidad", e.target.value)}
+                            placeholder="0"
+                            style={{ ...inputSt, border:`1.5px solid ${colorCiamsa}60`, fontWeight:"700" }}/>
+                          {f.unidad !== "dia" && f.unidad !== "hora" && (
+                            <div style={{ fontSize:"0.67rem", color:"#94a3b8", marginTop:"0.2rem" }}>
+                              {sel.length} personas → PER = {f.cantidad ? (parseFloat(f.cantidad) / (sel.length||1)).toFixed(4) : "—"}
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <label style={labelSt}>💲 Tarifa</label>
+                          <div style={{ ...readonlySt, fontFamily:"monospace", fontWeight:"700",
+                            color: f.tarifaUnitaria > 0 ? "#059669" : "#94a3b8",
+                            background: f.tarifaUnitaria > 0 ? "#f0fdf4" : "#f8fafc" }}>
+                            {f.tarifaUnitaria > 0 ? formatCOP(f.tarifaUnitaria) : <span style={{ color:"#cbd5e1" }}>Del servicio</span>}
+                            {f.unidad && <span style={{ fontSize:"0.68rem", marginLeft:"4px", opacity:0.7 }}>/{f.unidad}</span>}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Neto por persona */}
+                  <div style={{ marginBottom:"1rem" }}>
+                    <label style={{ ...labelSt, color:"#065f46" }}>💰 Neto por persona</label>
+                    <div style={{ padding:"0.85rem 1.1rem",
+                      background: f.netoCalculado > 0 ? "#f0fdf4" : "#f8fafc",
+                      border:`2px solid ${f.netoCalculado > 0 ? SUCCESS : "#e2e8f0"}`,
+                      borderRadius:"10px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                      <span style={{ fontWeight:"900", color:"#065f46", fontSize:"1.3rem", fontFamily:"monospace" }}>
+                        {f.netoCalculado > 0 ? formatCOP(f.netoCalculado) : "—"}
+                      </span>
+                      {f.netoCalculado > 0 && sel.length > 1 && (
+                        <span style={{ fontSize:"0.75rem", color:"#065f46", background:"#dcfce7",
+                          padding:"0.2rem 0.7rem", borderRadius:"20px", fontWeight:"700" }}>
+                          Total grupo: {formatCOP(f.netoCalculado * sel.length)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Trabajadores seleccionados chips */}
+                  {sel.length > 0 && (
+                    <div style={{ marginBottom:"1rem" }}>
+                      <div style={{ fontSize:"0.72rem", fontWeight:"700", color:"#64748b",
+                        textTransform:"uppercase", letterSpacing:"0.05em", marginBottom:"0.4rem" }}>
+                        👷 {sel.length} trabajador{sel.length !== 1 ? "es" : ""} en cuadrilla
+                      </div>
+                      <div style={{ display:"flex", flexWrap:"wrap", gap:"0.3rem" }}>
+                        {sel.map(t => (
+                          <span key={t.id} onClick={() => cuadrillaDiaToggleTrabajador(t)}
+                            style={{ background:`${colorCiamsa}15`, color:colorCiamsa,
+                              border:`1px solid ${colorCiamsa}30`, borderRadius:"20px",
+                              padding:"0.2rem 0.65rem", fontSize:"0.73rem", fontWeight:"700",
+                              cursor:"pointer", display:"flex", alignItems:"center", gap:"0.3rem" }}>
+                            {t.nombre.split(" ")[0]}
+                            <X size={10} style={{ opacity:0.6 }}/>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Botón guardar */}
+                  {cuadrillaDiaOk && (
+                    <div style={{ background:"#f0fdf4", border:"1.5px solid #6ee7b7",
+                      borderRadius:"10px", padding:"0.5rem 0.9rem",
+                      color:"#065f46", fontWeight:"700", fontSize:"0.85rem", marginBottom:"0.75rem" }}>
+                      ✅ Operación guardada — trabajadores conservados para el siguiente registro
+                    </div>
+                  )}
+                  <button onClick={cuadrillaDiaGuardar}
+                    disabled={cuadrillaDiaGuardando || sel.length === 0 || !f.servicioNombre || !f.cantidad || !puedeEditarMatriz}
+                    title={!puedeEditarMatriz ? "Sin permiso" : ""}
+                    style={{
+                      width:"100%", padding:"0.85rem",
+                      background: (cuadrillaDiaGuardando || sel.length === 0 || !f.servicioNombre || !f.cantidad || !puedeEditarMatriz)
+                        ? "#94a3b8" : colorCiamsa,
+                      border:"none", borderRadius:"10px", color:"#fff",
+                      fontWeight:"800", fontSize:"0.95rem",
+                      cursor: puedeEditarMatriz ? "pointer" : "not-allowed",
+                      display:"flex", alignItems:"center", justifyContent:"center", gap:"0.6rem",
+                      boxShadow:`0 4px 12px ${colorCiamsa}40`,
+                    }}>
+                    {cuadrillaDiaGuardando
+                      ? <><RefreshCw size={18} style={{ animation:"spin 1s linear infinite" }}/> Guardando...</>
+                      : <><Save size={18}/> Guardar operación</>}
+                  </button>
+                  {!puedeEditarMatriz && (
+                    <div style={{ textAlign:"center", fontSize:"0.78rem", color:"#94a3b8", marginTop:"0.5rem" }}>
+                      🔒 Solo lectura
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {false && (
+        <div style={{display:"none"}}>
+          <div style={{display:"none"}}>
+            <div>
+            {editandoId&&(
+              <button onClick={cancelarEdicion}
+                style={{background:"#fef3c7",border:"1.5px solid #fcd34d",borderRadius:"8px",padding:"0.4rem 0.8rem",cursor:"pointer",color:"#92400e",fontWeight:"700",fontSize:"0.82rem",display:"flex",alignItems:"center",gap:"0.4rem"}}>
+                <X size={14}/> Cancelar
+              </button>
+            )}
+          </div>
+
+          <div style={{padding:"1.5rem"}}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:"1rem"}}>
 
               {/* ── Fila cálculo destajo ── */}
               <div style={{marginTop:"1rem",background:`${colorCiamsa}06`,border:`1.5px solid ${colorCiamsa}20`,borderRadius:"12px",padding:"1.1rem"}}>
@@ -2333,24 +3246,33 @@ export default function NominaMatriz() {
                 )}
                 {!puedeEditarMatriz && <span style={{color:"#94a3b8",fontSize:"0.8rem",fontWeight:"600"}}>🔒 Solo lectura</span>}
               </div>
-            </>)} {/* fin: !novedadActivaWorker CIAMSA */}
             </div>
           </div>
+        </div>
+        </div>
         )}
 
-        {/* ════════════════════════════════════════════════
-            FORMULARIO SPIA / CLIENTE 1 (cuadrilla)
-            ════════════════════════════════════════════════ */}
-        {!isCiamsa && showMiniCuad && (
-          <MiniCuadrillaPanel
+        {clienteActivo === "spia" && showConjuntos && (
+        <ConjuntosPanel
+          cuadrillas={cuadrillasAsistencia}
+          servicios={servicios}
+          clienteId={clienteActivo}
+          onGuardado={cargarOperaciones}
+          onClose={()=>setShowConjuntos(false)}
+        />
+        )}
+        {clienteActivo === "spia" && showMiniCuad && (
+        <MiniCuadrillaPanel
             cuadrillas={cuadrillasAsistencia}
             servicios={servicios}
             clienteId={clienteActivo}
             onGuardado={cargarOperaciones}
             onClose={() => setShowMiniCuad(false)}
+            todosTrabajadores={todosTrabajadores}
+            clientes={clientes}
           />
         )}
-        {!isCiamsa && (
+        {clienteActivo === "spia" && (
           <div style={{background:"#fff",borderRadius:"14px",
             boxShadow:"0 4px 20px rgba(11,61,145,0.10)",
             border:`2px solid ${editandoId?"#f59e0b":PRIMARY}`,
@@ -2369,12 +3291,31 @@ export default function NominaMatriz() {
                   </div>
                 </div>
               </div>
-              {editandoId&&(
-                <button onClick={cancelarEdicion}
-                  style={{background:"#fef3c7",border:"1.5px solid #fcd34d",borderRadius:"8px",padding:"0.4rem 0.8rem",cursor:"pointer",color:"#92400e",fontWeight:"700",fontSize:"0.82rem",display:"flex",alignItems:"center",gap:"0.4rem"}}>
-                  <X size={14}/> Cancelar
+              <div style={{display:"flex",gap:"0.5rem",alignItems:"center"}}>
+                <button onClick={()=>{ setShowConjuntos(p=>!p); setShowMiniCuad(false); }}
+                  style={{background:"rgba(255,255,255,0.12)",
+                    border:"1.5px solid rgba(255,255,255,0.35)",borderRadius:"8px",
+                    padding:"0.35rem 0.75rem",cursor:"pointer",
+                    color:editandoId?"#92400e":"#fff",fontWeight:"700",fontSize:"0.78rem",
+                    display:"flex",alignItems:"center",gap:"0.35rem"}}>
+                  <Users size={13}/> Conjuntos
                 </button>
-              )}
+                <button onClick={()=>setShowMiniCuad(p=>!p)}
+                  style={{background:showMiniCuad?"rgba(255,255,255,0.25)":"rgba(255,255,255,0.12)",
+                    border:"1.5px solid rgba(255,255,255,0.35)",borderRadius:"8px",
+                    padding:"0.35rem 0.75rem",cursor:"pointer",
+                    color:editandoId?"#92400e":"#fff",fontWeight:"700",fontSize:"0.78rem",
+                    display:"flex",alignItems:"center",gap:"0.35rem"}}>
+                  <Zap size={13}/> Mini Cuadrillas
+                  {showMiniCuad&&<X size={11} style={{marginLeft:"2px"}}/>}
+                </button>
+                {editandoId&&(
+                  <button onClick={cancelarEdicion}
+                    style={{background:"#fef3c7",border:"1.5px solid #fcd34d",borderRadius:"8px",padding:"0.4rem 0.8rem",cursor:"pointer",color:"#92400e",fontWeight:"700",fontSize:"0.82rem",display:"flex",alignItems:"center",gap:"0.4rem"}}>
+                    <X size={14}/> Cancelar
+                  </button>
+                )}
+              </div>
             </div>
 
             <div style={{padding:"1.5rem"}}>
@@ -2391,11 +3332,14 @@ export default function NominaMatriz() {
                     diasSeleccionados={diasSemanalSeleccionados}
                     onDiasChange={nuevos => {
                       setDiasSemanalSeleccionados(nuevos);
-                      // Si se deseleccionan todos, limpiar el form
                       if (nuevos.length === 0) {
                         setForm(prev=>({...prev,cuadrillaId:"",cuadrillaNombre:"",tipoSeleccion:""}));
                         setAsistentesForm([]); setAusentesForm([]);
                       }
+                    }}
+                    onMiniClick={c => {
+                      seleccionarCuadrilla(c.id);
+                      setShowMiniCuad(true);
                     }}
                   />
                 </div>
@@ -2761,6 +3705,55 @@ export default function NominaMatriz() {
                 </div>
               </div>
 
+              {/* ══ SERVICIOS ADICIONALES (multi-servicio) ══ */}
+              {serviciosMulti.length > 0 && (
+                <div style={{marginTop:"0.75rem",borderRadius:"12px",border:"1.5px solid #e0e7ff",overflow:"hidden",background:"#f5f8ff"}}>
+                  <div style={{padding:"0.5rem 0.9rem",background:"#4f46e5",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                    <span style={{fontWeight:"800",color:"#fff",fontSize:"0.8rem"}}>➕ Servicios adicionales ({serviciosMulti.length})</span>
+                    <span style={{fontSize:"0.72rem",color:"rgba(255,255,255,0.75)"}}>Se creará un registro por cada servicio al guardar</span>
+                  </div>
+                  {serviciosMulti.map((sm,si) => (
+                    <div key={sm.uid} style={{display:"grid",gridTemplateColumns:"1fr auto auto auto",gap:"0.6rem",alignItems:"end",padding:"0.65rem 0.9rem",borderBottom:"1px solid #e0e7ff",background:si%2===0?"#f5f8ff":"#eef2ff"}}>
+                      <div>
+                        <label style={{...labelSt,color:"#4f46e5",fontSize:"0.72rem"}}>🔧 Servicio {si+2}</label>
+                        <div style={{position:"relative"}}>
+                          <select value={sm.servicioId} onChange={e=>sMultiUpdate(sm.uid,"servicioId",e.target.value)} style={{...selectSt,border:"1.5px solid #a5b4fc"}}>
+                            <option value="">— Seleccionar servicio —</option>
+                            {servicios.map(s=>(
+                              <option key={s.id} value={s.id}>{s.nombre}{(s.valor||s.tarifa)>0?` · ${formatCOP(s.valor||s.tarifa||0)}`:""}</option>
+                            ))}
+                          </select>
+                          <ChevronDown size={14} style={{position:"absolute",right:"0.65rem",top:"50%",transform:"translateY(-50%)",color:"#94a3b8",pointerEvents:"none"}}/>
+                        </div>
+                      </div>
+                      <div style={{minWidth:"90px"}}>
+                        <label style={{...labelSt,color:"#4f46e5",fontSize:"0.72rem"}}>📦 Cantidad</label>
+                        <input type="number" min="1" value={sm.cantidad} onChange={e=>sMultiUpdate(sm.uid,"cantidad",e.target.value)} placeholder="0" style={{...inputSt,border:"1.5px solid #a5b4fc",textAlign:"center"}}/>
+                      </div>
+                      <div style={{minWidth:"110px"}}>
+                        <label style={{...labelSt,color:"#065f46",fontSize:"0.72rem"}}>💰 Neto</label>
+                        <div style={{...readonlySt,background:sm.netoCalculado>0?"#f0fdf4":"#f8fafc",border:`1.5px solid ${sm.netoCalculado>0?"#6ee7b7":"#e2e8f0"}`,fontWeight:"800",color:"#065f46",fontFamily:"monospace",fontSize:"0.9rem"}}>
+                          {sm.netoCalculado>0?formatCOP(sm.netoCalculado):"—"}
+                        </div>
+                      </div>
+                      <button onClick={()=>sMultiRemove(sm.uid)}
+                        style={{background:"#fff1f2",border:"1px solid #fecdd3",borderRadius:"8px",padding:"0.5rem 0.55rem",cursor:"pointer",color:"#e11d48",display:"flex",alignItems:"center"}}>
+                        <X size={14}/>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {/* Botón agregar servicio adicional */}
+              {form.tipoSeleccion !== "trabajador" && (
+                <button type="button" onClick={sMultiAdd}
+                  style={{marginTop:"0.6rem",background:"#eef2ff",border:"1.5px dashed #818cf8",borderRadius:"8px",
+                    padding:"0.45rem 1rem",cursor:"pointer",color:"#4f46e5",fontWeight:"700",fontSize:"0.8rem",
+                    display:"flex",alignItems:"center",gap:"0.4rem",width:"100%",justifyContent:"center"}}>
+                  <Plus size={14}/> Agregar otro servicio
+                </button>
+              )}
+
               <div style={{marginTop:"1.5rem",display:"flex",gap:"0.75rem",alignItems:"center"}}>
                 {/* Botón: modo multi-día semanal */}
                 {diasSemanalSeleccionados.length > 0 ? (
@@ -2793,9 +3786,9 @@ export default function NominaMatriz() {
                   <span style={{color:"#94a3b8",fontSize:"0.8rem",fontWeight:"600"}}>🔒 Solo lectura — solicita permiso de edición</span>
                 )}
               </div>
-              </>)} {/* cierre: !(tipoSeleccion==trabajador && novedadActivaWorker) */}
-            </div>
+              </>)}
           </div>
+        </div>
         )}
 
         {/* ── TABLA ── */}

@@ -1,18 +1,19 @@
-// components/LayoutWithSidebar.js
+// components/LayoutWithSidebar.js - CADEGRAN (estilo Logisport)
 import { useState, useEffect } from "react";
 import { useRouter } from "next/router";
 import { getAuth, onAuthStateChanged, signOut } from "firebase/auth";
 import { getUserRoleByUid } from "@/utils/getUserRole";
-import { usePermisosNomina } from "@/utils/usePermisosNomina";
 import { 
   Home, Wrench, FileText, HardDrive, Settings, Book,
-  BarChart3, Package, Lock, CloudUpload, LogOut, Menu, X,
-  ChevronRight, ChevronDown, Database, Image, Users, FileCheck,
-  FolderOpen, Monitor, ClipboardList, DollarSign, UserCheck,
-  CalendarDays, CreditCard, Printer, TrendingUp, UsersRound, SlidersHorizontal
+  BarChart3, Lock, CloudUpload, LogOut, Menu, X,
+  ChevronRight, Database, Image, Users,
+  Monitor, Camera, Shield, TrendingUp, ClipboardList,
+  FolderOpen, DollarSign, UserCheck, FileCheck, Package,
+  CalendarDays, CreditCard, Printer, UsersRound, SlidersHorizontal, KeyRound
 } from "lucide-react";
 import { BRAND } from "@/utils/branding";
 import CapsulaEmergente from "@/components/CapsulaEmergente";
+import { usePermisosNomina } from "@/utils/usePermisosNomina";
 
 
 const PRIMARY = "#0B3D91";
@@ -79,22 +80,23 @@ export default function LayoutWithSidebar({ children }) {
   const menuItems = [
     { icon: Home, label: "Inicio", path: "/", roles: ["admin", "tecnico", "auditor", "usuario", "nomina"] },
     { icon: Wrench, label: "Servicios técnicos", path: "/servicios-tecnicos", roles: ["admin", "tecnico"] },
-    { icon: FileText, label: "Solicitud de servicio", path: "/solicitudserviciotecnico", roles: ["admin", "tecnico", "usuario", "nomina"] },
+    { icon: FileText, label: "Solicitud de servicio", path: "/solicitudserviciotecnico", roles: ["admin", "usuario", "nomina"] },
     { icon: ClipboardList, label: "Admin Solicitudes", path: "/admin-solicitudes", roles: ["admin"] },
     { icon: FileCheck, label: "Seguimiento códigos", path: "/seguimiento-codigos-asociados", roles: ["admin", "tecnico"] },
-    { icon: Monitor, label: "Monitoreo", path: "/monitoreo", roles: ["admin"] },
-    { icon: HardDrive, label: "Hoja de vida equipos", path: "/hoja-vida", roles: ["admin"] },
+    { icon: Monitor, label: "Monitoreo", path: "/monitoreo", roles: ["admin", "tecnico"] },
+    { icon: HardDrive, label: "Hoja de vida equipos", path: "/hoja-vida", roles: ["admin", "tecnico"] },
     { icon: Book, label: "Documentación TI", path: "/documentacionti", roles: ["admin", "auditor"] },
     { icon: BarChart3, label: "Estadísticas", path: "/estadisticas", roles: ["admin", "auditor"] },
     { icon: BarChart3, label: "Indicadores", path: "/indicadores-gestion", roles: ["admin", "auditor"] },
     { icon: BarChart3, label: "Informe de Gestión", path: "/informe-gestion", roles: ["admin", "auditor"] },
     { icon: Settings, label: "Cápsulas", path: "/capsulas-admin", roles: ["admin", "auditor"] },
     { icon: Package, label: "Licencias", path: "/licencias", roles: ["admin", "auditor"] },
-    { icon: Lock, label: "Contraseñas", path: "/control-de-contrasenas", roles: ["admin"] },
+    { icon: Lock, label: "Contraseñas", path: "/control-de-contrasenas", roles: ["admin", "tecnico"] },
     { icon: CloudUpload, label: "Acceso a nube", path: "/nube", roles: ["admin"] },
     { icon: Database, label: "Trazabilidad logins", path: "/trazabilidad-logins", roles: ["admin"] },
-    { icon: Image, label: "Registro fotográfico", path: "/registro-fotografico", roles: ["admin"] },
-    { icon: Users, label: "Admin Usuarios", path: "/admin-usuarios", roles: ["admin"] },
+    { icon: Image, label: "Registro fotográfico", path: "/registro-fotografico", roles: ["admin", "tecnico"] },
+    { icon: Users, label: "Admin Usuarios", path: "/admin-usuarios", roles: ["admin", "tecnico"] },
+    { icon: KeyRound, label: "Claves de Usuarios", path: "/claves-usuarios", roles: ["admin"] },
     { icon: Settings, label: "TI Implementado", path: "/ti-implementado", roles: ["admin"] },
   ].filter(item => item.roles.includes(rol));
 

@@ -7,6 +7,8 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/router";
 import { getAuth, signInWithEmailAndPassword } from "firebase/auth";
 import { app } from "@/firebase/firebaseConfig";
+import { db } from "@/firebase/firebaseConfig";
+import { collection, query, where, getDocs } from "firebase/firestore";
 
 const GATEWAY_URL = process.env.NEXT_PUBLIC_GATEWAY_URL || "https://gateway-nexoti.vercel.app";
 const TIMEOUT_MS = 30_000;
@@ -19,19 +21,26 @@ export default function Login() {
   const [capsLockOn, setCapsLockOn] = useState(false);
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
+  const [isDev, setIsDev] = useState(false);
   const timerRef = useRef(null);
 
-  // 1) Toma ?email= y si no viene, vuelve al Gateway
+  // Detectar entorno y manejar redirección en un solo efecto
+  // para evitar la carrera entre isDev y el redirect
   useEffect(() => {
+    const esLocal = window.location.hostname === "localhost";
+    setIsDev(esLocal);
     if (!router.isReady) return;
     const q = router.query?.email;
-    if (typeof q === "string" && q.includes("@")) setEmail(q);
-    else router.replace(GATEWAY_URL);
+    if (typeof q === "string" && q.includes("@")) {
+      setEmail(q);
+    } else if (!esLocal) {
+      router.replace(GATEWAY_URL);
+    }
   }, [router.isReady, router.query?.email]);
 
-  // 2) Inactividad: 30s → volver al Gateway con el email
+  // 2) Inactividad: 30s → volver al Gateway (solo en producción)
   useEffect(() => {
-    if (!email) return;
+    if (!email || isDev) return;
     const back = () => {
       const u = new URL(GATEWAY_URL);
       u.searchParams.set("email", email);
@@ -42,9 +51,9 @@ export default function Login() {
     return () => timerRef.current && clearTimeout(timerRef.current);
   }, [email]);
 
-  // 3) Reinicia el temporizador con actividad
+  // 3) Reinicia el temporizador con actividad (solo en producción)
   useEffect(() => {
-    if (!email) return;
+    if (!email || isDev) return;
     const bump = () => {
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = setTimeout(() => {
@@ -72,7 +81,7 @@ export default function Login() {
   async function onSubmit(e) {
     e.preventDefault();
     setErr("");
-    if (!email) {
+    if (!email && !isDev) {
       setErr("Sesión inválida. Regresando al portal principal…");
       setTimeout(() => router.replace(GATEWAY_URL), 900);
       return;
@@ -85,6 +94,30 @@ export default function Login() {
     try {
       const auth = getAuth(app);
       await signInWithEmailAndPassword(auth, String(email).trim(), String(clave));
+
+      // Verificar caducidad de clave
+      try {
+        const q = query(collection(db, "usuariosCatalogo"), where("email", "==", String(email).trim().toLowerCase()));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          const datos = snap.docs[0].data();
+          if (datos.fechaCaducidadClave) {
+            const vence = new Date(datos.fechaCaducidadClave);
+            const hoy = new Date();
+            const diffDias = Math.round((vence - hoy) / (1000 * 60 * 60 * 24));
+            if (diffDias <= 1) {
+              // 0 o 1 día → OBLIGATORIO, no puede saltar
+              router.push("/cambiar-clave?obligatorio=true&dias=" + diffDias);
+              return;
+            } else if (diffDias <= 3) {
+              // 2-3 días → aviso, puede saltar
+              router.push(`/cambiar-clave?obligatorio=aviso&dias=${diffDias}`);
+              return;
+            }
+          }
+        }
+      } catch { /* Si falla la verificación, continuar normalmente */ }
+
       const next = typeof router.query?.redirect === "string" ? router.query.redirect : "/";
       router.push(next);
     } catch (error) {
@@ -120,10 +153,22 @@ export default function Login() {
 
           <h1 style={styles.title}>Nexo TI – logisport</h1>
 
-          {/* Correo (centrado + estilo) */}
-          <div style={styles.readonlyEmail} title={email}>
-            {email || "—"}
-          </div>
+          {/* Correo: editable en dev, solo lectura en prod */}
+          {isDev ? (
+            <input
+              type="email"
+              placeholder="Correo electrónico"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              style={{ ...styles.readonlyEmail, textAlign: "left", cursor: "text", fontWeight: 600 }}
+              required
+              autoFocus
+            />
+          ) : (
+            <div style={styles.readonlyEmail} title={email}>
+              {email || "—"}
+            </div>
+          )}
 
           <div style={{ display: "grid", gap: 12 }}>
             <div style={{ position: "relative" }}>

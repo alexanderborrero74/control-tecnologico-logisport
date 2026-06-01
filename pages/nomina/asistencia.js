@@ -6,7 +6,7 @@ import { useRouter } from "next/router";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import {
   collection, getDocs, doc, setDoc, deleteDoc, getDoc, addDoc,
-  query, orderBy, writeBatch
+  query, orderBy, writeBatch, where
 } from "firebase/firestore";
 import { db } from "@/firebase/firebaseConfig";
 import { getUserRoleByUid } from "@/utils/getUserRole";
@@ -15,7 +15,7 @@ import LayoutWithSidebar from "@/components/LayoutWithSidebar";
 import {
   ArrowLeft, Plus, Save, Trash2, X, Users, Edit2,
   CheckCircle, RefreshCw, ChevronLeft, ChevronRight,
-  Calendar, Download, AlertCircle
+  Calendar, Download, AlertCircle, CalendarDays
 } from "lucide-react";
 
 const PRIMARY = "#0B3D91";
@@ -26,8 +26,10 @@ const COLORES = ["#3b82f6","#10b981","#f59e0b","#8b5cf6","#ef4444","#06b6d4"];
 
 // ── Novedades (fallback si Firestore está vacío) ─────────────────────────────
 const NOVEDADES_DEFAULT = [
-  { codigo:"D", label:"Descanso",    emoji:"😴", color:"#64748b", bg:"#f1f5f9", orden:1 },
-  { codigo:"I", label:"Inasistencia",emoji:"❌", color:"#dc2626", bg:"#fee2e2", orden:2 },
+  { codigo:"D",   label:"Descanso",              emoji:"😴", color:"#64748b", bg:"#f1f5f9", orden:1 },
+  { codigo:"DNR", label:"Descanso No Remunerado", emoji:"🚫", color:"#92400e", bg:"#fef3c7", orden:2 },
+  { codigo:"I",   label:"Inasistencia",           emoji:"❌", color:"#dc2626", bg:"#fee2e2", orden:3 },
+  { codigo:"T",   label:"Tarde",                  emoji:"⏰", color:"#b45309", bg:"#fef3c7", orden:4 },
   // Fuente real: Firestore → nomina_novedades (administrar.js)
   // Usa "✨ Cargar valores predefinidos" en Administrar para poblar el catálogo completo
 ];
@@ -46,7 +48,8 @@ const mesLabel = (a,m) => `${MESES[m-1]} ${a}`;
 const docId = (cId,a,m) => `${cId}_${a}_${String(m).padStart(2,"0")}`;
 
 // Novedades Remuneradas: cobran igual que si asistieran (suman en la división de producción)
-const NOVEDADES_REMUNERADAS = ["D"]; // D = Descanso Remunerado
+// DNR (Descanso No Remunerado) NO está aquí — queda excluido de la producción
+const NOVEDADES_REMUNERADAS = ["D"]; // solo D = Descanso Remunerado
 
 // Semana laboral Lunes-Sábado (Domingos = día de aviso)
 const getLunesDeSemana = (f) => { if(!f)return""; const d=new Date(f+"T12:00:00"); const dia=d.getDay(); const l=new Date(d); l.setDate(d.getDate()+(dia===0?1:1-dia)); return l.toISOString().split("T")[0]; };
@@ -305,9 +308,12 @@ export default function AsistenciaPage() {
       let hayLimpiezas = false;
       lista = lista.map(c => {
         const miembrosOriginales = c.miembros || [];
-        const miembrosFiltrados  = miembrosOriginales.filter(m => activosSet.has(m.id));
-        if (miembrosFiltrados.length < miembrosOriginales.length) {
-          // Hay miembros inactivos: actualizar en Firestore
+        const miembrosFiltrados  = miembrosOriginales
+          .filter(m => activosSet.has(m.id))
+          .sort((a,b) => (a.nombre||"").localeCompare(b.nombre||"", "es"));
+        const cambioOrden = miembrosOriginales.some((m,i) => m.id !== (miembrosFiltrados[i]?.id));
+        if (miembrosFiltrados.length < miembrosOriginales.length || cambioOrden) {
+          // Hay miembros inactivos o desorden: actualizar en Firestore
           batch.update(doc(db,"nomina_asistencia",c.id), {
             miembros:      miembrosFiltrados,
             totalPersonas: miembrosFiltrados.length,
@@ -316,7 +322,7 @@ export default function AsistenciaPage() {
           hayLimpiezas = true;
           return { ...c, miembros: miembrosFiltrados, totalPersonas: miembrosFiltrados.length };
         }
-        return c;
+        return { ...c, miembros: miembrosFiltrados };
       });
       if (hayLimpiezas) { try { await batch.commit(); } catch(e) { console.error("limpieza cuadrillas:",e); } }
     }
@@ -374,21 +380,82 @@ export default function AsistenciaPage() {
     setBusquedaWorker("");
   };
 
-  const toggleMiembro=(t)=>{
-    setCuadrillaEditar(prev=>{
-      const existe=prev.miembros.find(m=>m.id===t.id);
-      if(existe) return{...prev,miembros:prev.miembros.filter(m=>m.id!==t.id)};
-      return{...prev,miembros:[...prev.miembros,{id:t.id,nombre:t.nombre,cedula:t.cedula}]};
-    });
+  const [modalBloqueo, setModalBloqueo] = useState(null); // {miembro, cuadrillaId, tieneRegistros, tieneLiquidacion}
+  const [verificandoBloqueo, setVerificandoBloqueo] = useState(false);
+
+  const toggleMiembro = async (t) => {
+    const existe = cuadrillaEditar.miembros.find(m => m.id === t.id);
+    if (!existe) {
+      // AGREGAR — siempre permitido
+      setCuadrillaEditar(prev => ({
+        ...prev,
+        miembros: [...prev.miembros, { id: t.id, nombre: t.nombre, cedula: t.cedula }]
+      }));
+      return;
+    }
+    // QUITAR — verificar registros
+    setVerificandoBloqueo(true);
+    try {
+      const ops = await getDocs(query(
+        collection(db, "nomina_operaciones"),
+        where("trabajadoresAsisten", "array-contains", { id: t.id, nombre: t.nombre, cedula: t.cedula || "" })
+      ));
+      // Búsqueda alternativa por cedula
+      const opsPorCedula = t.cedula ? await getDocs(query(
+        collection(db, "nomina_operaciones"),
+        where("trabajadorCedula", "==", String(t.cedula))
+      )) : { docs: [] };
+      const totalOps = ops.docs.length + opsPorCedula.docs.length;
+      const periodos = await getDocs(collection(db, "nomina_periodos"));
+      const tieneLiquidacion = periodos.docs.some(d =>
+        (d.data().trabajadores || []).some(w => w.cedula === String(t.cedula || "") || w.id === t.id)
+      );
+      setModalBloqueo({ miembro: t, cuadrillaId: cuadrillaEditar.id, tieneRegistros: totalOps > 0, tieneLiquidacion, totalOps });
+    } catch(e) {
+      // Si falla la verificación, mostrar modal de advertencia igualmente
+      setModalBloqueo({ miembro: t, cuadrillaId: cuadrillaEditar.id, tieneRegistros: false, tieneLiquidacion: false, totalOps: 0, errorVerif: true });
+    }
+    setVerificandoBloqueo(false);
+  };
+
+  const confirmarBloqueoOQuitar = (accion) => {
+    if (!modalBloqueo) return;
+    const { miembro } = modalBloqueo;
+    if (accion === "bloquear") {
+      // Marcar como bloqueado en la cuadrilla — se conserva en el array con flag
+      setCuadrillaEditar(prev => ({
+        ...prev,
+        miembros: prev.miembros.map(m =>
+          m.id === miembro.id ? { ...m, bloqueadoEnCuadrilla: true } : m
+        )
+      }));
+    } else if (accion === "desbloquear") {
+      setCuadrillaEditar(prev => ({
+        ...prev,
+        miembros: prev.miembros.map(m =>
+          m.id === miembro.id ? { ...m, bloqueadoEnCuadrilla: false } : m
+        )
+      }));
+    } else if (accion === "quitar") {
+      // Solo admin, solo si no tiene registros sin liquidar
+      setCuadrillaEditar(prev => ({
+        ...prev,
+        miembros: prev.miembros.filter(m => m.id !== miembro.id)
+      }));
+    }
+    setModalBloqueo(null);
   };
 
   const guardarMiembros=async()=>{
     setGuardandoEdit(true);
     try {
+      // Ordenar alfabéticamente antes de guardar
+      const miembrosOrdenados = [...cuadrillaEditar.miembros]
+        .sort((a,b) => (a.nombre||"").localeCompare(b.nombre||"", "es"));
       await setDoc(doc(db,"nomina_asistencia",cuadrillaEditar.id),{
         nombre:cuadrillaEditar.nombre,
-        miembros:cuadrillaEditar.miembros,
-        totalPersonas:cuadrillaEditar.miembros.length,
+        miembros:miembrosOrdenados,
+        totalPersonas:miembrosOrdenados.length,
         orden:cuadrillaEditar.orden||1,
         actualizadoEn:new Date(),
         creadoEn:cuadrillaEditar.creadoEn||new Date(),
@@ -402,7 +469,7 @@ export default function AsistenciaPage() {
           await guardarSnapshotCuadrilla(
             cuadrillaEditar.id,
             cuadrillaEditar.nombre,
-            cuadrillaEditar.miembros,
+            miembrosOrdenados,
             futuras
           );
         }
@@ -851,7 +918,7 @@ export default function AsistenciaPage() {
 
   const totalDias = diasEnMes(anio,mes);
   const diasArr   = Array.from({length:totalDias},(_,i)=>i+1);
-  const miembros  = cuadrillaActiva?.miembros||[];
+  const miembros  = (cuadrillaActiva?.miembros||[]).filter(m => !m.bloqueadoEnCuadrilla);
   const novedadesHoy = registro[String(diaSelec)]||{};
   const asistentesHoy = asistentesDelDia(miembros,novedadesHoy);
   const ausentesHoy   = ausentesDelDia(miembros,novedadesHoy);
@@ -1920,12 +1987,13 @@ export default function AsistenciaPage() {
                 {historialLlamados.map(docH => {
                   const wDelCliente = trabajadores.filter(t=>(t.clienteIds||["spia"]).includes(histClienteId));
                   const reg = docH.registro || {};
-                  // Días con al menos 1 novedad
-                  const diasConNovedad = Object.keys(reg)
-                    .filter(d => Object.keys(reg[d]||{}).length > 0)
-                    .map(d => parseInt(d))
-                    .sort((a,b)=>a-b);
-                  const totalDiasConNov = diasConNovedad.length;
+                  const obsDoc = docH.observaciones || {};
+                  // Días a mostrar: unión de días con novedades Y días con observaciones (auditoría desde Matriz)
+                  const diasMostrar = [...new Set([
+                    ...Object.keys(reg).filter(d => Object.keys(reg[d]||{}).length > 0),
+                    ...Object.keys(obsDoc).filter(d => Object.keys(obsDoc[d]||{}).length > 0),
+                  ])].map(d => parseInt(d)).sort((a,b)=>a-b);
+                  const totalDiasConNov = diasMostrar.length;
                   return (
                     <div key={docH.id} style={{background:"#fff",borderRadius:"14px",
                       boxShadow:"0 2px 10px rgba(0,0,0,0.06)",overflow:"hidden",
@@ -1947,7 +2015,7 @@ export default function AsistenciaPage() {
                       </div>
 
                       {/* Tabla de días */}
-                      {Object.keys(reg).length === 0 ? (
+                      {diasMostrar.length === 0 ? (
                         <div style={{padding:"1.5rem",textAlign:"center",color:"#94a3b8",fontSize:"0.85rem"}}>
                           Sin registros en este período.
                         </div>
@@ -1961,13 +2029,14 @@ export default function AsistenciaPage() {
                             </tr>
                           </thead>
                           <tbody>
-                            {Object.keys(reg)
-                              .map(d=>parseInt(d))
-                              .sort((a,b)=>b-a)
+                            {[...diasMostrar].sort((a,b)=>b-a)
                               .map(dNum => {
                                 const dStr = String(dNum);
                                 const novDia = reg[dStr] || {};
                                 const cantNov = Object.keys(novDia).length;
+                                // Workers con solo observación (sin novedad activa — fueron cambiados a asistió)
+                                const obsDelDia = obsDoc[dStr] || {};
+                                const wConSoloObs = Object.keys(obsDelDia).filter(wId => !novDia[wId]);
                                 const diaKey = `${docH.anio}-${String(docH.mes).padStart(2,"0")}-${String(dNum).padStart(2,"0")}`;
                                 const expandido = histDiaExpandido === diaKey;
                                 const dSemana = diaLetra(docH.anio, docH.mes, dNum);
@@ -2028,33 +2097,68 @@ export default function AsistenciaPage() {
                                         </div>
                                       </td>
                                     </tr>
-                                    {expandido&&cantNov>0&&(
+                                    {expandido&&(cantNov>0||wConSoloObs.length>0)&&(
                                       <tr key={`${dStr}-exp`}>
                                         <td colSpan={3} style={{padding:"0.75rem 1.25rem",background:"#f0f9ff",borderBottom:"1px solid #dbeafe"}}>
                                           <div style={{fontSize:"0.77rem",fontWeight:"800",color:PRIMARY,marginBottom:"0.5rem"}}>
                                             Detalle — {dSemana} {dNum} de {MESES[(docH.mes||1)-1]}
                                           </div>
                                           <div style={{display:"flex",flexDirection:"column",gap:"0.3rem"}}>
+                                            {/* Workers con novedad activa */}
                                             {Object.entries(novDia).map(([wId,cod])=>{
                                               const w = trabajadores.find(t=>t.id===wId);
                                               const nov = novMap[cod];
+                                              const obsWorker = obsDelDia[wId];
                                               return (
-                                                <div key={wId} style={{display:"flex",alignItems:"center",gap:"0.75rem",
+                                                <div key={wId} style={{display:"flex",alignItems:"flex-start",gap:"0.75rem",
                                                   padding:"0.4rem 0.75rem",background:"#fff",
                                                   borderRadius:"8px",border:`1px solid ${nov?.color||"#e2e8f0"}20`}}>
-                                                  <span style={{fontSize:"1rem"}}>{nov?.emoji||"📋"}</span>
+                                                  <span style={{fontSize:"1rem",marginTop:"0.15rem"}}>{nov?.emoji||"📋"}</span>
                                                   <div style={{flex:1}}>
-                                                    <div style={{fontWeight:"700",fontSize:"0.82rem",color:"#1e293b"}}>
-                                                      {w?.nombre||wId}
-                                                    </div>
-                                                    <div style={{fontSize:"0.7rem",color:"#94a3b8",fontFamily:"monospace"}}>
-                                                      {w?.cedula||""}
-                                                    </div>
+                                                    <div style={{fontWeight:"700",fontSize:"0.82rem",color:"#1e293b"}}>{w?.nombre||wId}</div>
+                                                    <div style={{fontSize:"0.7rem",color:"#94a3b8",fontFamily:"monospace"}}>{w?.cedula||""}</div>
+                                                    {obsWorker&&(
+                                                      <div style={{marginTop:"0.25rem",display:"flex",alignItems:"center",gap:"0.35rem",
+                                                        background:"#fff7ed",border:"1px solid #fed7aa",
+                                                        borderRadius:"6px",padding:"0.2rem 0.55rem"}}>
+                                                        <span style={{fontSize:"0.72rem"}}>📝</span>
+                                                        <span style={{fontSize:"0.68rem",color:"#92400e",fontWeight:"600"}}>{obsWorker}</span>
+                                                      </div>
+                                                    )}
                                                   </div>
                                                   <span style={{background:nov?.bg||"#f1f5f9",color:nov?.color||"#64748b",
                                                     borderRadius:"6px",padding:"0.18rem 0.55rem",
-                                                    fontSize:"0.72rem",fontWeight:"900"}}>
+                                                    fontSize:"0.72rem",fontWeight:"900",flexShrink:0}}>
                                                     {cod} · {nov?.label||cod}
+                                                  </span>
+                                                </div>
+                                              );
+                                            })}
+                                            {/* Workers sin novedad activa pero con observación (fueron cambiados a asistió) */}
+                                            {wConSoloObs.map(wId=>{
+                                              const w = trabajadores.find(t=>t.id===wId);
+                                              const obsWorker = obsDelDia[wId];
+                                              return (
+                                                <div key={`obs_${wId}`} style={{display:"flex",alignItems:"flex-start",gap:"0.75rem",
+                                                  padding:"0.4rem 0.75rem",background:"#fff",
+                                                  borderRadius:"8px",border:"1px solid #e2e8f0"}}>
+                                                  <span style={{fontSize:"1rem",marginTop:"0.15rem"}}>✅</span>
+                                                  <div style={{flex:1}}>
+                                                    <div style={{fontWeight:"700",fontSize:"0.82rem",color:"#1e293b"}}>{w?.nombre||wId}</div>
+                                                    <div style={{fontSize:"0.7rem",color:"#94a3b8",fontFamily:"monospace"}}>{w?.cedula||""}</div>
+                                                    {obsWorker&&(
+                                                      <div style={{marginTop:"0.25rem",display:"flex",alignItems:"center",gap:"0.35rem",
+                                                        background:"#fff7ed",border:"1px solid #fed7aa",
+                                                        borderRadius:"6px",padding:"0.2rem 0.55rem"}}>
+                                                        <span style={{fontSize:"0.72rem"}}>📝</span>
+                                                        <span style={{fontSize:"0.68rem",color:"#92400e",fontWeight:"600"}}>{obsWorker}</span>
+                                                      </div>
+                                                    )}
+                                                  </div>
+                                                  <span style={{background:"#f0fdf4",color:"#059669",
+                                                    borderRadius:"6px",padding:"0.18rem 0.55rem",
+                                                    fontSize:"0.72rem",fontWeight:"900",flexShrink:0}}>
+                                                    Asistió
                                                   </span>
                                                 </div>
                                               );
@@ -2889,15 +2993,29 @@ export default function AsistenciaPage() {
               <div style={{padding:"0.7rem 1.5rem",borderBottom:"1px solid #f1f5f9",
                 display:"flex",flexWrap:"wrap",gap:"0.35rem"}}>
                 {cuadrillaEditar.miembros.map(m=>(
-                  <span key={m.id} style={{background:`${PRIMARY}12`,color:PRIMARY,
+                  <span key={m.id} style={{
+                    background: m.bloqueadoEnCuadrilla ? "#fff7ed" : `${PRIMARY}12`,
+                    color: m.bloqueadoEnCuadrilla ? "#c2410c" : PRIMARY,
+                    border: m.bloqueadoEnCuadrilla ? "1.5px solid #fed7aa" : "none",
                     borderRadius:"20px",padding:"0.22rem 0.5rem 0.22rem 0.8rem",
                     fontSize:"0.75rem",fontWeight:"700",display:"flex",alignItems:"center",gap:"0.3rem"}}>
+                    {m.bloqueadoEnCuadrilla && <span title="Bloqueado en esta cuadrilla">🔒</span>}
                     {m.nombre}
-                    <button onClick={()=>toggleMiembro(m)}
-                      style={{background:"none",border:"none",cursor:"pointer",
-                        color:"#94a3b8",padding:0,display:"flex"}}>
-                      <X size={11}/>
-                    </button>
+                    {m.bloqueadoEnCuadrilla ? (
+                      <button onClick={()=>confirmarBloqueoOQuitar("desbloquear") || setModalBloqueo({miembro:m,cuadrillaId:cuadrillaEditar.id,accionDirecta:"desbloquear"})}
+                        title="Desbloquear"
+                        style={{background:"#fed7aa",border:"none",cursor:"pointer",borderRadius:"4px",
+                          padding:"1px 5px",color:"#c2410c",fontSize:"0.65rem",fontWeight:"800"}}>
+                        Desbloquear
+                      </button>
+                    ) : (
+                      <button onClick={()=>toggleMiembro(m)}
+                        disabled={verificandoBloqueo}
+                        style={{background:"none",border:"none",cursor:"pointer",
+                          color:"#94a3b8",padding:0,display:"flex"}}>
+                        {verificandoBloqueo ? "..." : <X size={11}/>}
+                      </button>
+                    )}
                   </span>
                 ))}
               </div>
@@ -2961,11 +3079,304 @@ export default function AsistenciaPage() {
           to   { opacity:1; transform:scale(1) translateY(0); }
         }
       `}</style>
+
+      {/* ─── MODAL: BLOQUEAR / QUITAR TRABAJADOR DE CUADRILLA ─── */}
+      {modalBloqueo && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10000,
+          display:"flex",alignItems:"center",justifyContent:"center",padding:"1rem"}}
+          onClick={e=>{if(e.target===e.currentTarget)setModalBloqueo(null);}}>
+          <div style={{background:"#fff",borderRadius:"18px",padding:"2rem",maxWidth:"480px",width:"100%",
+            boxShadow:"0 25px 60px rgba(0,0,0,0.3)"}}>
+
+            {/* Cabecera */}
+            <div style={{display:"flex",alignItems:"center",gap:"0.75rem",marginBottom:"1.25rem"}}>
+              <div style={{width:"48px",height:"48px",borderRadius:"14px",flexShrink:0,
+                background:modalBloqueo.tieneRegistros?"#fff7ed":"#f0fdf4",
+                display:"flex",alignItems:"center",justifyContent:"center",fontSize:"1.6rem"}}>
+                {modalBloqueo.tieneRegistros ? "🔒" : "⚙️"}
+              </div>
+              <div>
+                <div style={{fontWeight:"900",color:"#1e293b",fontSize:"1rem"}}>
+                  {modalBloqueo.accionDirecta==="desbloquear"
+                    ? `🔓 Desbloquear a ${modalBloqueo.miembro.nombre}`
+                    : `Gestionar: ${modalBloqueo.miembro.nombre}`}
+                </div>
+                <div style={{color:"#64748b",fontSize:"0.78rem",fontFamily:"monospace"}}>
+                  CC: {modalBloqueo.miembro.cedula||"sin cédula"}
+                </div>
+              </div>
+            </div>
+
+            {/* CASO 1: Desbloquear */}
+            {modalBloqueo.accionDirecta==="desbloquear" && (
+              <>
+                <p style={{color:"#475569",fontSize:"0.88rem",lineHeight:1.6,marginBottom:"1.25rem"}}>
+                  Al desbloquear, este trabajador volverá a aparecer en el registro de asistencia
+                  y en las nuevas operaciones de esta cuadrilla.
+                </p>
+                <div style={{display:"flex",gap:"0.75rem"}}>
+                  <button onClick={()=>setModalBloqueo(null)}
+                    style={{flex:1,padding:"0.75rem",background:"#f1f5f9",border:"none",
+                      borderRadius:"10px",color:"#475569",fontWeight:"700",cursor:"pointer"}}>
+                    Cancelar
+                  </button>
+                  <button onClick={()=>{
+                    setCuadrillaEditar(prev=>({
+                      ...prev,
+                      miembros:prev.miembros.map(m=>
+                        m.id===modalBloqueo.miembro.id?{...m,bloqueadoEnCuadrilla:false}:m
+                      )
+                    }));
+                    setModalBloqueo(null);
+                  }}
+                    style={{flex:2,padding:"0.75rem",background:"#059669",border:"none",
+                      borderRadius:"10px",color:"#fff",fontWeight:"800",cursor:"pointer"}}>
+                    🔓 Desbloquear
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* CASO 2: Tiene registros → solo bloquear */}
+            {!modalBloqueo.accionDirecta && modalBloqueo.tieneRegistros && (
+              <>
+                <div style={{background:"#fff7ed",border:"1.5px solid #fed7aa",borderRadius:"12px",
+                  padding:"1rem",marginBottom:"1.25rem"}}>
+                  <div style={{fontWeight:"800",color:"#c2410c",marginBottom:"0.35rem",fontSize:"0.95rem"}}>
+                    ⚠️ {modalBloqueo.totalOps} registro(s) guardado(s)
+                  </div>
+                  <div style={{color:"#92400e",fontSize:"0.84rem",lineHeight:1.5}}>
+                    {modalBloqueo.tieneLiquidacion
+                      ? "Este trabajador ya tiene nóminas generadas. Sus registros históricos se conservan intactos aunque se bloquee."
+                      : "Tiene operaciones sin liquidar. No se puede eliminar — solo bloquear temporalmente."}
+                  </div>
+                </div>
+                <p style={{color:"#475569",fontSize:"0.87rem",lineHeight:1.6,marginBottom:"1.25rem"}}>
+                  <strong>Bloquear</strong> significa que no aparecerá en nuevas operaciones ni en el
+                  llamado de asistencia de esta cuadrilla. Sus registros históricos quedan intactos
+                  y puede ser <strong>desbloqueado</strong> en cualquier momento.
+                </p>
+                <div style={{display:"flex",gap:"0.75rem"}}>
+                  <button onClick={()=>setModalBloqueo(null)}
+                    style={{flex:1,padding:"0.75rem",background:"#f1f5f9",border:"none",
+                      borderRadius:"10px",color:"#475569",fontWeight:"700",cursor:"pointer"}}>
+                    Cancelar
+                  </button>
+                  <button onClick={()=>confirmarBloqueoOQuitar("bloquear")}
+                    style={{flex:2,padding:"0.75rem",background:"#c2410c",border:"none",
+                      borderRadius:"10px",color:"#fff",fontWeight:"800",cursor:"pointer"}}>
+                    🔒 Bloquear en esta cuadrilla
+                  </button>
+                </div>
+                {/* Solo ADMIN puede eliminar cuando ya hay nómina */}
+                {modalBloqueo.tieneLiquidacion && ["admin"].includes(rol) && (
+                  <button
+                    onClick={()=>{
+                      if(confirm(
+                        `⚠️ ACCIÓN ADMIN IRREVERSIBLE\n\n` +
+                        `${modalBloqueo.miembro.nombre} tiene nóminas generadas.\n` +
+                        `Eliminar de la cuadrilla NO borra su historial, pero lo desvincula.\n\n¿Continuar?`
+                      )) confirmarBloqueoOQuitar("quitar");
+                    }}
+                    style={{width:"100%",marginTop:"0.65rem",padding:"0.65rem",
+                      background:"#fff1f2",border:"1.5px solid #fecdd3",borderRadius:"10px",
+                      color:"#be123c",fontWeight:"700",cursor:"pointer",fontSize:"0.82rem"}}>
+                    🗑️ Solo ADMIN: Eliminar completamente de la cuadrilla
+                  </button>
+                )}
+              </>
+            )}
+
+            {/* CASO 3: Sin registros → bloquear o quitar (solo admin) */}
+            {!modalBloqueo.accionDirecta && !modalBloqueo.tieneRegistros && (
+              <>
+                <p style={{color:"#475569",fontSize:"0.88rem",lineHeight:1.6,marginBottom:"1.25rem"}}>
+                  Este trabajador <strong>no tiene registros</strong> en esta cuadrilla.
+                  Elige cómo proceder:
+                </p>
+                <div style={{display:"flex",gap:"0.65rem",flexDirection:"column"}}>
+                  <button onClick={()=>setModalBloqueo(null)}
+                    style={{padding:"0.75rem",background:"#f1f5f9",border:"none",
+                      borderRadius:"10px",color:"#475569",fontWeight:"700",cursor:"pointer"}}>
+                    Cancelar — dejar como está
+                  </button>
+                  <button onClick={()=>confirmarBloqueoOQuitar("bloquear")}
+                    style={{padding:"0.75rem",background:"#f59e0b",border:"none",
+                      borderRadius:"10px",color:"#fff",fontWeight:"800",cursor:"pointer"}}>
+                    🔒 Bloquear temporalmente (conservar en cuadrilla)
+                  </button>
+                  {["admin","admin_nomina"].includes(rol) && (
+                    <button onClick={()=>confirmarBloqueoOQuitar("quitar")}
+                      style={{padding:"0.75rem",background:"#ef4444",border:"none",
+                        borderRadius:"10px",color:"#fff",fontWeight:"800",cursor:"pointer"}}>
+                      🗑️ Quitar definitivamente (ADMIN)
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ────────────────────────────────────────────────────────────────
+          BOTÓN FLOTANTE — VER ASISTENCIAS GUARDADAS
+      ──────────────────────────────────────────────────────────────── */}
+      <PanelRevisarAsistencias
+        cuadrillas={cuadrillas}
+        novedades={novedades}
+        novMap={novMap}
+      />
+
     </LayoutWithSidebar>
   );
 }
 
-// ── Helpers de UI ─────────────────────────────────────────────────────────────
+// ── PANEL REVISAR ASISTENCIAS
+function PanelRevisarAsistencias({ cuadrillas, novedades, novMap }) {
+  const [open,setOpen]           = useState(false);
+  const [fecha,setFecha]         = useState(()=>{ var d=new Date(); return d.toISOString().split('T')[0]; });
+  const [registros,setRegistros] = useState([]);
+  const [cargando,setCargando]   = useState(false);
+  const cargar = async function(f) {
+    if (!f) return;
+    setCargando(true);
+    try {
+      var parts=f.split('-'),year=parseInt(parts[0]),month=parseInt(parts[1]),dia=String(parseInt(parts[2]));
+      var snap=await getDocs(collection(db,'nomina_asistencia_registro'));
+      var res=[];
+      snap.docs.forEach(function(d){
+        var data=d.data();
+        if(data.anio!==year||data.mes!==month||data.tipo==='llamado')return;
+        var regDia=(data.registro||{})[dia]||{};
+        var cuad=cuadrillas.find(function(c){return c.id===data.cuadrillaId;});
+        var mbrs=(cuad?cuad.miembros:(data.miembros||[])).map(function(m){return{id:m.id,nombre:m.nombre,cedula:m.cedula||'',nov:regDia[m.id]||null};});
+        if(mbrs.length===0)return;
+        res.push({cuadrillaId:data.cuadrillaId,cuadrillaNombre:data.cuadrillaNombre||data.cuadrillaId,miembros:mbrs});
+      });
+      res.sort(function(a,b){return a.cuadrillaNombre.localeCompare(b.cuadrillaNombre);});
+      setRegistros(res);
+    }catch(e){alert('Error: '+e.message);}
+    setCargando(false);
+  };
+  var totP=registros.reduce(function(a,r){return a+r.miembros.length;},0);
+  var totN=registros.reduce(function(a,r){return a+r.miembros.filter(function(m){return m.nov;}).length;},0);
+  var getNI=function(cod){if(!cod)return null;return(novMap&&novMap[cod])||novedades.find(function(n){return n.codigo===cod;})||{codigo:cod,label:cod,color:'#64748b',bg:'#f1f5f9',emoji:'!'};}
+  return(
+    <>
+      <button onClick={function(){setOpen(function(p){return !p;});if(!open)cargar(fecha);}}
+        style={{position:'fixed',bottom:'2rem',right:'2rem',zIndex:9990,
+          background:open?'linear-gradient(135deg,#1e40af,#1d4ed8)':'linear-gradient(135deg,#0B3D91,#1a56c4)',
+          border:'none',borderRadius:'18px',padding:'0.85rem 1.35rem',color:'#fff',
+          fontWeight:'800',fontSize:'0.88rem',cursor:'pointer',
+          display:'flex',alignItems:'center',gap:'0.6rem',
+          boxShadow:'0 8px 30px rgba(11,61,145,0.45)',transition:'all 0.2s'}}>
+        <CalendarDays size={16}/><span>{open?'Cerrar':'Ver asistencias guardadas'}</span>
+      </button>
+      {open&&(
+        <div style={{position:'fixed',inset:0,zIndex:9989,background:'rgba(0,0,0,0.55)',
+          display:'flex',alignItems:'flex-start',justifyContent:'center',padding:'1.5rem',overflowY:'auto'}}
+          onClick={function(e){if(e.target===e.currentTarget)setOpen(false);}}>
+          <div style={{background:'#fff',borderRadius:'18px',width:'100%',maxWidth:'860px',
+            boxShadow:'0 25px 60px rgba(0,0,0,0.3)',overflow:'hidden',marginTop:'1rem',marginBottom:'2rem'}}>
+            <div style={{background:'linear-gradient(135deg,#0B3D91 0%,#1a56c4 100%)',
+              padding:'1.1rem 1.5rem',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+              <div style={{display:'flex',alignItems:'center',gap:'0.75rem'}}>
+                <div style={{background:'rgba(255,255,255,0.2)',borderRadius:'10px',width:'40px',height:'40px',
+                  display:'flex',alignItems:'center',justifyContent:'center'}}><CalendarDays size={20} color="#fff"/></div>
+                <div>
+                  <div style={{fontWeight:'900',color:'#fff',fontSize:'1rem'}}>Revisar asistencias guardadas</div>
+                  <div style={{color:'rgba(255,255,255,0.75)',fontSize:'0.78rem'}}>Consulta el registro de cualquier día</div>
+                </div>
+              </div>
+              <button onClick={function(){setOpen(false);}}
+                style={{background:'rgba(255,255,255,0.15)',border:'1.5px solid rgba(255,255,255,0.3)',
+                  borderRadius:'8px',padding:'0.35rem 0.7rem',cursor:'pointer',color:'#fff',
+                  fontWeight:'700',fontSize:'0.82rem',display:'flex',alignItems:'center',gap:'0.4rem'}}>
+                <X size={14}/> Cerrar</button>
+            </div>
+            <div style={{padding:'1rem 1.5rem',background:'#f8fafc',borderBottom:'1.5px solid #e2e8f0',
+              display:'flex',alignItems:'center',gap:'1rem',flexWrap:'wrap'}}>
+              <div style={{display:'flex',alignItems:'center',gap:'0.5rem'}}>
+                <label style={{fontWeight:'700',fontSize:'0.82rem',color:'#475569'}}>Fecha:</label>
+                <input type="date" value={fecha}
+                  onChange={function(e){setFecha(e.target.value);cargar(e.target.value);}}
+                  style={{padding:'0.45rem 0.75rem',border:'1.5px solid #e2e8f0',
+                    borderRadius:'8px',fontSize:'0.88rem',outline:'none',fontWeight:'700'}}/>
+              </div>
+              {!cargando&&totP>0&&(
+                <div style={{display:'flex',gap:'0.6rem',flexWrap:'wrap'}}>
+                  <span style={{background:'#f0fdf4',color:'#065f46',border:'1px solid #6ee7b7',borderRadius:'8px',padding:'0.3rem 0.75rem',fontSize:'0.78rem',fontWeight:'700'}}>Asisten: {totP-totN}</span>
+                  {totN>0&&<span style={{background:'#fff7ed',color:'#c2410c',border:'1px solid #fed7aa',borderRadius:'8px',padding:'0.3rem 0.75rem',fontSize:'0.78rem',fontWeight:'700'}}>Novedades: {totN}</span>}
+                  <span style={{background:'#eff6ff',color:'#1d4ed8',border:'1px solid #bfdbfe',borderRadius:'8px',padding:'0.3rem 0.75rem',fontSize:'0.78rem',fontWeight:'700'}}>Total: {totP}</span>
+                </div>
+              )}
+              {cargando&&<span style={{color:'#64748b',fontSize:'0.82rem',fontStyle:'italic'}}>Cargando...</span>}
+            </div>
+            <div style={{padding:'1.25rem 1.5rem',maxHeight:'60vh',overflowY:'auto'}}>
+              {!cargando&&registros.length===0&&(
+                <div style={{textAlign:'center',padding:'3rem 1rem',color:'#94a3b8'}}>
+                  <div style={{fontSize:'2.5rem',marginBottom:'0.75rem'}}>&#128197;</div>
+                  <div style={{fontWeight:'700',color:'#64748b',marginBottom:'0.35rem'}}>Sin registros para esta fecha</div>
+                  <div style={{fontSize:'0.82rem'}}>Selecciona otra fecha o guarda asistencias primero</div>
+                </div>
+              )}
+              {registros.map(function(reg){
+                var conNov=reg.miembros.filter(function(m){return !!m.nov;});
+                return(
+                  <div key={reg.cuadrillaId} style={{marginBottom:'1.25rem',border:'1.5px solid #e2e8f0',borderRadius:'12px',overflow:'hidden'}}>
+                    <div style={{background:'#f8fafc',padding:'0.65rem 1rem',borderBottom:'1px solid #e2e8f0',
+                      display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                      <div style={{display:'flex',alignItems:'center',gap:'0.5rem'}}>
+                        <Users size={15} color="#0B3D91"/>
+                        <span style={{fontWeight:'800',color:'#0B3D91',fontSize:'0.88rem'}}>{reg.cuadrillaNombre}</span>
+                      </div>
+                      <div style={{display:'flex',gap:'0.5rem',fontSize:'0.72rem'}}>
+                        <span style={{background:'#f0fdf4',color:'#065f46',borderRadius:'6px',padding:'2px 8px',fontWeight:'700',border:'1px solid #6ee7b7'}}>{reg.miembros.length-conNov.length} asisten</span>
+                        {conNov.length>0&&<span style={{background:'#fff7ed',color:'#c2410c',borderRadius:'6px',padding:'2px 8px',fontWeight:'700',border:'1px solid #fed7aa'}}>{conNov.length} novedades</span>}
+                      </div>
+                    </div>
+                    {reg.miembros.map(function(m,idx){
+                      var ni=getNI(m.nov);
+                      return(
+                        <div key={m.id} style={{display:'flex',alignItems:'center',padding:'0.5rem 1rem',
+                          background:ni?ni.bg||'#fff7ed':idx%2===0?'#fff':'#f8fafc',
+                          borderBottom:'1px solid #f1f5f9'}}>
+                          <div style={{width:'28px',height:'28px',borderRadius:'50%',
+                            background:ni?ni.color||'#f59e0b':'#10b981',
+                            display:'flex',alignItems:'center',justifyContent:'center',
+                            flexShrink:0,marginRight:'0.75rem',fontSize:'0.8rem',color:'#fff',fontWeight:'900'}}>
+                            {ni?(ni.emoji||'!'):'\u2713'}
+                          </div>
+                          <div style={{flex:1}}>
+                            <div style={{fontWeight:'700',fontSize:'0.85rem',color:'#1e293b'}}>{m.nombre}</div>
+                            <div style={{fontSize:'0.7rem',color:'#94a3b8',fontFamily:'monospace'}}>{m.cedula}</div>
+                          </div>
+                          {ni?(<span style={{background:ni.bg||'#fff7ed',color:ni.color||'#c2410c',
+                            border:'1px solid '+(ni.color||'#c2410c')+'40',
+                            borderRadius:'6px',padding:'2px 8px',fontSize:'0.75rem',fontWeight:'700'}}>{ni.label||m.nov}</span>)
+                          :(<span style={{color:'#10b981',fontWeight:'700',fontSize:'0.78rem'}}>Asistió</span>)}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+            {registros.length>0&&(
+              <div style={{padding:'0.85rem 1.5rem',background:'#f8fafc',borderTop:'1.5px solid #e2e8f0',
+                fontSize:'0.78rem',color:'#64748b',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                <span>Registro del {fecha} &middot; {registros.length} cuadrilla(s)</span>
+                <span style={{color:'#94a3b8'}}>Para editar, selecciona el día en el calendario</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+// ── Helpers de UI─
 function EmptyState({icon,title,desc,action}){
   return(
     <div style={{textAlign:"center",padding:"4rem 2rem",color:"#94a3b8",

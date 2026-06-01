@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/verificar-caducidad-claves",
+      "schedule": "0 12 * * *"
+    }
+  ]
+}

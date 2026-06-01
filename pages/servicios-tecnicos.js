@@ -1,5 +1,7 @@
 import { useRouter } from "next/router";
 import { useEffect, useMemo, useState } from "react";
+import { getAuth, onAuthStateChanged } from "firebase/auth";
+import { getUserRoleByUid } from "@/utils/getUserRole";
 import { db } from "@/firebase/firebaseConfig";
 import {
   collection,
@@ -114,6 +116,7 @@ export default function ServiciosTecnicos() {
   const [formValido, setFormValido] = useState(false);
   const [filtroTexto, setFiltroTexto] = useState("");
   const [claveEliminar, setClaveEliminar] = useState("");
+  const [rolActual, setRolActual] = useState("usuario");
   
   // Estados para modal de email
   const [modalEmail, setModalEmail] = useState(false);
@@ -126,6 +129,7 @@ export default function ServiciosTecnicos() {
   // Estados para cargos y técnicos dinámicos desde Firestore
   const [cargosDisponibles, setCargosDisponibles] = useState([]);
   const [tecnicosDisponibles, setTecnicosDisponibles] = useState([]);
+  const [usuariosCatalogo, setUsuariosCatalogo] = useState([]); // usuarios con correo
 
   // helper: si hay una solicitud seleccionada
   const tieneSolicitud = Boolean((formData.consecutivo || "").trim());
@@ -202,47 +206,74 @@ export default function ServiciosTecnicos() {
 
   // --- Cargar registros y solicitudes ---
   const cargarRegistros = async () => {
-    const snapshot = await getDocs(collection(db, "serviciosTecnicos"));
-    setRegistros(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+    try {
+      const snapshot = await getDocs(collection(db, "serviciosTecnicos"));
+      setRegistros(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+    } catch (error) {
+      console.error("Error cargando registros de serviciosTecnicos:", error);
+      setRegistros([]);
+    }
   };
 
   const cargarSolicitudes = async () => {
-    const snapshot = await getDocs(collection(db, "solicitudes"));
-    const usadosSnapshot = await getDocs(collection(db, "serviciosTecnicos"));
-    const usados = usadosSnapshot.docs.map((d) => d.data().consecutivo);
-    const disponibles = snapshot.docs
-      .filter((doc) => !usados.includes(doc.data().consecutivo))
-      .map((doc) => ({ id: doc.id, ...doc.data() }));
+    try {
+      const snapshot = await getDocs(collection(db, "solicitudes"));
 
-    const codigos = {};
-    disponibles.forEach((item) => {
-      codigos[item.consecutivo] = item.codigo;
-    });
+      // Intentar obtener los consecutivos ya usados; si falla por permisos, continuar sin filtrar
+      let usados = [];
+      try {
+        const usadosSnapshot = await getDocs(collection(db, "serviciosTecnicos"));
+        usados = usadosSnapshot.docs.map((d) => d.data().consecutivo);
+      } catch (permError) {
+        console.warn("Sin permiso para leer serviciosTecnicos al cargar solicitudes. Mostrando todas las solicitudes.", permError);
+      }
 
-    setCodigosSolicitud(codigos);
-    setSolicitudesDisponibles(disponibles);
+      const disponibles = snapshot.docs
+        .filter((doc) => !usados.includes(doc.data().consecutivo))
+        .map((doc) => ({ id: doc.id, ...doc.data() }));
+
+      const codigos = {};
+      disponibles.forEach((item) => {
+        codigos[item.consecutivo] = item.codigo;
+      });
+
+      setCodigosSolicitud(codigos);
+      setSolicitudesDisponibles(disponibles);
+    } catch (error) {
+      console.error("Error cargando solicitudes:", error);
+      setSolicitudesDisponibles([]);
+    }
   };
 
-  // --- Cargar cargos y técnicos desde Firestore ---
+  // --- Cargar cargos, técnicos y usuarios desde Firestore ---
   const cargarCargosYTecnicos = async () => {
     try {
-      // Cargar cargos activos
+      // Cargar cargos activos desde Firestore
       const cargosSnapshot = await getDocs(collection(db, "cargosCatalogo"));
-      const cargosData = cargosSnapshot.docs
-        .map(doc => ({ id: doc.id, ...doc.data() }))
-        .filter(c => c.activo !== false) // Solo cargos activos
-        .sort((a, b) => (a.nombre || "").localeCompare(b.nombre || ""));
-      setCargosDisponibles(cargosData);
+      const cargosFirestore = cargosSnapshot.docs
+        .map(d => d.data().nombre || d.data().cargo || "")
+        .filter(Boolean);
+      const todosCargos = Array.from(new Set([...cargosFirestore, ...CARGO_PRESETS])).sort();
+      setCargosDisponibles(todosCargos.map(nombre => ({ nombre })));
 
       // Cargar técnicos activos
       const tecnicosSnapshot = await getDocs(collection(db, "tecnicos"));
       const tecnicosData = tecnicosSnapshot.docs
         .map(doc => ({ id: doc.id, ...doc.data() }))
-        .filter(t => t.activo !== false) // Solo técnicos activos
+        .filter(t => t.activo !== false)
         .sort((a, b) => (a.nombre || "").localeCompare(b.nombre || ""));
       setTecnicosDisponibles(tecnicosData);
+
+      // Cargar usuarios desde usuariosCatalogo con su correo
+      const usuariosSnapshot = await getDocs(collection(db, "usuariosCatalogo"));
+      const usuariosData = usuariosSnapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .filter(u => u.activo !== false && u.nombre)
+        .sort((a, b) => (a.nombre || "").localeCompare(b.nombre || ""));
+      setUsuariosCatalogo(usuariosData);
     } catch (error) {
-      console.error("Error cargando cargos y técnicos:", error);
+      console.error("Error cargando catálogos:", error);
+      setCargosDisponibles(CARGO_PRESETS.map(nombre => ({ nombre })));
     }
   };
 
@@ -250,6 +281,17 @@ export default function ServiciosTecnicos() {
     cargarRegistros();
     cargarSolicitudes();
     cargarCargosYTecnicos();
+  }, []);
+
+  useEffect(() => {
+    const auth = getAuth();
+    const unsub = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        const role = await getUserRoleByUid(user.uid);
+        setRolActual(role);
+      }
+    });
+    return () => unsub();
   }, []);
 
   // --- Prefill desde query ---
@@ -322,16 +364,16 @@ export default function ServiciosTecnicos() {
       a.localeCompare(b, "es", { sensitivity: "base" })
     );
 
-    // Usuarios: base + registros + solicitudes
+    // Usuarios: catálogo Firestore + registros anteriores + solicitudes
+    const usuariosFirestore = usuariosCatalogo.map(u => u.nombre).filter(Boolean);
     const usuariosReg = uniq(registros.map((r) => r.usuario));
-    const usuariosSol =
-      uniq(solicitudesDisponibles.map((s) => s.usuario || s.nombre)) || [];
-    const usuarios = uniq([...USUARIOS_BASE, ...usuariosReg, ...usuariosSol]).sort(
+    const usuariosSol = uniq(solicitudesDisponibles.map((s) => s.usuario || s.nombre)) || [];
+    const usuarios = uniq([...usuariosFirestore, ...USUARIOS_BASE, ...usuariosReg, ...usuariosSol]).sort(
       (a, b) => a.localeCompare(b, "es", { sensitivity: "base" })
     );
 
     return { cargos, pcs, usuarios };
-  }, [registros, solicitudesDisponibles, cargosDisponibles]);
+  }, [registros, solicitudesDisponibles, cargosDisponibles, usuariosCatalogo]);
 
   // --- Handlers ---
   const handleChange = async (key, value) => {
@@ -537,37 +579,52 @@ export default function ServiciosTecnicos() {
   };
 
   const cargarDesdeSolicitud = (solicitud) => {
-    const {
-      consecutivo = "",
-      usuario = "",
-      codigoservicio = "",
-      fecha = "",
-      cargo = "",
-      equipo = "",
-      descripcion = "",
-      nombre = "",
-    } = solicitud;
+    const nombreUsuario = solicitud.usuario || solicitud.nombre || "";
+    const correoSolicitud = solicitud.correo || "";
+
+    // Buscar cargo del usuario en usuariosCatalogo via los datos de la solicitud
+    const cargoSolicitud = solicitud.cargo || "";
+
+    // Buscar equipo más reciente de este usuario en servicios anteriores
+    const serviciosPrevios = registros.filter(
+      (r) =>
+        r.usuario?.toLowerCase() === nombreUsuario.toLowerCase() ||
+        r.correoUsuario?.toLowerCase() === correoSolicitud.toLowerCase()
+    );
+    const equipoReciente =
+      serviciosPrevios.length > 0
+        ? serviciosPrevios[serviciosPrevios.length - 1].equipo || ""
+        : "";
 
     setFormData((prev) => ({
       ...prev,
-      consecutivo,
-      usuario: usuario || nombre || "",
-      codigoservicio,
-      fecha,
-      cargo,
-      equipo,
-      falla: descripcion || "",
-      esInterno: false, // decorativo
+      consecutivo:    solicitud.consecutivo  || "",
+      usuario:        nombreUsuario,
+      correoUsuario:  correoSolicitud,
+      cargo:          cargoSolicitud,
+      falla:          solicitud.descripcion  || "",
+      equipo:         equipoReciente,
+      fecha:          new Date().toISOString().slice(0, 10),
+      // El código de solicitud NO se auto-llena (el técnico debe ingresarlo manualmente)
+      codigoservicio: "",
+      esInterno:      false,
     }));
   };
 
-  // Listado filtrado rápido
-  const registrosFiltrados = registros.filter((r) =>
-    [r.usuario, r.equipo, r.tecnico, r.cargo, r.fecha]
-      .join(" ")
-      .toLowerCase()
-      .includes(filtroTexto.toLowerCase())
-  );
+  // Listado filtrado y ordenado por fecha descendente
+  const registrosFiltrados = [...registros]
+    .sort((a, b) => {
+      // Ordenar por fecha descendente (más reciente primero)
+      const fa = a.fecha ? new Date(a.fecha) : new Date(0);
+      const fb = b.fecha ? new Date(b.fecha) : new Date(0);
+      return fb - fa;
+    })
+    .filter((r) =>
+      [r.usuario, r.equipo, r.tecnico, r.cargo, r.fecha, r.consecutivo, r.diagnostico, r.solucion]
+        .join(" ")
+        .toLowerCase()
+        .includes(filtroTexto.toLowerCase())
+    );
 
   return (
     <LayoutWithSidebar>
@@ -598,24 +655,6 @@ export default function ServiciosTecnicos() {
         >
           Servicios técnicos solicitados
         </h1>
-
-        {/* Filtro rápido del listado */}
-        <div style={{ ...styles.card, width: "100%" }}>
-          <div style={styles.cardHeader}>
-            <h3 style={{ margin: 0, fontSize: 18, color: "#111827" }}>
-              Filtro rápido del listado
-            </h3>
-          </div>
-          <div style={{ marginTop: 8 }}>
-            <input
-              type="text"
-              placeholder="Filtrar por usuario, técnico, equipo, etc."
-              value={filtroTexto}
-              onChange={(e) => setFiltroTexto(e.target.value.toLowerCase())}
-              style={styles.input}
-            />
-          </div>
-        </div>
 
         {/* Solicitudes pendientes */}
         <div style={{ ...styles.card, width: "100%" }}>
@@ -697,10 +736,7 @@ export default function ServiciosTecnicos() {
                     (s) => s.consecutivo === e.target.value
                   );
                   if (selected) {
-                    handleChange("consecutivo", selected.consecutivo);
-                    handleChange("usuario", selected.usuario || selected.nombre || "");
-                    handleChange("fecha", new Date().toISOString().slice(0, 10));
-                    handleChange("esInterno", false);
+                    cargarDesdeSolicitud(selected);
                   } else {
                     handleChange("consecutivo", e.target.value);
                   }
@@ -724,12 +760,30 @@ export default function ServiciosTecnicos() {
 
             {/* Campos principales */}
             <div style={styles.rowGrid3}>
-              <FieldUI
-                label="Usuario"
-                value={formData.usuario}
-                onChange={(v) => handleChange("usuario", v)}
-                listId="usuariosOptions"
-              />
+              {/* Usuario — solo selección, auto-llena correo */}
+              <div>
+                <label style={styles.label}>Usuario</label>
+                <select
+                  value={formData.usuario}
+                  onChange={(e) => {
+                    const nombre = e.target.value;
+                    // Buscar correo y cargo del usuario en el catálogo
+                    const encontrado = usuariosCatalogo.find(u => u.nombre === nombre);
+                    setFormData(prev => ({
+                      ...prev,
+                      usuario: nombre,
+                      correoUsuario: encontrado?.email || prev.correoUsuario,
+                      cargo: encontrado?.cargo || prev.cargo,
+                    }));
+                  }}
+                  style={styles.input}
+                >
+                  <option value="">-- Seleccionar usuario --</option>
+                  {opciones.usuarios.map((u) => (
+                    <option key={u} value={u}>{u}</option>
+                  ))}
+                </select>
+              </div>
               <FieldUI
                 label="Fecha"
                 type="date"
@@ -744,18 +798,34 @@ export default function ServiciosTecnicos() {
             </div>
 
             <div style={styles.rowGrid3}>
-              <FieldUI
-                label="Cargo"
-                value={formData.cargo}
-                onChange={(v) => handleChange("cargo", v)}
-                listId="cargoOptions"
-              />
-              <FieldUI
-                label="Equipo"
-                value={formData.equipo}
-                onChange={(v) => handleChange("equipo", v)}
-                listId="pcOptions"
-              />
+              {/* Cargo — solo selección */}
+              <div>
+                <label style={styles.label}>Cargo</label>
+                <select
+                  value={formData.cargo}
+                  onChange={(e) => handleChange("cargo", e.target.value)}
+                  style={styles.input}
+                >
+                  <option value="">-- Seleccionar cargo --</option>
+                  {opciones.cargos.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+              {/* Equipo — solo selección */}
+              <div>
+                <label style={styles.label}>Equipo</label>
+                <select
+                  value={formData.equipo}
+                  onChange={(e) => handleChange("equipo", e.target.value)}
+                  style={styles.input}
+                >
+                  <option value="">-- Seleccionar equipo --</option>
+                  {opciones.pcs.map((p) => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
+              </div>
               <FieldUI
                 label="Correo del usuario"
                 type="email"
@@ -1211,9 +1281,21 @@ export default function ServiciosTecnicos() {
       </datalist>
 
       {/* Listado */}
-      <h2 style={{ marginTop: 32, marginBottom: 20, textAlign: "center", color: "#111827", fontSize: 28, fontWeight: 800 }}>
-        📋 Registros guardados ({registrosFiltrados.length})
-      </h2>
+      <div style={{ marginTop: 32, marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+          <h2 style={{ margin: 0, color: "#111827", fontSize: 28, fontWeight: 800 }}>
+            📋 Registros guardados ({registrosFiltrados.length})
+          </h2>
+          {/* Filtro de búsqueda */}
+          <input
+            type="text"
+            placeholder="🔍 Buscar por usuario, equipo, técnico, cargo, fecha, consecutivo..."
+            value={filtroTexto}
+            onChange={(e) => setFiltroTexto(e.target.value)}
+            style={{ ...styles.input, maxWidth: 400, padding: "10px 14px", borderRadius: 10, border: "2px solid #0B3D91", fontSize: 14 }}
+          />
+        </div>
+      </div>
       <div
         style={{
           display: "grid",
@@ -1345,26 +1427,28 @@ export default function ServiciosTecnicos() {
                 </div>
                 
                 {/* Botones de Editar/Eliminar - Compactos */}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                <div style={{ display: "grid", gridTemplateColumns: rolActual === "admin" ? "1fr 1fr" : "1fr", gap: 6 }}>
                   <button onClick={() => handleEdit(r)} style={{ ...styles.btnCompact, background: "#f59e0b" }}>
                     <span style={{ fontSize: 11 }}>✏️ Editar</span>
                   </button>
-                  <button 
-                    onClick={() => {
-                      const confirmDelete = window.confirm(`¿Está seguro de eliminar el servicio ${r.consecutivo}?\n\nIngrese la clave de eliminación en el prompt siguiente.`);
-                      if (confirmDelete) {
-                        const clave = window.prompt("Ingrese la clave de eliminación:");
-                        if (clave === "2025.2025.") {
-                          handleDelete(r.id);
-                        } else {
-                          alert("❌ Clave incorrecta");
+                  {rolActual === "admin" && (
+                    <button 
+                      onClick={() => {
+                        const confirmDelete = window.confirm(`¿Está seguro de eliminar el servicio ${r.consecutivo}?\n\nIngrese la clave de eliminación en el prompt siguiente.`);
+                        if (confirmDelete) {
+                          const clave = window.prompt("Ingrese la clave de eliminación:");
+                          if (clave === "2025.2025.") {
+                            handleDelete(r.id);
+                          } else {
+                            alert("❌ Clave incorrecta");
+                          }
                         }
-                      }
-                    }}
-                    style={{ ...styles.btnCompact, background: "#ef4444" }}
-                  >
-                    <span style={{ fontSize: 11 }}>🗑️ Eliminar</span>
-                  </button>
+                      }}
+                      style={{ ...styles.btnCompact, background: "#ef4444" }}
+                    >
+                      <span style={{ fontSize: 11 }}>🗑️ Eliminar</span>
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

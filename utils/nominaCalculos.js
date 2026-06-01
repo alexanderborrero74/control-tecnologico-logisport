@@ -34,7 +34,8 @@
  * ─────────────────────────────────────────────────────────────────────────
  */
 
-export const SUBSIDIO_TRANSPORTE_MENSUAL = 249095;  // Auxilio transporte 2025-2026
+export const SUBSIDIO_TRANSPORTE_MENSUAL  = 249095;  // Auxilio transporte 2025-2026 (SPIA / Ciamsa)
+export const TRANSPORTE_TERRESTRE_MENSUAL = 200000;  // Auxilio transporte Terrestre (cliente1)
 export const SMMLV                        = 1423500; // SMMLV 2025-2026
 export const PORCENTAJE_SALUD             = 0.04;
 export const PORCENTAJE_PENSION           = 0.04;
@@ -76,9 +77,10 @@ export function calcularNominaEmpleado({
   // Ej: básico $2.050.000, 15 días → $1.025.000
   const salarioBasicoQuincena = (bm / 30) * dias;
 
-  // ── Productividad (solo display) ─────────────────────────────────────────
-  // Muestra cuánto produjo el trabajador en el período
-  const productividad = fp;  // = totalProduccion (no se resta el básico aquí)
+  // ── Productividad (parte variable por encima del salario base) ────────────
+  // = TotalProduccion − SalarioBasicoQuincena
+  // Puede ser negativa (prod < base), cero (prod = base) o positiva
+  const productividad = fp - salarioBasicoQuincena;
 
   // ── SMMLV proporcional (referencia) ──────────────────────────────────────
   const minimoProporcionl = (SMMLV / 30) * dias;
@@ -181,6 +183,59 @@ export function calcularHorasExtras(basicoMensual, horasPorTipo = {}) {
     total += valor;
   });
   return { total: Math.round(total * 100) / 100, desglose };
+}
+
+/**
+ * calcularNominaCiamsa
+ * Fórmula de liquidación para TERRESTRE (cliente1), CIAMSA 2 (cliente2) y CIAMSA 3 (cliente3).
+ * Fuente: hoja NOMINA ORG de los libros Excel mayo 2026.
+ *
+ * TERRESTRE:  transporte = $200.000/mes, mismo 4%+4% que Ciamsa
+ * CIAMSA 2/3: transporte = $249.095/mes
+ *
+ * Fórmula:
+ *   SALARIO BASE     = diasTrabajados × (basicoMensual / 30)
+ *   TRANSPORTE       = diasTrabajados × (transporteMensual / 30)
+ *   PRODUCTIVIDAD    = totalProduccion − salarioBase
+ *   SALUD            = totalProduccion × 4%
+ *   PENSIÓN          = totalProduccion × 4%
+ *   MENOS S&P        = totalProduccion − salud − pensión
+ *   A PAGAR          = MENOS S&P + TRANSPORTE
+ *   NETO A PAGAR     = A PAGAR − adelanto
+ */
+export function calcularNominaCiamsa({
+  basicoMensual   = 0,
+  totalProduccion = 0,
+  diasTrabajados  = 15,
+  adelanto        = 0,
+  esTerrestre     = false,
+}) {
+  const r = (n) => Math.round(n * 100) / 100;
+  const bm   = parseFloat(basicoMensual)   || 0;
+  const fp   = parseFloat(totalProduccion) || 0;
+  const dias = parseInt(diasTrabajados)    || 0;
+  const ade  = parseFloat(adelanto)        || 0;
+
+  const transporteMensual      = esTerrestre ? TRANSPORTE_TERRESTRE_MENSUAL : SUBSIDIO_TRANSPORTE_MENSUAL;
+  const salarioBasicoQuincena  = r((bm / 30) * dias);
+  const transporte             = r((transporteMensual / 30) * dias);
+  const productividad          = r(fp - salarioBasicoQuincena);
+  const salud                  = r(fp * PORCENTAJE_SALUD);
+  const pension                = r(fp * PORCENTAJE_PENSION);
+  const menosSP                = r(fp - salud - pension);
+  const aPagar                 = r(menosSP + transporte);
+  const netoAPagar             = r(aPagar - ade);
+
+  return {
+    salarioBasicoQuincena,
+    transporte,
+    productividad,
+    salud,
+    pension,
+    menosSP,
+    aPagar,
+    netoAPagar,
+  };
 }
 
 export function formatCOP(valor) {

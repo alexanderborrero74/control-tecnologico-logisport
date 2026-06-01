@@ -13,7 +13,7 @@ import {
 import { db } from "@/firebase/firebaseConfig";
 import { getUserRoleByUid } from "@/utils/getUserRole";
 import LayoutWithSidebar from "@/components/LayoutWithSidebar";
-import { formatCOP } from "@/utils/nominaCalculos";
+import { formatCOP, calcularNominaCiamsa } from "@/utils/nominaCalculos";
 import {
   ArrowLeft, RefreshCw, FileText, Users, DollarSign,
   Eye, Trash2, CheckCircle, Send, Search
@@ -36,10 +36,127 @@ const generarToken = (cedula) => {
 // Detecta el tipo de operación y devuelve etiqueta + color
 // ─────────────────────────────────────────────────────────────────────────
 const tipoOp = (dia) => {
-  if (dia.modoHorasExtras)  return { label:"Horas Extras",  emoji:"⏰", color:"#92400e", bg:"#fffbeb" };
-  if (dia.modoCliente2)     return { label:"Por Días",       emoji:"📅", color:"#5b21b6", bg:"#f5f3ff" };
-  if (dia.modoCiamsa)       return { label:"Destajo",        emoji:"⚖️", color:"#0369a1", bg:"#e0f2fe" };
-  return                          { label:"Cuadrilla",       emoji:"👥", color:"#0B3D91", bg:"#eff6ff" };
+  if (dia.modoHorasExtras)        return { label:"Horas Extras",    emoji:"⏰", color:"#92400e", bg:"#fffbeb" };
+  if (dia.modoCliente2)           return { label:"Por Días",         emoji:"📅", color:"#5b21b6", bg:"#f5f3ff" };
+  if (dia.modoCuadrillaDiaria)    return { label:"Cuadrilla Día",    emoji:"👷", color:"#0369a1", bg:"#e0f2fe" };
+  if (dia.modoCiamsa)             return { label:"Destajo",           emoji:"⚖️",  color:"#0369a1", bg:"#e0f2fe" };
+  return                                 { label:"Cuadrilla",         emoji:"👥", color:"#0B3D91", bg:"#eff6ff" };
+};
+
+// ── Genera el HTML imprimible del desprendible ──
+const generarHTMLDesprendible = (trab, clientes, nominaData) => {
+  const esCiamsa = ["cliente1","cliente2","cliente3"].includes(trab.clienteId);
+  const esTerrestre = trab.clienteId === "cliente1";
+  const nomCliente = clientes.find(c => c.id === trab.clienteId)?.nombre || trab.clienteNombre || "SPIA";
+
+  // Agrupar días por fecha
+  const porFecha = {};
+  trab.dias.forEach(d => {
+    const f = d.fecha || "Sin fecha";
+    if (!porFecha[f]) porFecha[f] = [];
+    porFecha[f].push(d);
+  });
+  const fechasOrdenadas = Object.keys(porFecha).sort();
+
+  // Calcular acumulado y liquidación si es Ciamsa/Terrestre
+  const totalProduccion = trab.totalDevengado;
+  let liquidacionHTML = "";
+  if (esCiamsa && nominaData) {
+    const liq = calcularNominaCiamsa({
+      basicoMensual:   nominaData.basicoMensual || 0,
+      totalProduccion,
+      diasTrabajados:  nominaData.diasTrabajados || 15,
+      esTerrestre,
+    });
+    liquidacionHTML = `
+      <div class="liq-box">
+        <div class="liq-title">📊 Liquidación quincenal</div>
+        <table class="liq-table">
+          <tr><td>Total Producción</td><td class="amt">${formatCOP(totalProduccion)}</td></tr>
+          <tr><td>Salario Base (${nominaData.diasTrabajados || 15} días)</td><td class="amt">${formatCOP(liq.salarioBasicoQuincena)}</td></tr>
+          <tr><td>Productividad</td><td class="amt">${formatCOP(liq.productividad)}</td></tr>
+          <tr class="ded"><td>(-) Salud 4%</td><td class="amt">-${formatCOP(liq.salud)}</td></tr>
+          <tr class="ded"><td>(-) Pensión 4%</td><td class="amt">-${formatCOP(liq.pension)}</td></tr>
+          <tr><td>Menos S&amp;P</td><td class="amt">${formatCOP(liq.menosSP)}</td></tr>
+          <tr><td>(+) Transporte (${nominaData.diasTrabajados || 15} días)</td><td class="amt">+${formatCOP(liq.transporte)}</td></tr>
+          <tr class="neto-row"><td><strong>NETO A PAGAR</strong></td><td class="amt neto">${formatCOP(liq.netoAPagar)}</td></tr>
+        </table>
+      </div>`;
+  }
+
+  // Filas de detalle
+  const filasDetalle = fechasOrdenadas.map(fecha => {
+    const ops = porFecha[fecha];
+    const subTotal = ops.reduce((s, o) => s + (o.netoPersona || 0), 0);
+    const filaOps = ops.map(o => `
+      <tr class="op-row">
+        <td style="padding-left:1.5rem;color:#64748b;font-size:0.8rem">└ ${o.servicio || ""}</td>
+        <td style="color:#64748b;font-size:0.8rem;text-align:center">
+          ${o.cantidadTons != null ? o.cantidadTons + " ton" : o.cantidadDias != null ? o.cantidadDias + " días" : ""}
+          ${o.nPersonas != null ? "/ " + o.nPersonas + " pers" : ""}
+          ${o.per != null ? " → PER: " + o.per.toFixed(4) : ""}
+        </td>
+        <td style="text-align:right;font-family:monospace;font-size:0.85rem">${formatCOP(o.netoPersona)}</td>
+      </tr>`).join("");
+    return `
+      <tr class="fecha-row">
+        <td><strong>${fecha}</strong></td>
+        <td style="text-align:center;color:#64748b;font-size:0.8rem">${ops.length} servicio(s)</td>
+        <td style="text-align:right;font-weight:700;font-family:monospace">${formatCOP(subTotal)}</td>
+      </tr>
+      ${filaOps}`;
+  }).join("");
+
+  return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">
+<title>Desprendible — ${trab.nombre}</title>
+<style>
+  body { font-family: Arial, sans-serif; padding: 1.5rem; font-size: 0.9rem; color: #1e293b; }
+  h1   { font-size: 1.2rem; margin: 0 0 0.25rem; color: #0B3D91; }
+  .sub { font-size: 0.8rem; color: #64748b; margin-bottom: 1rem; }
+  .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.3rem 1rem;
+    background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;
+    padding: 0.75rem 1rem; margin-bottom: 1rem; font-size: 0.82rem; }
+  .info-grid span { color: #64748b; }
+  .info-grid strong { color: #1e293b; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; }
+  th  { background: #0B3D91; color: #fff; padding: 0.5rem 0.75rem; text-align: left; font-size: 0.82rem; }
+  td  { padding: 0.45rem 0.75rem; border-bottom: 1px solid #f1f5f9; }
+  .fecha-row td { background: #f1f5f9; font-size: 0.85rem; }
+  .op-row td { background: #fff; }
+  .total-row td { background: #1e293b; color: #fff; font-weight: 700; font-family: monospace; padding: 0.65rem 0.75rem; }
+  .liq-box { background: #f0fdf4; border: 1.5px solid #6ee7b7; border-radius: 10px; padding: 1rem; margin-bottom: 1rem; }
+  .liq-title { font-weight: 800; color: #065f46; margin-bottom: 0.6rem; font-size: 0.9rem; }
+  .liq-table { width: 100%; border-collapse: collapse; }
+  .liq-table td { padding: 0.3rem 0.5rem; border-bottom: 1px solid #d1fae5; font-size: 0.85rem; }
+  .liq-table .ded td { color: #dc2626; }
+  .liq-table .amt { text-align: right; font-family: monospace; font-weight: 700; }
+  .liq-table .neto-row td { background: #dcfce7; font-size: 1rem; }
+  .liq-table .neto { color: #065f46; font-size: 1.1rem; }
+  .firma { margin-top: 2rem; border-top: 2px solid #1e293b; padding-top: 0.5rem;
+    text-align: center; font-size: 0.8rem; color: #64748b; }
+  @media print { body { padding: 0.5rem; } }
+</style></head><body>
+<h1>${trab.nombre}</h1>
+<div class="sub">🏢 ${nomCliente} &nbsp;—&nbsp; C.C. ${trab.cedula} &nbsp;—&nbsp; ${trab.cargo}</div>
+<div class="info-grid">
+  <span>Período:</span><strong>${trab.fechaInicio} → ${trab.fechaFin}</strong>
+  <span>Días registrados:</span><strong>${fechasOrdenadas.length}</strong>
+  <span>Total servicios:</span><strong>${trab.dias.length}</strong>
+  <span>Total Producción:</span><strong>${formatCOP(totalProduccion)}</strong>
+</div>
+<table>
+  <thead><tr><th>Fecha</th><th style="text-align:center">Detalle</th><th style="text-align:right">Valor</th></tr></thead>
+  <tbody>
+    ${filasDetalle}
+    <tr class="total-row">
+      <td colspan="2">💰 TOTAL DEVENGADO</td>
+      <td style="text-align:right">${formatCOP(totalProduccion)}</td>
+    </tr>
+  </tbody>
+</table>
+${liquidacionHTML}
+<div class="firma">Firma trabajador: _________________________ &nbsp;&nbsp; Fecha: _____________</div>
+</body></html>`;
 };
 
 export default function Desprendibles() {
@@ -848,6 +965,27 @@ export function DespPrevProduccion({ d }) {
         <div style={{fontSize:"0.62rem",color:"#94A3B8"}}>Generado: {new Date().toLocaleDateString("es-CO")} · logisport.vercel.app</div>
         <div style={{fontSize:"0.62rem",color:"#94A3B8",fontFamily:"monospace"}}>Ref: {String(d.token||d.id||"").slice(-14).toUpperCase()}</div>
       </div>
+
+      {/* BOTÓN IMPRIMIR CON DETALLE DÍA A DÍA */}
+      {["cliente1","cliente2","cliente3"].includes(d.clienteId) && (
+        <div style={{padding:"1rem 1.75rem",background:"#f0fdf4",borderTop:"1px solid #6ee7b7",display:"flex",justifyContent:"flex-end"}}>
+          <button
+            onClick={() => {
+              const html = generarHTMLDesprendible(d, clientes,
+                d.tieneDatosNomina ? { basicoMensual: d.basicoMensual, diasTrabajados: d.diasTrabajados } : null
+              );
+              const w = window.open("", "_blank");
+              w.document.write(html);
+              w.document.close();
+              setTimeout(() => w.print(), 500);
+            }}
+            style={{ background:"#059669", color:"#fff", border:"none", borderRadius:"10px",
+              padding:"0.75rem 1.5rem", fontWeight:"800", fontSize:"0.9rem",
+              cursor:"pointer", display:"flex", alignItems:"center", gap:"0.5rem" }}>
+            🖨️ Imprimir desprendible detallado
+          </button>
+        </div>
+      )}
     </div>
   );
 }

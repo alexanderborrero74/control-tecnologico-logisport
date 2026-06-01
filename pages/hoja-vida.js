@@ -9,13 +9,18 @@ import {
   doc,
   updateDoc,
   deleteDoc,
+  query,
+  where,
+  onSnapshot,
+  orderBy,
 } from "firebase/firestore";
-// Firebase storage ya no se usa directamente, se usa API
 import * as XLSX from "xlsx";
 import LayoutWithSidebar from "@/components/LayoutWithSidebar";
 import PageHeader from "@/components/PageHeader";
 import { useUsuarios } from "@/utils/useUsuarios";
 import { useCargos } from "@/utils/useCargos";
+import ImagenSegura from "@/components/ImagenSegura";
+import { subirACloudinary } from "@/utils/cloudinaryUpload";
 
 /* ==================== PRESETS ==================== */
 const CARGO_PRESETS = [
@@ -62,6 +67,75 @@ const WINDOWS_PRESETS = (() => {
 
   return out;
 })();
+
+/* ============ Hook: fotos de un equipo desde registroFotografico ============ */
+function useFotosEquipo(nombrePC) {
+  const [fotos, setFotos] = useState([]);
+  useEffect(() => {
+    if (!nombrePC) { setFotos([]); return; }
+    const q = query(
+      collection(db, "registroFotografico"),
+      where("nombrePC", "==", nombrePC),
+      orderBy("createdAt", "asc")
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      setFotos(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, () => {});
+    return () => unsub();
+  }, [nombrePC]);
+  return fotos;
+}
+
+/* ============ Subcomponente: tarjeta de foto individual ============ */
+function FotoEquipoCard({ foto }) {
+  return (
+    <div style={{ position: "relative" }}>
+      <ImagenSegura
+        url={foto.downloadURL}
+        alt={foto.displayName || foto.originalName}
+        style={{ width: "100%", height: 140, objectFit: "cover", borderRadius: 8, border: "2px solid #e5e7eb", cursor: "pointer" }}
+        onClick={() => window.open(foto.downloadURL, "_blank")}
+      />
+      <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4, textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {foto.displayName || foto.originalName || "—"}
+      </div>
+    </div>
+  );
+}
+
+/* ============ Subcomponente: sección de fotos en tarjeta de equipo ============ */
+function SeccionFotosEquipo({ nombrePC }) {
+  const fotos = useFotosEquipo(nombrePC);
+  const router = useRouter ? useRouter() : {};
+
+  return (
+    <div style={{ marginTop: 12, paddingTop: 12, borderTop: "2px solid #e5e7eb" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+        <div style={{ fontSize: 13, fontWeight: 800, color: "#374151" }}>
+          📸 Fotos del equipo
+          <span style={{ marginLeft: 8, fontSize: 11, background: fotos.length >= 3 ? "#fee2e2" : "#dbeafe", color: fotos.length >= 3 ? "#991b1b" : "#1e40af", padding: "2px 8px", borderRadius: 10, fontWeight: 700 }}>
+            {fotos.length}/3
+          </span>
+        </div>
+        <button
+          onClick={() => window.location.href = "/registro-fotografico"}
+          style={{ fontSize: 11, background: "#0B3D91", color: "#fff", border: "none", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontWeight: 600 }}
+        >
+          + Agregar foto
+        </button>
+      </div>
+      {fotos.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "16px 8px", color: "#9ca3af", fontSize: 13, background: "#f9fafb", borderRadius: 8, border: "1px dashed #d1d5db" }}>
+          Sin fotos. Ve a Registro Fotográfico para agregar.
+        </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: `repeat(${fotos.length}, 1fr)`, gap: 10 }}>
+          {fotos.map(foto => <FotoEquipoCard key={foto.id} foto={foto} />)}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /* ============ Filtro genérico con autocompletado (una casilla) ============ */
 const AutoFilter = memo(function AutoFilter({
@@ -315,57 +389,15 @@ export default function HojaVidaEquipos() {
   };
 
   // Función para subir foto usando API
-  const subirFoto = async (file, equipoId, numeroFoto) => {
+  const subirFoto = async (file) => {
     try {
       if (!file) return null;
-      
-      // Validar tamaño (máximo 5MB)
-      if (file.size > 5 * 1024 * 1024) {
-        throw new Error("La imagen no debe superar 5MB");
-      }
-      
-      // Validar tipo
-      if (!file.type.startsWith('image/')) {
-        throw new Error("Solo se permiten archivos de imagen");
-      }
-      
-      // Convertir archivo a base64
-      const base64 = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-      
-      // Crear nombre único
-      const timestamp = Date.now();
-      const extension = file.name.split('.').pop();
-      const fileName = `foto${numeroFoto}_${timestamp}.${extension}`;
-      
-      // Subir usando API
-      const response = await fetch('/api/upload-image', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          imageData: base64,
-          fileName: fileName,
-          folder: `hojaVidaEquipos/${equipoId}`
-        }),
-      });
-      
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Error al subir imagen');
-      }
-      
-      const result = await response.json();
-      
-      return {
-        url: result.url,
-        name: file.name
-      };
+      if (file.size > 5 * 1024 * 1024) throw new Error("La imagen no debe superar 5MB");
+      if (!file.type.startsWith('image/')) throw new Error("Solo se permiten archivos de imagen");
+
+      // Subir a Cloudinary directamente (mismo preset que registro-fotografico)
+      const resultado = await subirACloudinary(file);
+      return { url: resultado.url, name: file.name };
     } catch (error) {
       console.error("Error subiendo foto:", error);
       throw error;
@@ -509,19 +541,19 @@ export default function HojaVidaEquipos() {
       
       // Subir fotos si hay archivos nuevos
       if (formData._foto1File) {
-        setUploadingFoto1(true);
-        const resultado = await subirFoto(formData._foto1File, equipoId, 1);
-        dataToSave.foto1URL = resultado.url;
-        dataToSave.foto1Name = resultado.name;
-        setUploadingFoto1(false);
+      setUploadingFoto1(true);
+      const resultado = await subirFoto(formData._foto1File);
+      dataToSave.foto1URL = resultado.url;
+      dataToSave.foto1Name = resultado.name;
+      setUploadingFoto1(false);
       }
-      
+
       if (formData._foto2File) {
-        setUploadingFoto2(true);
-        const resultado = await subirFoto(formData._foto2File, equipoId, 2);
-        dataToSave.foto2URL = resultado.url;
-        dataToSave.foto2Name = resultado.name;
-        setUploadingFoto2(false);
+      setUploadingFoto2(true);
+      const resultado = await subirFoto(formData._foto2File);
+      dataToSave.foto2URL = resultado.url;
+      dataToSave.foto2Name = resultado.name;
+      setUploadingFoto2(false);
       }
       
       // Actualizar documento con URLs de fotos
@@ -1506,58 +1538,9 @@ export default function HojaVidaEquipos() {
                   )}
               </div>
 
-                {/* Sección: Fotos */}
-                {(registro.foto1URL || registro.foto2URL) && (
-                  <div style={styles.section}>
-                    <div style={styles.sectionTitle}>📸 Fotos del Equipo</div>
-                    <div style={{
-                      display: "grid",
-                      gridTemplateColumns: registro.foto1URL && registro.foto2URL ? "1fr 1fr" : "1fr",
-                      gap: 12
-                    }}>
-                      {registro.foto1URL && (
-                        <div>
-                          <img
-                            src={registro.foto1URL}
-                            alt="Foto 1"
-                            style={{
-                              width: "100%",
-                              height: "160px",
-                              objectFit: "cover",
-                              borderRadius: 8,
-                              border: "2px solid #e5e7eb",
-                              cursor: "pointer",
-                              transition: "transform 0.2s"
-                            }}
-                            onClick={() => window.open(registro.foto1URL, '_blank')}
-                            onMouseOver={(e) => e.target.style.transform = "scale(1.02)"}
-                            onMouseOut={(e) => e.target.style.transform = "scale(1)"}
-                          />
-                        </div>
-                      )}
-                      {registro.foto2URL && (
-                        <div>
-                          <img
-                            src={registro.foto2URL}
-                            alt="Foto 2"
-                            style={{
-                              width: "100%",
-                              height: "160px",
-                              objectFit: "cover",
-                              borderRadius: 8,
-                              border: "2px solid #e5e7eb",
-                              cursor: "pointer",
-                              transition: "transform 0.2s"
-                            }}
-                            onClick={() => window.open(registro.foto2URL, '_blank')}
-                            onMouseOver={(e) => e.target.style.transform = "scale(1.02)"}
-                            onMouseOut={(e) => e.target.style.transform = "scale(1)"}
-                          />
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
+                {/* Sección: Fotos desde Registro Fotográfico */}
+                <SeccionFotosEquipo nombrePC={registro.nombrePC} />
+
               </div>
 
               {/* Botones de acción */}

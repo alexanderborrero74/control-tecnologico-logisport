@@ -1,0 +1,16 @@
+=== TODOS LOS COMMITS DE MATRIZ.JS === 
+9bcd532 feat: edicion historial llamado, acceso rapido cuadrillas, filtro inactivos
+ae7ffdb feat: campo nombre completo novedades + mini cuadrillas en matriz
+d3e2421 feat: novedades del Llamado a Lista (modoNovedad ops) aparecen en liquidacion
+fa460c1 feat: bloquear horas extras en matriz cuando trabajador tiene novedad activa
+e00faf5 feat: buscador de trabajadores individual en selector cuadrilla/trabajador
+a7bf8d1 fix: excluir cliente admon de la matriz de operaciones
+8a33ae1 feat: horas extras + novedades individuales en matriz; basico naranja solo si editado manualmente
+8c61f23 fix: parser Excel BASE_DATOS_PERSONAL v2 con headers en fila 2; inactivos en seccion separada roja
+ 
+=== COMMITS CON "conjunto" === 
+ae7ffdb feat: campo nombre completo novedades + mini cuadrillas en matriz
+ 
+=== COMMITS CON "Alfa" === 
+ 
+=== COMMITS CON "showConj" === 

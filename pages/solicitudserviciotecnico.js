@@ -1,170 +1,161 @@
-// pages/solicitudserviciotecnico.js — LOGISPORT (actualizado con usuarios dinámicos)
+// pages/solicitudserviciotecnico.js — LOGISPORT
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { db } from "@/firebase/firebaseConfig";
 import {
-  collection,
-  addDoc,
-  getDocs,
-  deleteDoc,
-  doc,
-  runTransaction,
-  getDoc,
-  serverTimestamp,
-  query,
-  where,
+  collection, addDoc, getDocs, deleteDoc, doc,
+  runTransaction, getDoc, serverTimestamp, query, where,
 } from "firebase/firestore";
-import { getAuth } from "firebase/auth";
+import { getAuth, onAuthStateChanged } from "firebase/auth";
+import { getUserRoleByUid } from "@/utils/getUserRole";
+import { useUsuarios } from "@/utils/useUsuarios";
 import { BRAND } from "@/utils/branding";
 import LayoutWithSidebar from "@/components/LayoutWithSidebar";
 import PageHeader from "@/components/PageHeader";
-import { useUsuarios } from "@/utils/useUsuarios";
 
-/* ==================== HELPERS ==================== */
-// Prefijo por marca
-function formatearConsecutivo(n) {
-  const pref = BRAND?.codePrefix || "LOGI";
-  const num = Math.max(1, Number(n) || 1);
-  const s = String(num);
-  const width = Math.max(4, s.length);
-  return pref + s.padStart(width, "0");
-}
-
-// Solo LOGI0001, LOGI0002,...
 function formatearConsecutivoLOGI(n) {
   const num = Math.max(1, Number(n) || 1);
   const s = String(num);
-  const width = Math.max(4, s.length);
-  return "LOGI" + s.padStart(width, "0");
+  return "LOGI" + s.padStart(Math.max(4, s.length), "0");
 }
 
-/** Extrae números de cadenas tipo:
- *  "LOGI0001" → 1
- *  "LOGI1694200000" → 1694200000
- *  "cualquier 123" → 123
- */
 function parseNumero(str) {
   const s = String(str || "");
-  const mLogi = s.match(/LOGI\s*(\d+)/i);
-  if (mLogi) return Number(mLogi[1]);
-  const mAny = s.match(/(\d+)/);
-  return mAny ? Number(mAny[1]) : 0;
+  const m = s.match(/LOGI\s*(\d+)/i) || s.match(/(\d+)/);
+  return m ? Number(m[1]) : 0;
 }
 
-// Código aleatorio 4 chars
 function generarCodigoAleatorio() {
-  const caracteres = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  let codigo = "";
-  for (let i = 0; i < 4; i++) {
-    codigo += caracteres.charAt(Math.floor(Math.random() * caracteres.length));
-  }
-  return codigo;
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  return Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
 }
 
-// Pedir clave para eliminar
 async function pedirClave() {
-  const valor = prompt("Ingrese la clave de eliminación (formato 2025.2025):", "");
-  if (valor === null) return null;
-  return valor;
+  const v = prompt("Ingrese la clave de eliminación (formato 2025.2025):", "");
+  return v;
 }
 
-// Obtener siguiente número vía transacción (contadores/solicitudes_<PREF>)
 async function obtenerNumeroConsecutivo() {
   const ref = doc(db, "contadores", `solicitudes_${BRAND?.codePrefix || "LOGI"}`);
-  const numero = await runTransaction(db, async (tx) => {
+  return await runTransaction(db, async (tx) => {
     const snap = await tx.get(ref);
-    if (!snap.exists()) {
-      tx.set(ref, { valor: 1 });
-      return 1;
-    }
-    const actual = Number(snap.data().valor || 0);
-    const nuevo = actual + 1;
+    if (!snap.exists()) { tx.set(ref, { valor: 1 }); return 1; }
+    const nuevo = Number(snap.data().valor || 0) + 1;
     tx.update(ref, { valor: nuevo });
     return nuevo;
   });
-  return numero;
 }
 
-/* ==================== ENVÍO DE CORREOS ==================== */
 async function enviarCorreo(to, subject, text) {
   try {
-    const destinatario = String(to || "").trim();
-    if (!destinatario) return;
-    const res = await fetch("/api/enviarCorreoElectronico", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ to: destinatario, subject, text }),
+    // Acepta string o array de correos
+    const lista = Array.isArray(to) ? to : [String(to || "").trim()];
+    const limpios = lista.map(s => String(s || "").trim()).filter(Boolean);
+    if (limpios.length === 0) return;
+    await fetch("/api/enviarCorreoElectronico", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ to: limpios, subject, text }),
     });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      console.error("Fallo al enviar correo:", data?.error || res.statusText);
-    }
-  } catch (e) {
-    console.error("Error de red enviando correo:", e);
-  }
+  } catch (e) { console.error("Error enviando correo:", e); }
 }
 
-/* ==================== COMPONENTE PRINCIPAL ==================== */
+function CampoReadonly({ label, value }) {
+  if (!value) return null;
+  return (
+    <div style={{ display: "grid", gap: 2 }}>
+      <span style={{ fontSize: 11, fontWeight: 700, color: "#6b7280", textTransform: "uppercase" }}>{label}</span>
+      <span style={{ fontSize: 14, color: "#1f2937", fontWeight: 500 }}>{value}</span>
+    </div>
+  );
+}
+
 const SolicitudServicioTecnico = () => {
   const router = useRouter();
+  const [rol, setRol] = useState("cargando");
+  const [datosUsuarioLogueado, setDatosUsuarioLogueado] = useState(null);
+  const { usuarios } = useUsuarios();
 
-  // Cargar usuarios desde Firestore usando el hook
-  const { usuarios, loading: loadingUsuarios, recargar: recargarUsuarios } = useUsuarios();
-
-  // Filtrar solo usuarios activos
-  const usuariosActivos = usuarios.filter((u) => u.activo !== false);
-
-  // Select de usuario
-  const [usuarioSeleccionado, setUsuarioSeleccionado] = useState("");
-
-  // Form
   const [formData, setFormData] = useState({
-    nombre: "",
-    correo: "",
-    descripcion: "",
-    fecha: new Date(),
-    codigo: generarCodigoAleatorio(),
+    nombre: "", cargo: "", correo: "", descripcion: "",
+    fecha: new Date(), codigo: generarCodigoAleatorio(),
   });
 
-  // Consecutivo visible
   const [previewConsecutivo, setPreviewConsecutivo] = useState("LOGI0001");
   const [ultimoAsignado, setUltimoAsignado] = useState("");
-
-  // Estado UI
   const [registros, setRegistros] = useState([]);
   const [mensaje, setMensaje] = useState("");
   const [enviando, setEnviando] = useState(false);
 
-  // Inicializar usuario seleccionado cuando carguen los usuarios
+  // ── Detectar rol y cargar datos del usuario logueado ─────────────────────
   useEffect(() => {
-    if (usuariosActivos.length > 0 && !usuarioSeleccionado) {
-      const primerUsuario = usuariosActivos[0].nombre;
-      setUsuarioSeleccionado(primerUsuario);
-      setFormData((prev) => ({ ...prev, nombre: primerUsuario }));
-    }
-  }, [usuariosActivos, usuarioSeleccionado]);
+    const auth = getAuth();
+    const unsub = onAuthStateChanged(auth, async (u) => {
+      if (!u) { router.replace("/login"); return; }
+      try {
+        const r = await getUserRoleByUid(u.uid);
+        setRol(r || "usuario");
 
-  // Cargar registros del usuario autenticado
-  const cargarRegistros = async () => {
+        const q = query(collection(db, "usuariosCatalogo"), where("email", "==", u.email));
+        const snap = await getDocs(q);
+        let datosCatalogo = { nombre: u.displayName || "", cargo: "", email: u.email || "" };
+        if (!snap.empty) {
+          const d = snap.docs[0].data();
+          datosCatalogo = {
+            nombre: d.nombre || u.displayName || u.email?.split("@")[0] || "",
+            cargo: d.cargo || "",
+            email: d.email || u.email || ""
+          };
+        } else {
+          // No está en catálogo — usar email como nombre de respaldo
+          datosCatalogo.nombre = u.displayName || u.email?.split("@")[0] || "";
+        }
+        setDatosUsuarioLogueado(datosCatalogo);
+
+        // Pre-llenar para roles no-admin
+        const rolesAdmin = ["admin", "tecnico", "auditor"];
+        if (!rolesAdmin.includes(r || "usuario")) {
+          setFormData(prev => ({
+            ...prev,
+            nombre: datosCatalogo.nombre,
+            cargo: datosCatalogo.cargo,
+            correo: datosCatalogo.email
+          }));
+        }
+      } catch { setRol("usuario"); }
+    });
+    return () => unsub();
+  }, [router]);
+
+  // ── Cargar registros ──────────────────────────────────────────────────────
+  useEffect(() => {
+    if (rol === "cargando") return;
+    const auth = getAuth();
+    const uid = auth.currentUser?.uid;
+    const rolesAdmin = ["admin", "tecnico", "auditor"];
+    if (rolesAdmin.includes(rol)) cargarRegistrosAdmin();
+    else if (uid) cargarRegistrosUsuario(uid);
+  }, [rol]);
+
+  const cargarRegistrosAdmin = async () => {
     try {
-      const auth = getAuth();
-      const uid = auth.currentUser?.uid || "__none__";
-      const qUser = query(collection(db, "solicitudes"), where("uid", "==", uid));
-      const snap = await getDocs(qUser);
-      const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      setRegistros(data);
-    } catch (error) {
-      console.error("Error cargando registros:", error);
-    }
+      const snap = await getDocs(collection(db, "solicitudes"));
+      setRegistros(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    } catch (e) { console.error(e); }
   };
 
-  useEffect(() => {
-    cargarRegistros();
-  }, []);
+  const cargarRegistrosUsuario = async (uid) => {
+    try {
+      const q = query(collection(db, "solicitudes"), where("uidCreador", "==", uid));
+      const snap = await getDocs(q);
+      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      data.sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+      setRegistros(data);
+    } catch (e) { console.error(e); }
+  };
 
-  // Calcular próximo consecutivo
+  // Próximo consecutivo
   useEffect(() => {
     (async () => {
       try {
@@ -172,388 +163,289 @@ const SolicitudServicioTecnico = () => {
         const snap = await getDoc(ref);
         const base = snap.exists() ? Number(snap.data()?.valor || 0) + 1 : 1;
         setPreviewConsecutivo(formatearConsecutivoLOGI(base));
-      } catch {
-        setPreviewConsecutivo("LOGI0001");
-      }
+      } catch { setPreviewConsecutivo("LOGI0001"); }
     })();
   }, []);
 
-  // Handlers
-  const handleSelectUsuario = (e) => {
-    const val = e.target.value;
-    setUsuarioSeleccionado(val);
-    
-    // Buscar el usuario seleccionado para obtener su email
-    const usuarioEncontrado = usuariosActivos.find((u) => u.nombre === val);
-    
-    setFormData((prev) => ({ 
-      ...prev, 
-      nombre: val,
-      correo: usuarioEncontrado?.email || prev.correo
-    }));
-  };
-
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    if (name === "nombre") return; // nombre proviene del select
-    setFormData((prev) => ({ ...prev, [name]: value }));
+  // Admin selecciona usuario → auto-llena cargo y correo
+  const handleSeleccionarUsuario = (nombre) => {
+    const encontrado = usuarios.find(u => u.nombre?.toLowerCase() === nombre?.toLowerCase());
+    setFormData(prev => ({ ...prev, nombre, cargo: encontrado?.cargo || "", correo: encontrado?.email || "" }));
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setEnviando(true);
-    setMensaje("");
-    setUltimoAsignado("");
 
-    // 1) Consecutivo LOGI0001...
-    let consecutivo = "LOGI0001";
-    let numeroAsignado = 1;
-    try {
-      const numero = await obtenerNumeroConsecutivo();
-      numeroAsignado = numero;
-      consecutivo = formatearConsecutivoLOGI(numero);
-    } catch (e) {
-      console.error("No se pudo asignar consecutivo por transacción (usando fallback):", e);
-      const ts = Math.floor(Date.now() / 1000);
-      consecutivo = (BRAND?.codePrefix || "LOGI") + String(ts);
-      numeroAsignado = parseNumero(consecutivo);
+    // Si no hay nombre, usar la parte del correo antes del @ como nombre de respaldo
+    const nombreFinal = (formData.nombre || "").trim() ||
+      (formData.correo ? formData.correo.split("@")[0] : "") ||
+      (datosUsuarioLogueado?.email ? datosUsuarioLogueado.email.split("@")[0] : "");
+
+    if (!nombreFinal) { setMensaje("Error: No se pudo identificar al solicitante."); return; }
+
+    // Actualizar formData con el nombre final antes de guardar
+    if (!formData.nombre.trim()) {
+      setFormData(prev => ({ ...prev, nombre: nombreFinal }));
     }
+    setEnviando(true); setMensaje(""); setUltimoAsignado("");
 
-    // 2) Nuevo documento (incluye uid para reglas)
+    let consecutivo = "LOGI0001"; let numeroAsignado = 1;
+    try {
+      numeroAsignado = await obtenerNumeroConsecutivo();
+      consecutivo = formatearConsecutivoLOGI(numeroAsignado);
+    } catch { const ts = Math.floor(Date.now() / 1000); consecutivo = "LOGI" + ts; numeroAsignado = parseNumero(consecutivo); }
+
     const auth = getAuth();
     const u = auth.currentUser;
-    if (!u) {
-      setEnviando(false);
-      setMensaje("Error: no hay sesión activa.");
-      return;
-    }
+    if (!u) { setEnviando(false); setMensaje("Error: no hay sesión activa."); return; }
 
     const nuevoRegistro = {
-      uid: u.uid,
-      email: u.email || "",
-      uidCreador: u.uid,
-      nombre: formData.nombre,
-      correo: formData.correo,
-      descripcion: formData.descripcion,
-      fecha: formData.fecha.toISOString(),
-      consecutivo,
-      codigo: formData.codigo,
-      finalizado: false,
-      createdAt: serverTimestamp(),
+      uid: u.uid, email: u.email || "", uidCreador: u.uid,
+      nombre: nombreFinal,
+      cargo: formData.cargo || datosUsuarioLogueado?.cargo || "",
+      correo: formData.correo || datosUsuarioLogueado?.email || u.email || "",
+      descripcion: formData.descripcion, fecha: formData.fecha.toISOString(),
+      consecutivo, codigo: formData.codigo, finalizado: false, createdAt: serverTimestamp(),
     };
 
     try {
       await addDoc(collection(db, "solicitudes"), nuevoRegistro);
 
-      // 3) Correos
+      // Correos
       try {
         const asunto = `Solicitud de servicio técnico ${consecutivo}`;
-
-        const cuerpoSoporte = [
-          `Nueva solicitud de servicio técnico.`,
-          `Datos:`,
-          `- Consecutivo: ${nuevoRegistro.consecutivo}`,
-          `- Fecha: ${new Date(formData.fecha).toLocaleString()}`,
-          `- Solicitante: ${nuevoRegistro.nombre || ""}`,
-          `- Descripción: ${nuevoRegistro.descripcion || ""}`,
-          ``,
-          `SoporteIA.net`,
-        ].join("\n");
-
-        const cuerpoUsuario = [
-          `Hola ${nuevoRegistro.nombre || ""},`,
-          ``,
-          `Hemos recibido tu solicitud de servicio técnico.`,
-          `Datos:`,
-          `- Consecutivo: ${nuevoRegistro.consecutivo}`,
-          `- Código: ${nuevoRegistro.codigo}`,
-          `- Fecha: ${new Date(formData.fecha).toLocaleString()}`,
-          `- Descripción: ${nuevoRegistro.descripcion || ""}`,
-          ``,
-          `Pronto te contactaremos.`,
-          ``,
-          `SoporteIA.net`,
-        ].join("\n");
-
-        enviarCorreo("soportesistemas@soporteia.net", asunto, cuerpoSoporte);
-
-        if (
-          nuevoRegistro.correo &&
-          /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(nuevoRegistro.correo).trim())
-        ) {
+        const cuerpoSoporte = [`Nueva solicitud de servicio técnico.`, ``, `- Consecutivo: ${consecutivo}`, `- Fecha: ${new Date(formData.fecha).toLocaleString()}`, `- Solicitante: ${nuevoRegistro.nombre}`, `- Cargo: ${nuevoRegistro.cargo || "—"}`, `- Correo: ${nuevoRegistro.correo}`, `- Descripción: ${nuevoRegistro.descripcion}`, ``, `SoporteIA.net`].join("\n");
+        const cuerpoUsuario = [`Hola ${nuevoRegistro.nombre},`, ``, `Hemos recibido tu solicitud.`, ``, `- Consecutivo: ${consecutivo}`, `- Código: ${nuevoRegistro.codigo}`, `- Descripción: ${nuevoRegistro.descripcion}`, ``, `Pronto te contactaremos.`, ``, `LOGISPORT — Área de Sistemas`].join("\n");
+        enviarCorreo(["soportesistemas@soporteia.net", "rivascamiloelian@gmail.com"], asunto, cuerpoSoporte);
+        if (nuevoRegistro.correo && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nuevoRegistro.correo.trim())) {
           enviarCorreo(nuevoRegistro.correo, asunto, cuerpoUsuario);
         }
-      } catch (e) {
-        console.error("Aviso: no se pudo enviar el correo de notificación:", e);
+      } catch (e) { console.error(e); }
+
+      setUltimoAsignado(consecutivo);
+      if (numeroAsignado > 0) setPreviewConsecutivo(formatearConsecutivoLOGI(numeroAsignado + 1));
+      setMensaje("¡Solicitud enviada con éxito!");
+
+      const rolesAdmin = ["admin", "tecnico", "auditor"];
+      if (rolesAdmin.includes(rol)) {
+        setFormData({ nombre: "", cargo: "", correo: "", descripcion: "", fecha: new Date(), codigo: generarCodigoAleatorio() });
+        cargarRegistrosAdmin();
+      } else {
+        setFormData(prev => ({ nombre: datosUsuarioLogueado?.nombre || prev.nombre, cargo: datosUsuarioLogueado?.cargo || prev.cargo, correo: datosUsuarioLogueado?.email || prev.correo, descripcion: "", fecha: new Date(), codigo: generarCodigoAleatorio() }));
+        cargarRegistrosUsuario(u.uid);
       }
 
-      // 4) UI
-      setUltimoAsignado(consecutivo);
-      if (numeroAsignado > 0) {
-        setPreviewConsecutivo(formatearConsecutivoLOGI(numeroAsignado + 1));
-      }
-      setMensaje("¡Solicitud enviada con éxito!");
-      
-      // Resetear formulario manteniendo el usuario seleccionado
-      setFormData({
-        nombre: usuarioSeleccionado,
-        correo: usuariosActivos.find((u) => u.nombre === usuarioSeleccionado)?.email || "",
-        descripcion: "",
-        fecha: new Date(),
-        codigo: generarCodigoAleatorio(),
-      });
-      
-      cargarRegistros();
+      const deseaOtra = window.confirm("Solicitud enviada.\n\n¿Deseas enviar otra solicitud?");
+      if (!deseaOtra) router.push("/");
     } catch (error) {
-      console.error("Error al enviar:", error);
       setMensaje("Error: " + error.message);
-    } finally {
-      setEnviando(false);
-    }
+    } finally { setEnviando(false); }
   };
 
   const eliminarRegistro = async (id) => {
-    const claveIngresada = await pedirClave();
-    if (claveIngresada == null) return;
-
-    const clave = String(claveIngresada).trim();
-    if (clave !== "2025.2025") {
-      alert("Clave incorrecta. No se eliminó el registro.");
-      return;
-    }
-
+    const clave = await pedirClave();
+    if (clave == null) return;
+    if (String(clave).trim() !== "2025.2025") { alert("Clave incorrecta."); return; }
     try {
       await deleteDoc(doc(db, "solicitudes", id));
-      setRegistros((prev) => prev.filter((r) => r.id !== id));
-      alert("Registro eliminado correctamente.");
-    } catch (error) {
-      console.error("Error al eliminar:", error);
-      alert("Error eliminando registro: " + error.message);
-    }
+      setRegistros(prev => prev.filter(r => r.id !== id));
+      alert("Eliminado correctamente.");
+    } catch (error) { alert("Error: " + error.message); }
   };
+
+  if (rol === "cargando") return null;
+  const rolesAdmin = ["admin", "tecnico", "auditor"];
+  const esAdmin = rolesAdmin.includes(rol);
 
   return (
     <LayoutWithSidebar>
       <PageHeader titulo="Solicitud de Servicio Técnico" />
-      <div style={{ padding: "20px", fontFamily: "Arial, sans-serif" }}>
-        {/* Encabezado */}
-        <div
-          style={{
-            backgroundColor: "#007acc",
-            color: "white",
-            padding: "10px",
-            borderRadius: "10px",
-            boxShadow: "0 4px 10px rgba(0, 0, 0, 0.2)",
-          }}
-        >
-          <h1
-            style={{
-              fontSize: "36px",
-              color: "#2c3e50",
-              textShadow: "2px 2px 4px rgba(0,0,0,0.3)",
-              fontWeight: "900",
-              letterSpacing: "1px",
-              textAlign: "center",
-              marginBottom: "12px",
-            }}
-          >
-            Solicitud servicios técnicos
-          </h1>
+      <div style={{ fontFamily: "Arial, sans-serif" }}>
 
-          {/* Barra informativa de consecutivo visible */}
-          <div
-            style={{
-              background: "#fff",
-              color: "#111827",
-              borderRadius: 8,
-              padding: "8px 12px",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 10,
-              boxShadow: "0 1px 4px rgba(0,0,0,0.08)",
-            }}
-          >
+        {/* Consecutivo */}
+        <div style={{ backgroundColor: "#0B3D91", color: "white", padding: "10px", borderRadius: "10px", boxShadow: "0 4px 10px rgba(0,0,0,0.2)", marginBottom: 16 }}>
+          <div style={{ background: "#fff", color: "#111827", borderRadius: 8, padding: "8px 12px", display: "inline-flex", alignItems: "center", gap: 10 }}>
             <span style={{ fontWeight: 700 }}>Consecutivo:</span>
             {ultimoAsignado ? (
-              <>
-                <span style={{ color: "#059669", fontWeight: 800 }}>Asignado {ultimoAsignado}</span>
-                <span style={{ color: "#6b7280" }}>• Próximo {previewConsecutivo}</span>
-              </>
+              <><span style={{ color: "#059669", fontWeight: 800 }}>Asignado {ultimoAsignado}</span><span style={{ color: "#6b7280" }}>• Próximo {previewConsecutivo}</span></>
             ) : (
               <span style={{ color: "#1f2937" }}>Próximo {previewConsecutivo}</span>
             )}
           </div>
         </div>
 
-        {/* Formulario */}
-        <form onSubmit={handleSubmit} style={{ display: "grid", gap: "16px", marginTop: "24px" }}>
-          {/* Select de usuario (dinámico desde Firestore) */}
-          <div style={{ display: "grid", gap: 6 }}>
-            <label style={{ fontWeight: 600 }}>Usuario solicitante</label>
-            {loadingUsuarios ? (
-              <div style={{ padding: "10px", color: "#6b7280" }}>Cargando usuarios...</div>
-            ) : usuariosActivos.length === 0 ? (
-              <div style={{ padding: "10px", color: "#ef4444" }}>
-                No hay usuarios disponibles. Por favor, cree usuarios en Admin de Usuarios.
-              </div>
-            ) : (
-              <select
-                value={usuarioSeleccionado}
-                onChange={handleSelectUsuario}
-                style={{ padding: "10px", borderRadius: "8px", border: "1px solid #ccc" }}
-                required
-              >
-                <option value="">-- Seleccione un usuario --</option>
-                {usuariosActivos.map((u) => (
-                  <option key={u.id} value={u.nombre}>
-                    {u.nombre} {u.cargo ? `(${u.cargo})` : ""}
-                  </option>
+        <form onSubmit={handleSubmit} style={{ display: "grid", gap: "16px" }}>
+
+          {/* Datos del solicitante */}
+          {esAdmin ? (
+            <div style={{ display: "grid", gap: 10 }}>
+              <label style={{ fontWeight: 700, color: "#374151" }}>Usuario solicitante</label>
+              <select value={formData.nombre} onChange={e => handleSeleccionarUsuario(e.target.value)} required
+                style={{ padding: "10px", borderRadius: "8px", border: "1px solid #ccc", fontSize: 14 }}>
+                <option value="">— Seleccione un usuario —</option>
+                {usuarios.filter(u => u.activo !== false).map(u => (
+                  <option key={u.id} value={u.nombre}>{u.nombre}{u.cargo ? ` · ${u.cargo}` : ""}</option>
                 ))}
               </select>
-            )}
-          </div>
+              {formData.nombre && (
+                <div style={{ background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 8, padding: "12px 14px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 20px" }}>
+                  <CampoReadonly label="Nombre" value={formData.nombre} />
+                  <CampoReadonly label="Cargo"  value={formData.cargo  || "Sin cargo"} />
+                  <CampoReadonly label="Correo" value={formData.correo || "Sin correo"} />
+                </div>
+              )}
+            </div>
+          ) : (
+            <div style={{ background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 10, padding: "14px 16px" }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#0369a1", textTransform: "uppercase", marginBottom: 8 }}>👤 Solicitante</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 20px" }}>
+                <CampoReadonly label="Nombre" value={formData.nombre || "—"} />
+                <CampoReadonly label="Cargo"  value={formData.cargo  || "Sin cargo asignado"} />
+                <CampoReadonly label="Correo" value={formData.correo || "—"} />
+              </div>
+              <input type="hidden" value={formData.nombre} />
+              <input type="hidden" value={formData.cargo} />
+              <input type="hidden" value={formData.correo} />
+            </div>
+          )}
 
-          {/* Nombre (solo lectura, proviene del select) */}
-          <input
-            type="text"
-            name="nombre"
-            placeholder="Nombre"
-            value={formData.nombre}
-            onChange={handleChange}
-            readOnly
-            style={{
-              padding: "10px",
-              borderRadius: "8px",
-              border: "1px solid #ccc",
-              background: "#f3f4f6",
-            }}
-          />
+          <DatePicker selected={formData.fecha} onChange={date => setFormData(prev => ({ ...prev, fecha: date }))} dateFormat="dd/MM/yyyy"
+            customInput={<input style={{ padding: "10px", borderRadius: "8px", border: "1px solid #ccc", width: "100%" }} />} />
 
-          {/* Correo (editable, se autocompleta desde usuario) */}
-          <input
-            type="email"
-            name="correo"
-            placeholder="Correo electrónico del solicitante"
-            value={formData.correo}
-            onChange={handleChange}
-            style={{ padding: "10px", borderRadius: "8px", border: "1px solid #ccc" }}
-          />
+          <input type="text" value={formData.codigo} readOnly
+            style={{ padding: "10px", borderRadius: "8px", border: "1px solid #ccc", backgroundColor: "#e9ecef", color: "#495057", fontWeight: "bold" }} />
 
-          {/* Fecha */}
-          <DatePicker
-            selected={formData.fecha}
-            onChange={(date) => setFormData((prev) => ({ ...prev, fecha: date }))}
-            dateFormat="dd/MM/yyyy"
-            customInput={
-              <input style={{ padding: "10px", borderRadius: "8px", border: "1px solid #ccc" }} />
-            }
-          />
+          <input type="text" value={ultimoAsignado ? `Asignado: ${ultimoAsignado}` : `Próximo: ${previewConsecutivo}`} readOnly
+            style={{ padding: "10px", borderRadius: "8px", border: "1px solid #ccc", color: "#374151", backgroundColor: "#f3f4f6", fontStyle: "italic" }} />
 
-          {/* Código generado */}
-          <input
-            type="text"
-            name="codigo"
-            placeholder="Código generado automáticamente"
-            value={formData.codigo}
-            readOnly
-            style={{
-              padding: "10px",
-              borderRadius: "8px",
-              border: "1px solid #ccc",
-              backgroundColor: "#e9ecef",
-              color: "#495057",
-              fontWeight: "bold",
-            }}
-          />
+          <textarea name="descripcion" placeholder="Descripción del problema o servicio solicitado"
+            value={formData.descripcion} onChange={e => setFormData(prev => ({ ...prev, descripcion: e.target.value }))}
+            rows={4} required style={{ padding: "10px", borderRadius: "8px", border: "1px solid #ccc" }} />
 
-          {/* Consecutivo próximo */}
-          <input
-            type="text"
-            name="consecutivo_preview"
-            placeholder="Consecutivo (se asignará automáticamente)"
-            value={ultimoAsignado ? `Asignado: ${ultimoAsignado}` : `Próximo: ${previewConsecutivo}`}
-            readOnly
-            style={{
-              padding: "10px",
-              borderRadius: "8px",
-              border: "1px solid #ccc",
-              color: "#374151",
-              backgroundColor: "#f3f4f6",
-              fontStyle: "italic",
-            }}
-          />
-
-          {/* Descripción */}
-          <textarea
-            name="descripcion"
-            placeholder="Descripción del problema"
-            value={formData.descripcion}
-            onChange={handleChange}
-            rows={4}
-            style={{ padding: "10px", borderRadius: "8px", border: "1px solid #ccc" }}
-            required
-          />
-
-          <button
-            type="submit"
-            disabled={enviando || usuariosActivos.length === 0}
-            style={{
-              backgroundColor: enviando || usuariosActivos.length === 0 ? "#aaa" : "#007acc",
-              color: "white",
-              padding: "12px 20px",
-              border: "none",
-              borderRadius: "8px",
-              cursor: enviando || usuariosActivos.length === 0 ? "not-allowed" : "pointer",
-              fontWeight: "bold",
-            }}
-          >
+          <button type="submit" disabled={enviando}
+            style={{ backgroundColor: enviando ? "#aaa" : "#0B3D91", color: "white", padding: "12px 20px", border: "none", borderRadius: "8px", cursor: enviando ? "not-allowed" : "pointer", fontWeight: "bold" }}>
             {enviando ? "Enviando..." : "Enviar solicitud"}
           </button>
         </form>
 
-        {mensaje && (
-          <p style={{ marginTop: "10px", color: mensaje.startsWith("Error") ? "red" : "green" }}>
-            {mensaje}
-          </p>
+        {mensaje && <p style={{ marginTop: "10px", color: mensaje.startsWith("Error") ? "red" : "green", fontWeight: 600 }}>{mensaje}</p>}
+
+        {/* ── Lista Admin ── */}
+        {esAdmin && (
+          <div style={{ marginTop: 28 }}>
+            <h2 style={{ margin: "0 0 10px", fontSize: 18, fontWeight: 700, color: "#111827" }}>
+              Solicitudes registradas <span style={{ fontSize: 13, fontWeight: 500, color: "#6b7280" }}>({registros.length})</span>
+            </h2>
+            {registros.length === 0 ? (
+              <p style={{ color: "#6b7280", padding: 24, background: "white", borderRadius: 10, border: "1px solid #e5e7eb", textAlign: "center" }}>No hay solicitudes aún.</p>
+            ) : (
+              <div style={{ background: "white", borderRadius: 10, border: "1px solid #e5e7eb", overflow: "auto", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ background: "#f9fafb" }}>
+                      {["#", "Fecha", "Solicitante", "Cargo", "Descripción", "Código", "Estado", "Eliminar"].map(h => (
+                        <th key={h} style={{ padding: "9px 12px", textAlign: "left", fontSize: 11, fontWeight: 700, color: "#6b7280", borderBottom: "1px solid #e5e7eb", whiteSpace: "nowrap" }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...registros].sort((a, b) => new Date(b.fecha) - new Date(a.fecha)).map((reg, i) => (
+                      <tr key={reg.id}
+                        style={{ borderBottom: "1px solid #f3f4f6", background: i % 2 === 0 ? "white" : "#fafafa" }}
+                        onMouseEnter={e => e.currentTarget.style.background = "#f0f9ff"}
+                        onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? "white" : "#fafafa"}
+                      >
+                        <td style={{ padding: "8px 12px" }}>
+                          <span style={{ background: "#dbeafe", color: "#1e40af", padding: "2px 7px", borderRadius: 5, fontWeight: 700, fontSize: 11 }}>{reg.consecutivo}</span>
+                        </td>
+                        <td style={{ padding: "8px 12px", whiteSpace: "nowrap", color: "#374151" }}>
+                          {reg.fecha ? new Date(reg.fecha).toLocaleDateString("es-CO") : "—"}
+                        </td>
+                        <td style={{ padding: "8px 12px" }}>
+                          <div style={{ fontWeight: 600, color: "#111827" }}>{reg.nombre || "—"}</div>
+                          {reg.correo && <div style={{ fontSize: 11, color: "#9ca3af" }}>{reg.correo}</div>}
+                        </td>
+                        <td style={{ padding: "8px 12px", color: "#374151", whiteSpace: "nowrap" }}>{reg.cargo || "—"}</td>
+                        <td style={{ padding: "8px 12px", maxWidth: 200 }}>
+                          <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 200, color: "#374151" }} title={reg.descripcion}>
+                            {reg.descripcion || "—"}
+                          </div>
+                        </td>
+                        <td style={{ padding: "8px 12px" }}>
+                          <span style={{ background: "#f3f4f6", color: "#374151", padding: "2px 7px", borderRadius: 5, fontWeight: 700, fontSize: 11, fontFamily: "monospace" }}>{reg.codigo}</span>
+                        </td>
+                        <td style={{ padding: "8px 12px" }}>
+                          <span style={{ padding: "2px 8px", borderRadius: 5, fontSize: 11, fontWeight: 700, background: reg.finalizado ? "#d1fae5" : "#fee2e2", color: reg.finalizado ? "#065f46" : "#991b1b" }}>
+                            {reg.finalizado ? "✅ Atendida" : "🔴 Pendiente"}
+                          </span>
+                        </td>
+                        <td style={{ padding: "8px 12px" }}>
+                          <button onClick={() => eliminarRegistro(reg.id)}
+                            style={{ background: "#dc2626", color: "white", border: "none", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontWeight: 600, fontSize: 12 }}>
+                            Eliminar
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         )}
 
-        {/* Listado simple */}
-        <h2 style={{ marginTop: "32px", color: "#2c3e50" }}>Solicitudes registradas</h2>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "16px", marginTop: "10px" }}>
-          {registros.map((reg) => (
-            <div
-              key={reg.id}
-              style={{
-                border: "1px solid #ccc",
-                borderRadius: "10px",
-                padding: "15px",
-                width: "calc(33% - 16px)",
-                boxSizing: "border-box",
-                minWidth: "260px",
-              }}
-            >
-              <p><strong>Consecutivo:</strong> {reg.consecutivo}</p>
-              <p><strong>Código:</strong> {reg.codigo}</p>
-              <p><strong>Nombre:</strong> {reg.nombre}</p>
-              <p><strong>Correo:</strong> {reg.correo}</p>
-              <p><strong>Fecha:</strong> {reg.fecha ? new Date(reg.fecha).toLocaleString() : ""}</p>
-              <p><strong>Descripción:</strong> {reg.descripcion}</p>
-              <button
-                onClick={() => eliminarRegistro(reg.id)}
-                style={{
-                  padding: "6px 12px",
-                  borderRadius: "6px",
-                  border: "none",
-                  color: "white",
-                  cursor: "pointer",
-                  backgroundColor: "#dc3545",
-                }}
-              >
-                Eliminar
-              </button>
-            </div>
-          ))}
-        </div>
+        {/* ── Lista Usuario ── */}
+        {!esAdmin && (
+          <div style={{ marginTop: 28 }}>
+            <h2 style={{ margin: "0 0 10px", fontSize: 18, fontWeight: 700, color: "#111827" }}>
+              Mis solicitudes <span style={{ fontSize: 13, fontWeight: 500, color: "#6b7280" }}>({registros.length})</span>
+            </h2>
+            {registros.length === 0 ? (
+              <p style={{ color: "#6b7280", padding: 24, background: "#f0f9ff", borderRadius: 10, border: "1px solid #bae6fd", textAlign: "center" }}>Aún no tienes solicitudes registradas.</p>
+            ) : (
+              <div style={{ background: "white", borderRadius: 10, border: "1px solid #e5e7eb", overflow: "auto", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ background: "#f0f9ff" }}>
+                      {["#", "Fecha", "Descripción", "Código", "Estado"].map(h => (
+                        <th key={h} style={{ padding: "9px 12px", textAlign: "left", fontSize: 11, fontWeight: 700, color: "#075985", borderBottom: "1px solid #bae6fd", whiteSpace: "nowrap" }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {registros.map((reg, i) => (
+                      <tr key={reg.id}
+                        style={{ borderBottom: "1px solid #f3f4f6", background: i % 2 === 0 ? "white" : "#f9feff" }}
+                        onMouseEnter={e => e.currentTarget.style.background = "#e0f2fe"}
+                        onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? "white" : "#f9feff"}
+                      >
+                        <td style={{ padding: "8px 12px" }}>
+                          <span style={{ background: "#dbeafe", color: "#1e40af", padding: "2px 7px", borderRadius: 5, fontWeight: 700, fontSize: 11 }}>{reg.consecutivo}</span>
+                        </td>
+                        <td style={{ padding: "8px 12px", whiteSpace: "nowrap", color: "#374151" }}>
+                          {reg.fecha ? new Date(reg.fecha).toLocaleDateString("es-CO") : "—"}
+                        </td>
+                        <td style={{ padding: "8px 12px", maxWidth: 300 }}>
+                          <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 300, color: "#374151" }} title={reg.descripcion}>
+                            {reg.descripcion || "—"}
+                          </div>
+                        </td>
+                        <td style={{ padding: "8px 12px" }}>
+                          <span style={{ background: "#f3f4f6", color: "#374151", padding: "2px 7px", borderRadius: 5, fontWeight: 700, fontSize: 11, fontFamily: "monospace" }}>{reg.codigo}</span>
+                        </td>
+                        <td style={{ padding: "8px 12px" }}>
+                          <span style={{ padding: "2px 8px", borderRadius: 5, fontSize: 11, fontWeight: 700, background: reg.finalizado ? "#d1fae5" : "#fef3c7", color: reg.finalizado ? "#065f46" : "#78350f" }}>
+                            {reg.finalizado ? "✅ Atendida" : "⏳ En proceso"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </LayoutWithSidebar>
   );

@@ -61,16 +61,39 @@ export async function agregarUsuario(usuarioData) {
       return { success: false, error: "Nombre y email son obligatorios" };
     }
 
+    const ahora = new Date();
+    const dias = Math.min(60, Math.max(1, Number(usuarioData.diasCaducidad) || 60));
+    const fechaCaducidad = new Date(ahora);
+    fechaCaducidad.setDate(fechaCaducidad.getDate() + dias);
+
     const userData = {
       nombre: usuarioData.nombre.trim(),
       email: usuarioData.email.trim(),
       cargo: usuarioData.cargo || "",
       rol: usuarioData.rol || "usuario",
       activo: usuarioData.activo !== false,
-      creadoEn: new Date().toISOString(),
+      uid: usuarioData.uid || "",
+      diasCaducidad: dias,
+      fechaCreadaClave: ahora.toISOString(),
+      fechaCaducidadClave: fechaCaducidad.toISOString(),
+      creadoEn: ahora.toISOString(),
     };
 
-    await addDoc(collection(db, "usuariosCatalogo"), userData);
+    const docRef = await addDoc(collection(db, "usuariosCatalogo"), userData);
+
+    // Historial de clave
+    await addDoc(collection(db, "historialClaves"), {
+      usuarioId:      docRef.id,
+      nombre:         userData.nombre,
+      email:          userData.email,
+      cargo:          userData.cargo,
+      evento:         "creacion",
+      diasCaducidad:  dias,
+      fechaCreacion:  ahora.toISOString(),
+      fechaCaducidad: fechaCaducidad.toISOString(),
+      creadoEn:       ahora.toISOString(),
+    });
+
     return { success: true };
   } catch (error) {
     console.error("Error agregando usuario:", error);
@@ -83,15 +106,33 @@ export async function agregarUsuario(usuarioData) {
  */
 export async function actualizarUsuario(id, datos) {
   try {
-    if (!id) {
-      return { success: false, error: "ID de usuario no proporcionado" };
-    }
+    if (!id) return { success: false, error: "ID de usuario no proporcionado" };
 
     const usuarioRef = doc(db, "usuariosCatalogo", id);
-    const datosActualizados = {
-      ...datos,
-      actualizadoEn: new Date().toISOString(),
-    };
+    const datosActualizados = { ...datos, actualizadoEn: new Date().toISOString() };
+
+    // Si se actualizó diasCaducidad, recalcular fechaCaducidadClave desde hoy
+    if (datos.diasCaducidad) {
+      const ahora = new Date();
+      const dias = Math.min(60, Math.max(1, Number(datos.diasCaducidad)));
+      const nuevaFecha = new Date(ahora);
+      nuevaFecha.setDate(nuevaFecha.getDate() + dias);
+      datosActualizados.fechaCaducidadClave = nuevaFecha.toISOString();
+      datosActualizados.fechaCreadaClave = ahora.toISOString();
+
+      // Registrar en historial
+      await addDoc(collection(db, "historialClaves"), {
+        usuarioId:      id,
+        nombre:         datos.nombre || "",
+        email:          datos.email  || "",
+        cargo:          datos.cargo  || "",
+        evento:         "renovacion_admin",
+        diasCaducidad:  dias,
+        fechaCreacion:  ahora.toISOString(),
+        fechaCaducidad: nuevaFecha.toISOString(),
+        creadoEn:       ahora.toISOString(),
+      });
+    }
 
     await updateDoc(usuarioRef, datosActualizados);
     return { success: true };
