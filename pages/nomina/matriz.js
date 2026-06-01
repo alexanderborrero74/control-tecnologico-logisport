@@ -610,7 +610,7 @@ const CONJUNTO_FORM_INIT = {
   netoCalculado: 0,
 };
 
-function ConjuntosPanel({ cuadrillas, servicios, clienteId, onGuardado, onClose }) {
+function ConjuntosPanel({ cuadrillas, servicios, clienteId, onGuardado, onClose, todosTrabajadores, clientes }) {
   const [form, setForm]   = useState({ ...CONJUNTO_FORM_INIT, fecha: hoy() });
   const [guardando, setGuardando] = useState(false);
   const [okMsg, setOkMsg] = useState("");
@@ -618,6 +618,8 @@ function ConjuntosPanel({ cuadrillas, servicios, clienteId, onGuardado, onClose 
   const [cargando, setCargando]   = useState(false);
   const [busq, setBusq]           = useState("");
   const [cuadExpandida, setCuadExpandida] = useState(null);
+  const [serviciosExtra, setServiciosExtra] = useState([]);
+  const sExtraNext = useRef(1);
 
   const recalc = (f) => {
     const n    = f.trabajadoresSeleccionados.length || 1;
@@ -630,12 +632,12 @@ function ConjuntosPanel({ cuadrillas, servicios, clienteId, onGuardado, onClose 
     return ["servicioValor","cantidad","trabajadoresSeleccionados"].includes(key) ? recalc(next) : next;
   });
 
-  const toggleTrab = (t, cuadNom) => {
+  const toggleTrab = (t, cuadNom, clienteNombre, clienteColor) => {
     const sel = form.trabajadoresSeleccionados;
     const ya  = sel.some(x => x.id === t.id);
     const nuevo = ya
       ? sel.filter(x => x.id !== t.id)
-      : [...sel, { id:t.id, nombre:t.nombre, cedula:t.cedula||"", cuadrillaNombre: cuadNom }];
+      : [...sel, { id:t.id, nombre:t.nombre, cedula:t.cedula||"", cuadrillaNombre: cuadNom, clienteNombre: clienteNombre||"SPIA", clienteColor: clienteColor||"#0B3D91" }];
     setF("trabajadoresSeleccionados", nuevo);
   };
 
@@ -644,6 +646,23 @@ function ConjuntosPanel({ cuadrillas, servicios, clienteId, onGuardado, onClose 
     if (!s) { setForm(prev => recalc({...prev, servicioId:"", servicioNombre:"", servicioValor:0})); return; }
     setForm(prev => recalc({...prev, servicioId:s.id, servicioNombre:s.nombre, servicioValor:s.valor||s.tarifa||0}));
   };
+
+  const sExtraAdd = () => setServiciosExtra(prev => [
+    ...prev, { uid: sExtraNext.current++, servicioId:"", servicioNombre:"", servicioValor:0, cantidad:1, netoCalculado:0 }
+  ]);
+  const sExtraUpdate = (uid, field, val) => setServiciosExtra(prev => prev.map(s => {
+    if (s.uid !== uid) return s;
+    const next = { ...s, [field]: val };
+    if (field === "servicioId") {
+      const srv = servicios.find(x => x.id === val);
+      next.servicioNombre = srv?.nombre || "";
+      next.servicioValor  = srv?.valor || srv?.tarifa || 0;
+    }
+    const n = form.trabajadoresSeleccionados.length || 1;
+    next.netoCalculado = Math.round(calcularNetoOperacion(parseFloat(next.servicioValor)||0, n, parseFloat(next.cantidad)||1)*100)/100;
+    return next;
+  }));
+  const sExtraRemove = (uid) => setServiciosExtra(prev => prev.filter(s => s.uid !== uid));
 
   const cargarHistorial = async () => {
     setCargando(true);
@@ -703,9 +722,33 @@ function ConjuntosPanel({ cuadrillas, servicios, clienteId, onGuardado, onClose 
         creadoEn:      new Date(),
         actualizadoEn: new Date(),
       });
+      // Servicios adicionales del conjunto
+      for (const se of serviciosExtra) {
+        if (!se.servicioNombre || !se.cantidad) continue;
+        const netoSe = Math.round(calcularNetoOperacion(parseFloat(se.servicioValor)||0, n, parseFloat(se.cantidad)||1)*100)/100;
+        await addDoc(collection(db,"nomina_operaciones"), {
+          clienteId, modoCiamsa:false, esConjunto:true, conjuntoId:ref.id,
+          cuadrillaId:`conjunto_${ref.id}`,
+          cuadrillaNombre:`🔗 ${form.nombre.trim().toUpperCase()}`,
+          cuadrilla:`🔗 ${form.nombre.trim().toUpperCase()}`,
+          cuadrillaPersonas:n,
+          fecha:Timestamp.fromDate(new Date(form.fecha+"T12:00:00")),
+          fechaStr:form.fecha,
+          servicioNombre:se.servicioNombre.toUpperCase(),
+          servicioValorUnitario:parseFloat(se.servicioValor)||0,
+          servicioValor:(parseFloat(se.servicioValor)||0)*parseFloat(se.cantidad||1),
+          cantidad:parseFloat(se.cantidad)||1, personas:n,
+          modoHorasExtras:false, horasExtras:null,
+          netoAPagar:netoSe,
+          trabajadoresAsisten:form.trabajadoresSeleccionados.map(t=>({id:t.id,nombre:t.nombre,cedula:t.cedula||""})),
+          trabajadoresAusentes:[],
+          creadoEn:new Date(), actualizadoEn:new Date(),
+        });
+      }
       setOkMsg(`✅ Conjunto "${form.nombre.trim().toUpperCase()}" guardado — ${n} trabajadores`);
       setTimeout(()=>setOkMsg(""),4000);
       setForm({...CONJUNTO_FORM_INIT, fecha:form.fecha});
+      setServiciosExtra([]);
       setBusq("");
       await cargarHistorial();
       onGuardado();
@@ -788,9 +831,12 @@ function ConjuntosPanel({ cuadrillas, servicios, clienteId, onGuardado, onClose 
               style={{...inputSt,padding:"0.45rem 0.75rem",fontSize:"0.82rem",marginBottom:"0.4rem"}}/>
             <div style={{border:`1.5px solid ${CONJ_COLOR}30`,borderRadius:"10px",overflow:"hidden",maxHeight:"260px",overflowY:"auto"}}>
               {cuadrillas.filter(c=>c.tipo!=="semanal").map(c => {
+                const cliId   = c.clienteId || "spia";
+                const cliInfo = (clientes||[]).find(x=>x.id===cliId) || {nombre:cliId.toUpperCase(),color:"#64748b"};
                 const miembrosFilt = (c.miembros||[]).filter(m =>
                   !q || m.nombre?.toLowerCase().includes(q) || String(m.cedula||'').includes(busq)
                 );
+                if (miembrosFilt.length===0 && !q) return null;
                 if (miembrosFilt.length===0) return null;
                 const expanded = cuadExpandida===c.id || q.length>0;
                 const selEnCuad = form.trabajadoresSeleccionados.filter(x=>
@@ -798,18 +844,21 @@ function ConjuntosPanel({ cuadrillas, servicios, clienteId, onGuardado, onClose 
                 ).length;
                 return (
                   <div key={c.id}>
-                    {/* Header cuadrilla */}
                     <div onClick={()=>setCuadExpandida(expanded&&!q?null:c.id)}
                       style={{padding:"0.4rem 0.75rem",background:`${CONJ_COLOR}08`,
                         borderBottom:`1px solid ${CONJ_COLOR}15`,
                         display:"flex",alignItems:"center",justifyContent:"space-between",
                         cursor:"pointer",position:"sticky",top:0}}>
-                      <span style={{fontWeight:"700",fontSize:"0.78rem",color:CONJ_COLOR}}>
-                        👥 Cuadrilla {c.nombre}
-                        <span style={{fontWeight:"400",color:"#94a3b8",marginLeft:"0.3rem"}}>
-                          · {c.miembros?.length||0} miembros
+                      <div style={{display:"flex",alignItems:"center",gap:"0.4rem"}}>
+                        <span style={{fontWeight:"700",fontSize:"0.78rem",color:CONJ_COLOR}}>
+                          👥 {c.nombre}
                         </span>
-                      </span>
+                        <span style={{background:cliInfo.color+"22",color:cliInfo.color,
+                          border:`1px solid ${cliInfo.color}44`,
+                          borderRadius:"6px",padding:"1px 6px",fontSize:"0.63rem",fontWeight:"800"}}>
+                          {cliInfo.nombre}
+                        </span>
+                      </div>
                       {selEnCuad>0 && (
                         <span style={{background:CONJ_COLOR,color:"#fff",borderRadius:"12px",
                           padding:"1px 8px",fontSize:"0.68rem",fontWeight:"800"}}>
@@ -817,11 +866,10 @@ function ConjuntosPanel({ cuadrillas, servicios, clienteId, onGuardado, onClose 
                         </span>
                       )}
                     </div>
-                    {/* Miembros */}
-                    {(expanded) && miembrosFilt.map(m => {
+                    {expanded && miembrosFilt.map(m => {
                       const sel = form.trabajadoresSeleccionados.some(x=>x.id===m.id);
                       return (
-                        <div key={m.id} onClick={()=>toggleTrab(m, c.nombre)}
+                        <div key={m.id} onClick={()=>toggleTrab(m, c.nombre, cliInfo.nombre, cliInfo.color)}
                           style={{display:"flex",alignItems:"center",gap:"0.5rem",
                             padding:"0.38rem 0.75rem",
                             background:sel?`${CONJ_COLOR}10`:"#fff",
@@ -840,8 +888,10 @@ function ConjuntosPanel({ cuadrillas, servicios, clienteId, onGuardado, onClose 
                             overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                             {m.nombre}
                           </span>
-                          <span style={{fontSize:"0.7rem",fontFamily:"monospace",color:"#94a3b8"}}>
-                            {m.cedula||""}
+                          <span style={{fontSize:"0.7rem",fontFamily:"monospace",color:"#94a3b8"}}>{m.cedula||""}</span>
+                          <span style={{background:cliInfo.color+"18",color:cliInfo.color,
+                            borderRadius:"5px",padding:"1px 5px",fontSize:"0.62rem",fontWeight:"800",flexShrink:0}}>
+                            {cliInfo.nombre.split(" ")[0]}
                           </span>
                         </div>
                       );
@@ -856,11 +906,12 @@ function ConjuntosPanel({ cuadrillas, servicios, clienteId, onGuardado, onClose 
                 {form.trabajadoresSeleccionados.map(t=>(
                   <span key={t.id} onClick={()=>setF("trabajadoresSeleccionados",
                     form.trabajadoresSeleccionados.filter(x=>x.id!==t.id))}
-                    style={{background:`${CONJ_COLOR}15`,color:CONJ_COLOR,
-                      border:`1px solid ${CONJ_COLOR}30`,borderRadius:"20px",
+                    style={{background:`${t.clienteColor||CONJ_COLOR}18`,color:t.clienteColor||CONJ_COLOR,
+                      border:`1px solid ${t.clienteColor||CONJ_COLOR}40`,borderRadius:"20px",
                       padding:"0.18rem 0.55rem",fontSize:"0.72rem",fontWeight:"700",
                       cursor:"pointer",display:"flex",alignItems:"center",gap:"0.25rem"}}>
                     {t.nombre.split(" ")[0]}
+                    {t.clienteNombre&&<span style={{fontSize:"0.6rem",opacity:0.7}}> {t.clienteNombre.split(" ")[0]}</span>}
                     <X size={9}/>
                   </span>
                 ))}
@@ -904,6 +955,57 @@ function ConjuntosPanel({ cuadrillas, servicios, clienteId, onGuardado, onClose 
               padding:"0.6rem 0.9rem",color:"#065f46",fontWeight:"700",fontSize:"0.85rem",
               marginBottom:"0.75rem"}}>{okMsg}</div>
           )}
+          {/* Multi-servicio */}
+          {serviciosExtra.length>0 && (
+            <div style={{borderRadius:"10px",border:"1.5px solid #e0e7ff",overflow:"hidden",background:"#f5f8ff",marginBottom:"0.5rem"}}>
+              <div style={{padding:"0.4rem 0.8rem",background:"#4f46e5",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                <span style={{fontWeight:"800",color:"#fff",fontSize:"0.78rem"}}>➕ Servicios adicionales ({serviciosExtra.length})</span>
+                <span style={{fontSize:"0.68rem",color:"rgba(255,255,255,0.75)"}}>Un registro por servicio</span>
+              </div>
+              {serviciosExtra.map((se,si)=>(
+                <div key={se.uid} style={{display:"grid",gridTemplateColumns:"1fr auto auto auto",gap:"0.5rem",
+                  alignItems:"end",padding:"0.55rem 0.8rem",borderBottom:"1px solid #e0e7ff",
+                  background:si%2===0?"#f5f8ff":"#eef2ff"}}>
+                  <div>
+                    <label style={{...labelSt,color:"#4f46e5",fontSize:"0.7rem"}}>🔧 Servicio {si+2}</label>
+                    <div style={{position:"relative"}}>
+                      <select value={se.servicioId} onChange={e=>sExtraUpdate(se.uid,"servicioId",e.target.value)}
+                        style={{...selectSt,border:"1.5px solid #a5b4fc",fontSize:"0.82rem"}}>
+                        <option value="">— Seleccionar —</option>
+                        {servicios.map(s=>(<option key={s.id} value={s.id}>{s.nombre}</option>))}
+                      </select>
+                      <ChevronDown size={12} style={{position:"absolute",right:"0.5rem",top:"50%",transform:"translateY(-50%)",color:"#94a3b8",pointerEvents:"none"}}/>
+                    </div>
+                  </div>
+                  <div style={{minWidth:"75px"}}>
+                    <label style={{...labelSt,color:"#4f46e5",fontSize:"0.7rem"}}>📦 Cant.</label>
+                    <input type="number" min="1" value={se.cantidad} onChange={e=>sExtraUpdate(se.uid,"cantidad",e.target.value)}
+                      style={{...inputSt,border:"1.5px solid #a5b4fc",textAlign:"center",fontSize:"0.82rem"}}/>
+                  </div>
+                  <div style={{minWidth:"90px"}}>
+                    <label style={{...labelSt,color:"#065f46",fontSize:"0.7rem"}}>💰 Neto</label>
+                    <div style={{...readonlySt,background:se.netoCalculado>0?"#f0fdf4":"#f8fafc",
+                      border:`1.5px solid ${se.netoCalculado>0?"#6ee7b7":"#e2e8f0"}`,
+                      fontWeight:"800",color:"#065f46",fontFamily:"monospace",fontSize:"0.85rem"}}>
+                      {se.netoCalculado>0?formatCOP(se.netoCalculado):"—"}
+                    </div>
+                  </div>
+                  <button onClick={()=>sExtraRemove(se.uid)}
+                    style={{background:"#fff1f2",border:"1px solid #fecdd3",borderRadius:"7px",
+                      padding:"0.45rem 0.5rem",cursor:"pointer",color:"#e11d48",display:"flex",alignItems:"center"}}>
+                    <X size={13}/>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <button type="button" onClick={sExtraAdd}
+            style={{width:"100%",marginBottom:"0.75rem",background:"#eef2ff",
+              border:"1.5px dashed #818cf8",borderRadius:"8px",padding:"0.4rem",
+              cursor:"pointer",color:"#4f46e5",fontWeight:"700",fontSize:"0.78rem",
+              display:"flex",alignItems:"center",justifyContent:"center",gap:"0.35rem"}}>
+            <Plus size={13}/> Agregar otro servicio
+          </button>
           <button onClick={guardar} disabled={guardando}
             style={{width:"100%",padding:"0.8rem",
               background:guardando?"#94a3b8":CONJ_COLOR,
@@ -3259,6 +3361,8 @@ export default function NominaMatriz() {
           clienteId={clienteActivo}
           onGuardado={cargarOperaciones}
           onClose={()=>setShowConjuntos(false)}
+          todosTrabajadores={todosTrabajadores||listaTrabajadores}
+          clientes={clientes}
         />
         )}
         {clienteActivo === "spia" && showMiniCuad && (
