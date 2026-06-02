@@ -620,6 +620,8 @@ function ConjuntosPanel({ cuadrillas, servicios, clienteId, onGuardado, onClose,
   const [cuadExpandida, setCuadExpandida] = useState(null);
   const [serviciosExtra, setServiciosExtra] = useState([]);
   const sExtraNext = useRef(1);
+  const [editandoConjuntoId, setEditandoConjuntoId] = useState(null);
+  const [errNombre, setErrNombre] = useState("");
 
   const recalc = (f) => {
     const n    = f.trabajadoresSeleccionados.length || 1;
@@ -680,72 +682,60 @@ function ConjuntosPanel({ cuadrillas, servicios, clienteId, onGuardado, onClose,
     if (form.trabajadoresSeleccionados.length===0) { alert("Selecciona al menos un trabajador."); return; }
     if (!form.servicioId)                       { alert("Selecciona el servicio."); return; }
     if (!form.fecha)                            { alert("Indica la fecha."); return; }
+    // Bloquear nombre duplicado al CREAR
+    if (!editandoConjuntoId) {
+      const nombreUp = form.nombre.trim().toUpperCase();
+      if (historial.some(c => c.nombre === nombreUp)) {
+        setErrNombre(`❌ Ya existe un conjunto "${nombreUp}". Edítalo desde el historial o elige otro nombre.`);
+        return;
+      }
+    }
+    setErrNombre("");
     setGuardando(true);
     try {
       const n    = form.trabajadoresSeleccionados.length;
       const neto = Math.round(calcularNetoOperacion(parseFloat(form.servicioValor)||0, n, parseInt(form.cantidad)||1)*100)/100;
-      // 1. Guardar en colección propia
-      const ref = await addDoc(collection(db,"nomina_conjuntos"), {
-        clienteId,
-        nombre:        form.nombre.trim().toUpperCase(),
-        fecha:         form.fecha,
-        trabajadores:  form.trabajadoresSeleccionados,
-        servicioId:    form.servicioId,
-        servicioNombre: form.servicioNombre,
-        servicioValor:  parseFloat(form.servicioValor)||0,
-        cantidad:       parseInt(form.cantidad)||1,
-        netoAPagar:    neto,
-        creadoEn: new Date(),
-      });
-      // 2. Guardar en nomina_operaciones
-      await addDoc(collection(db,"nomina_operaciones"), {
-        clienteId,
-        modoCiamsa:      false,
-        esConjunto:      true,
-        conjuntoId:      ref.id,
-        cuadrillaId:     `conjunto_${ref.id}`,
-        cuadrillaNombre: `🔗 ${form.nombre.trim().toUpperCase()}`,
-        cuadrilla:       `🔗 ${form.nombre.trim().toUpperCase()}`,
+      const nombreFinal = form.nombre.trim().toUpperCase();
+      const cuadNom = `🔗 ${nombreFinal}`;
+      const opBase = {
+        clienteId, modoCiamsa:false, esConjunto:true,
+        cuadrillaNombre: cuadNom, cuadrilla: cuadNom,
         cuadrillaPersonas: n,
         fecha:    Timestamp.fromDate(new Date(form.fecha+"T12:00:00")),
         fechaStr: form.fecha,
         servicioNombre:        form.servicioNombre.toUpperCase(),
         servicioValorUnitario: parseFloat(form.servicioValor)||0,
-        servicioValor:         (parseFloat(form.servicioValor)||0) * (parseInt(form.cantidad)||1),
-        cantidad:  parseInt(form.cantidad)||1,
-        personas:  n,
-        modoHorasExtras: false,
-        horasExtras: null,
-        netoAPagar:  neto,
-        trabajadoresAsisten:  form.trabajadoresSeleccionados.map(t=>({id:t.id,nombre:t.nombre,cedula:t.cedula||"" })),
-        trabajadoresAusentes: [],
-        creadoEn:      new Date(),
-        actualizadoEn: new Date(),
-      });
-      // Servicios adicionales del conjunto
-      for (const se of serviciosExtra) {
-        if (!se.servicioNombre || !se.cantidad) continue;
-        const netoSe = Math.round(calcularNetoOperacion(parseFloat(se.servicioValor)||0, n, parseFloat(se.cantidad)||1)*100)/100;
-        await addDoc(collection(db,"nomina_operaciones"), {
-          clienteId, modoCiamsa:false, esConjunto:true, conjuntoId:ref.id,
-          cuadrillaId:`conjunto_${ref.id}`,
-          cuadrillaNombre:`🔗 ${form.nombre.trim().toUpperCase()}`,
-          cuadrilla:`🔗 ${form.nombre.trim().toUpperCase()}`,
-          cuadrillaPersonas:n,
-          fecha:Timestamp.fromDate(new Date(form.fecha+"T12:00:00")),
-          fechaStr:form.fecha,
-          servicioNombre:se.servicioNombre.toUpperCase(),
-          servicioValorUnitario:parseFloat(se.servicioValor)||0,
-          servicioValor:(parseFloat(se.servicioValor)||0)*parseFloat(se.cantidad||1),
-          cantidad:parseFloat(se.cantidad)||1, personas:n,
-          modoHorasExtras:false, horasExtras:null,
-          netoAPagar:netoSe,
-          trabajadoresAsisten:form.trabajadoresSeleccionados.map(t=>({id:t.id,nombre:t.nombre,cedula:t.cedula||""})),
-          trabajadoresAusentes:[],
-          creadoEn:new Date(), actualizadoEn:new Date(),
-        });
+        servicioValor:         (parseFloat(form.servicioValor)||0)*(parseInt(form.cantidad)||1),
+        cantidad:  parseInt(form.cantidad)||1, personas: n,
+        modoHorasExtras:false, horasExtras:null,
+        netoAPagar: neto,
+        trabajadoresAsisten:  form.trabajadoresSeleccionados.map(t=>({id:t.id,nombre:t.nombre,cedula:t.cedula||""})),
+        trabajadoresAusentes: [], actualizadoEn: new Date(),
+      };
+      const guardarExtras = async (conjId) => {
+        for (const se of serviciosExtra) {
+          if (!se.servicioNombre||!se.cantidad) continue;
+          const netoSe=Math.round(calcularNetoOperacion(parseFloat(se.servicioValor)||0,n,parseFloat(se.cantidad)||1)*100)/100;
+          await addDoc(collection(db,"nomina_operaciones"),{...opBase,conjuntoId:conjId,cuadrillaId:`conjunto_${conjId}`,servicioNombre:se.servicioNombre.toUpperCase(),servicioValorUnitario:parseFloat(se.servicioValor)||0,servicioValor:(parseFloat(se.servicioValor)||0)*parseFloat(se.cantidad||1),cantidad:parseFloat(se.cantidad)||1,netoAPagar:netoSe,creadoEn:new Date(),actualizadoEn:new Date()});
+        }
+      };
+      const payload = { clienteId, nombre:nombreFinal, fecha:form.fecha, trabajadores:form.trabajadoresSeleccionados, servicioId:form.servicioId, servicioNombre:form.servicioNombre, servicioValor:parseFloat(form.servicioValor)||0, cantidad:parseInt(form.cantidad)||1, netoAPagar:neto, actualizadoEn:new Date() };
+      if (editandoConjuntoId) {
+        // EDITAR conjunto existente
+        await updateDoc(doc(db,"nomina_conjuntos",editandoConjuntoId), payload);
+        const opSnap = await getDocs(query(collection(db,"nomina_operaciones"),where("conjuntoId","==",editandoConjuntoId)));
+        for (const d of opSnap.docs) await deleteDoc(d.ref);
+        await addDoc(collection(db,"nomina_operaciones"),{...opBase,conjuntoId:editandoConjuntoId,cuadrillaId:`conjunto_${editandoConjuntoId}`,creadoEn:new Date()});
+        await guardarExtras(editandoConjuntoId);
+        setOkMsg(`✅ Conjunto "${nombreFinal}" actualizado`);
+        setEditandoConjuntoId(null);
+      } else {
+        // CREAR nuevo
+        const ref = await addDoc(collection(db,"nomina_conjuntos"),{...payload,creadoEn:new Date()});
+        await addDoc(collection(db,"nomina_operaciones"),{...opBase,conjuntoId:ref.id,cuadrillaId:`conjunto_${ref.id}`,creadoEn:new Date()});
+        await guardarExtras(ref.id);
+        setOkMsg(`✅ Conjunto "${nombreFinal}" creado — ${n} trabajadores`);
       }
-      setOkMsg(`✅ Conjunto "${form.nombre.trim().toUpperCase()}" guardado — ${n} trabajadores`);
       setTimeout(()=>setOkMsg(""),4000);
       setForm({...CONJUNTO_FORM_INIT, fecha:form.fecha});
       setServiciosExtra([]);
@@ -754,6 +744,22 @@ function ConjuntosPanel({ cuadrillas, servicios, clienteId, onGuardado, onClose,
       onGuardado();
     } catch(e) { alert("Error: "+e.message); }
     setGuardando(false);
+  };
+
+  const iniciarEdicion = (c) => {
+    setEditandoConjuntoId(c.id);
+    setErrNombre("");
+    const srv = servicios.find(s=>s.nombre.toUpperCase()===c.servicioNombre?.toUpperCase());
+    setForm({ nombre:c.nombre, fecha:c.fecha, trabajadoresSeleccionados:c.trabajadores||[], servicioId:srv?.id||"", servicioNombre:c.servicioNombre||"", servicioValor:c.servicioValor||0, cantidad:c.cantidad||1, netoCalculado:c.netoAPagar||0 });
+    setServiciosExtra([]);
+    setBusq("");
+  };
+
+  const cancelarEdicion = () => {
+    setEditandoConjuntoId(null);
+    setErrNombre("");
+    setForm({...CONJUNTO_FORM_INIT,fecha:hoy()});
+    setServiciosExtra([]);
   };
 
   const eliminarConjunto = async (c) => {
@@ -799,17 +805,35 @@ function ConjuntosPanel({ cuadrillas, servicios, clienteId, onGuardado, onClose,
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0"}}>
         {/* ── COLUMNA IZQ: Formulario ── */}
         <div style={{padding:"1.25rem",borderRight:`1px solid ${CONJ_COLOR}15`}}>
-          <div style={{fontWeight:"800",fontSize:"0.82rem",color:CONJ_COLOR,
-            textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:"1rem"}}>
-            📋 Nuevo Conjunto
+          <div style={{fontWeight:"800",fontSize:"0.82rem",
+            color:editandoConjuntoId?"#92400e":CONJ_COLOR,
+            textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:"1rem",
+            display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <span>{editandoConjuntoId?"✏️ Editando conjunto":"\uD83D\uDCCB Nuevo Conjunto"}</span>
+            {editandoConjuntoId && (
+              <button onClick={cancelarEdicion}
+                style={{background:"#fef3c7",border:"1.5px solid #fcd34d",borderRadius:"7px",
+                  padding:"2px 10px",cursor:"pointer",color:"#92400e",fontWeight:"700",fontSize:"0.75rem"}}>
+                × Cancelar
+              </button>
+            )}
           </div>
 
           {/* Nombre */}
           <div style={{marginBottom:"0.9rem"}}>
-            <label style={{...labelSt,color:CONJ_COLOR}}>1️⃣ Nombre del conjunto *</label>
-            <input value={form.nombre} onChange={e=>setF("nombre",e.target.value)}
+            <label style={{...labelSt,color:editandoConjuntoId?"#92400e":CONJ_COLOR}}>
+              1️⃣ Nombre del conjunto *
+            </label>
+            <input value={form.nombre} onChange={e=>{setF("nombre",e.target.value);setErrNombre("");}}
               placeholder="Ej: ALFA, BETA, TOTAL..."
-              style={{...inputSt,border:`1.5px solid ${CONJ_COLOR}60`,fontWeight:"700",textTransform:"uppercase"}}/>
+              disabled={!!editandoConjuntoId}
+              style={{...inputSt,border:`1.5px solid ${errNombre?"#ef4444":editandoConjuntoId?"#fcd34d":CONJ_COLOR+"60"}`,fontWeight:"700",textTransform:"uppercase",background:editandoConjuntoId?"#fffbeb":"#fff"}}/>
+            {errNombre && (
+              <div style={{marginTop:"0.35rem",fontSize:"0.78rem",color:"#dc2626",fontWeight:"600",
+                background:"#fee2e2",border:"1px solid #fecaca",borderRadius:"7px",padding:"0.4rem 0.65rem"}}>
+                {errNombre}
+              </div>
+            )}
           </div>
 
           {/* Fecha */}
@@ -1059,6 +1083,13 @@ function ConjuntosPanel({ cuadrillas, servicios, clienteId, onGuardado, onClose,
                       <Trash2 size={11}/>
                     </button>
                   </div>
+                  <button onClick={()=>iniciarEdicion(c)}
+                    style={{marginBottom:"0.35rem",background:`${CONJ_COLOR}10`,
+                      border:`1px solid ${CONJ_COLOR}30`,borderRadius:"6px",
+                      padding:"2px 10px",cursor:"pointer",color:CONJ_COLOR,
+                      fontWeight:"700",fontSize:"0.7rem",display:"flex",alignItems:"center",gap:"0.3rem"}}>
+                    ✏️ Editar conjunto
+                  </button>
                   <div style={{color:"#334155",fontWeight:"600",marginBottom:"0.25rem"}}>{c.servicioNombre}</div>
                   <div style={{display:"flex",gap:"0.4rem",flexWrap:"wrap"}}>
                     <span style={{background:"#f0f9ff",color:"#0ea5e9",borderRadius:"5px",
