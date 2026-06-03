@@ -1848,6 +1848,8 @@ export default function NominaMatriz() {
   const [trabsServicio,       setTrabsServicio]       = useState([]); // quiénes hicieron este servicio
   const [cuadDiaBusq,         setCuadDiaBusq]         = useState('');
 
+  const [showTotalesPanel, setShowTotalesPanel] = useState(false);
+
   // Mini cuadrillas y Conjuntos
   const [showMiniCuad,   setShowMiniCuad]   = useState(false);
   const [showConjuntos,  setShowConjuntos]  = useState(false);
@@ -2924,6 +2926,22 @@ export default function NominaMatriz() {
   const resumenTrab  = vistaTabla==="resumen" ? calcularResumenTrabajadores() : [];
   const totalResumen = resumenTrab.reduce((s,t)=>s+t.totalNeto,0);
 
+  /* ── Totales por servicio ── */
+  const calcularTotalesPorServicio = () => {
+    const mapa = {};
+    opsFiltradas.forEach(op => {
+      const srv = op.servicioNombre || "SIN SERVICIO";
+      if (!mapa[srv]) mapa[srv] = { servicio: srv, cantidad: 0, monto: 0, registros: 0 };
+      mapa[srv].cantidad  += parseFloat(op.cantidad) || 1;
+      mapa[srv].monto     += op.netoAPagar || 0;
+      mapa[srv].registros += 1;
+    });
+    return Object.values(mapa).sort((a,b) => b.monto - a.monto);
+  };
+  const totalesPorServicio = showTotalesPanel ? calcularTotalesPorServicio() : [];
+  const totalGeneral = opsFiltradas.reduce((s,op)=>s+(op.netoAPagar||0),0);
+  const totalRegistros = opsFiltradas.length;
+
   if (loading) return (
     <LayoutWithSidebar>
       <div style={{textAlign:"center",padding:"4rem",color:PRIMARY}}>
@@ -3021,6 +3039,42 @@ export default function NominaMatriz() {
         </div>
 
         {/* ── STATS ── */}
+          <button onClick={()=>setShowTotalesPanel(p=>!p)}
+            style={{marginLeft:"0.5rem",padding:"0.45rem 1rem",borderRadius:"20px",border:`2px solid ${showTotalesPanel?SUCCESS:"#e2e8f0"}`,background:showTotalesPanel?SUCCESS:"#fff",color:showTotalesPanel?"#fff":"#475569",fontWeight:"700",fontSize:"0.82rem",cursor:"pointer",transition:"all 0.15s",display:"flex",alignItems:"center",gap:"0.35rem"}}>
+            📈 {showTotalesPanel?"Ocultar":"Ver Totales"}
+          </button>
+
+        {/* Panel Totales por Servicio */}
+        {showTotalesPanel&&(
+          <div style={{background:"#fff",borderRadius:"14px",boxShadow:"0 4px 20px rgba(16,185,129,0.12)",border:`2px solid ${SUCCESS}`,marginBottom:"1.5rem",overflow:"hidden"}}>
+            <div style={{background:`linear-gradient(135deg,${SUCCESS} 0%,#059669 100%)`,padding:"0.9rem 1.25rem",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div><div style={{fontWeight:"800",color:"#fff",fontSize:"1rem"}}>📈 Totales — {clientes.find(c=>c.id===clienteActivo)?.nombre}</div><div style={{color:"rgba(255,255,255,0.8)",fontSize:"0.78rem"}}>Período: {periodoDesde} al {periodoHasta} · {totalRegistros} registros</div></div>
+              <div style={{textAlign:"right"}}><div style={{fontWeight:"900",color:"#fff",fontSize:"1.5rem",fontFamily:"monospace"}}>{formatCOP(totalGeneral)}</div><div style={{color:"rgba(255,255,255,0.8)",fontSize:"0.75rem"}}>Total acumulado</div></div>
+            </div>
+            <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:"0.85rem"}}>
+              <thead><tr style={{background:"#f0fdf4",borderBottom:`2px solid ${SUCCESS}`}}>{["#","Servicio","Registros","Cantidad","Total","%"].map(h=>(<th key={h} style={{padding:"0.65rem 1rem",textAlign:h==="Servicio"||h==="#"?"left":"right",fontWeight:"800",color:"#065f46",fontSize:"0.73rem",textTransform:"uppercase"}}>{h}</th>))}</tr></thead>
+              <tbody>{totalesPorServicio.length===0?(<tr><td colSpan={6} style={{textAlign:"center",padding:"2rem",color:"#94a3b8"}}>Sin registros</td></tr>):totalesPorServicio.map((row,i)=>{
+                const pct=totalGeneral>0?Math.round(row.monto/totalGeneral*1000)/10:0;
+                return(<tr key={row.servicio} style={{borderBottom:"1px solid #f0fdf4",background:i%2===0?"#fff":"#f9fafb"}} onMouseEnter={e=>e.currentTarget.style.background="#f0fdf4"} onMouseLeave={e=>e.currentTarget.style.background=i%2===0?"#fff":"#f9fafb"}>
+                  <td style={{padding:"0.6rem 1rem",color:"#94a3b8",fontSize:"0.78rem"}}>{i+1}</td>
+                  <td style={{padding:"0.6rem 1rem",fontWeight:"700",color:"#1e293b"}}>{row.servicio}</td>
+                  <td style={{padding:"0.6rem 1rem",textAlign:"right"}}><span style={{background:"#f0f9ff",color:"#0ea5e9",borderRadius:"6px",padding:"2px 10px",fontWeight:"700",fontSize:"0.8rem"}}>{row.registros}</span></td>
+                  <td style={{padding:"0.6rem 1rem",textAlign:"right",fontWeight:"700",color:"#374151",fontFamily:"monospace"}}>{Number.isInteger(row.cantidad)?row.cantidad:row.cantidad.toFixed(2)}</td>
+                  <td style={{padding:"0.6rem 1rem",textAlign:"right",fontWeight:"900",color:SUCCESS,fontFamily:"monospace",whiteSpace:"nowrap"}}>{formatCOP(row.monto)}</td>
+                  <td style={{padding:"0.6rem 1rem",textAlign:"right"}}><div style={{display:"flex",alignItems:"center",justifyContent:"flex-end",gap:"0.4rem"}}><div style={{background:"#e2e8f0",borderRadius:"99px",height:"6px",width:"70px",overflow:"hidden"}}><div style={{background:SUCCESS,height:"100%",width:`${pct}%`,borderRadius:"99px"}}/></div><span style={{fontFamily:"monospace",fontSize:"0.75rem",color:"#64748b",fontWeight:"700",minWidth:"36px",textAlign:"right"}}>{pct}%</span></div></td>
+                </tr>);
+              })}</tbody>
+              <tfoot><tr style={{background:"#f0fdf4",borderTop:`2px solid ${SUCCESS}`}}>
+                <td colSpan={2} style={{padding:"0.7rem 1rem",fontWeight:"800",color:"#065f46"}}>TOTAL — {totalesPorServicio.length} servicio{totalesPorServicio.length!==1?"s":""}</td>
+                <td style={{padding:"0.7rem 1rem",textAlign:"right",fontWeight:"800",color:"#065f46"}}>{totalRegistros}</td>
+                <td style={{padding:"0.7rem 1rem",textAlign:"right",fontWeight:"800",color:"#065f46",fontFamily:"monospace"}}>{totalesPorServicio.reduce((s,r)=>s+r.cantidad,0).toFixed(2)}</td>
+                <td style={{padding:"0.7rem 1rem",textAlign:"right",fontWeight:"900",color:"#065f46",fontFamily:"monospace",fontSize:"1rem",whiteSpace:"nowrap"}}>{formatCOP(totalGeneral)}</td>
+                <td style={{padding:"0.7rem 1rem",textAlign:"right",fontWeight:"800",color:"#065f46"}}>100%</td>
+              </tr></tfoot>
+            </table></div>
+          </div>
+        )}
+
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:"1rem",marginBottom:"1.5rem"}}>
           {[
             {icon:<FileText   size={20}/>,label:"Registros",        value:opsFiltradas.length,color:PRIMARY   },
