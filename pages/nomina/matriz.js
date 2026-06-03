@@ -2953,96 +2953,69 @@ export default function NominaMatriz() {
 
   return (
     <LayoutWithSidebar>
-      <div style={{maxWidth:"1400px",margin:"0 auto",padding:"0 0 3rem"}}>
+      <div className="xl-wrap">
 
-        {/* ── HEADER ── */}
-        <div style={{display:"flex",alignItems:"center",gap:"1rem",marginBottom:"1rem",flexWrap:"wrap"}}>
-          <button
-            onClick={()=>{
-              if(showMiniCuad) setShowMiniCuad(false);
-              else router.push("/nomina");
-            }}
-            style={{background:"none",border:"none",cursor:"pointer",color:PRIMARY}}>
-            <ArrowLeft size={22}/>
+        {/* ── HEADER EXCEL ── */}
+        <div className="xl-header">
+          <button onClick={()=>router.push("/nomina")}
+            style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.3)",borderRadius:"5px",cursor:"pointer",color:"#fff",padding:"0.3rem 0.5rem",display:"flex",alignItems:"center"}}>
+            <ArrowLeft size={18}/>
           </button>
-          <div style={{flex:1}}>
-            <h1 style={{margin:0,color:PRIMARY,fontSize:"1.6rem",fontWeight:"800"}}>📋 Matriz de Operaciones</h1>
-            <p style={{margin:0,color:"#64748b",fontSize:"0.88rem"}}>
-              {isCiamsa
-                ? "Destajo individual por tonelada/unidad · Fórmula: PER = Cantidad ÷ N°Personas × Tarifa"
-                : "Registro diario por cuadrilla · asistencia en tiempo real"}
-            </p>
+          <div>
+            <h1>📋 Matriz de Operaciones</h1>
+            <p>{isCiamsa?"Destajo · PER = Cantidad ÷ N°Personas × Tarifa":"Registro diario por cuadrilla · asistencia en tiempo real"}</p>
           </div>
-          {clienteActivo === "spia" && (
-            <button onClick={() => setShowMiniCuad(p => !p)}
-              style={{
-                background: showMiniCuad ? "#e11d48" : "#fff5f7",
-                border: `2px solid ${showMiniCuad ? "#e11d48" : "#fecdd3"}`,
-                borderRadius: "10px",
-                padding: "0.55rem 1rem",
-                color: showMiniCuad ? "#fff" : "#e11d48",
-                fontWeight: "800",
-                fontSize: "0.85rem",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                gap: "0.4rem",
-                transition: "all 0.15s",
-                flexShrink: 0,
-              }}>
-              <Zap size={15}/> ⚡ Mini Cuadrillas
-              {showMiniCuad && <X size={13} style={{marginLeft:"2px"}}/>}
-            </button>
-          )}
+          <div style={{marginLeft:"auto",display:"flex",gap:"0.4rem",alignItems:"center"}}>
+            {clienteActivo==="spia"&&(
+              <>
+              <button onClick={()=>{setShowMiniCuad(p=>!p);setShowConjuntos(false);}}
+                style={{background:showMiniCuad?"#e11d48":"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:"4px",padding:"0.28rem 0.65rem",cursor:"pointer",color:"#fff",fontWeight:"700",fontSize:"0.73rem",display:"flex",alignItems:"center",gap:"0.3rem"}}>
+                <Zap size={12}/> Mini Cuadrillas
+              </button>
+              <button onClick={()=>{setShowConjuntos(p=>!p);setShowMiniCuad(false);}}
+                style={{background:showConjuntos?"#7c3aed":"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:"4px",padding:"0.28rem 0.65rem",cursor:"pointer",color:"#fff",fontWeight:"700",fontSize:"0.73rem",display:"flex",alignItems:"center",gap:"0.3rem"}}>
+                <Users size={12}/> Conjuntos
+              </button>
+              </>
+            )}
+          </div>
         </div>
 
         {/* ── SELECTOR DE CLIENTE ── */}
-        <div style={{display:"flex",gap:"0.5rem",marginBottom:"1.25rem",flexWrap:"wrap",alignItems:"center"}}>
-          <span style={{fontSize:"0.78rem",fontWeight:"700",color:"#64748b",marginRight:"0.25rem"}}>🏢 Cliente:</span>
-          {clientes.map(c=>{
-            const activo = clienteActivo===c.id;
-            return (
-              <button key={c.id} onClick={()=>setClienteActivo(c.id)}
-                style={{padding:"0.45rem 1rem",borderRadius:"20px",border:`2px solid ${activo?c.color||PRIMARY:"#e2e8f0"}`,
-                  background:activo?c.color||PRIMARY:"#fff",color:activo?"#fff":"#475569",
-                  fontWeight:"700",fontSize:"0.82rem",cursor:"pointer",transition:"all 0.15s",
-                  boxShadow:activo?`0 2px 8px ${c.color||PRIMARY}40`:"none"}}>
-                {c.emoji||"🏢"} {c.nombre}
-                {(c.id==="cliente1"||c.id==="cliente2"||c.id==="cliente3") && (
-                  <span style={{marginLeft:"0.4rem",fontSize:"0.65rem",background:"rgba(255,255,255,0.25)",padding:"1px 5px",borderRadius:"8px"}}>
-                    DESTAJO
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* ── PERÍODO ── */}
-        <div style={{display:"flex",alignItems:"center",gap:"1rem",marginBottom:"1.5rem",flexWrap:"wrap"}}>
-          <div style={{display:"flex",alignItems:"center",gap:"0.6rem",background:"#fff",
-            border:`1.5px solid ${PRIMARY}30`,borderRadius:"12px",padding:"0.6rem 1rem",flexWrap:"wrap",
-            boxShadow:"0 2px 8px rgba(11,61,145,0.08)"}}>
-            <Calendar size={16} color={PRIMARY}/>
-            {[{label:"Desde",val:periodoDesde,set:setPeriodoDesde},{label:"Hasta",val:periodoHasta,set:setPeriodoHasta}].map((f,i)=>(
-              <div key={i} style={{display:"flex",flexDirection:"column"}}>
-                <span style={{fontSize:"0.68rem",color:"#94a3b8",fontWeight:"700",textTransform:"uppercase",letterSpacing:"0.05em"}}>{f.label}</span>
-                <input type="date" value={f.val} onChange={e=>f.set(e.target.value)}
-                  style={{border:"none",outline:"none",fontSize:"0.9rem",fontWeight:"700",color:PRIMARY,cursor:"pointer",background:"transparent",padding:0}}/>
-              </div>
-            ))}
-            <button onClick={cargarOperaciones} title="Recargar"
-              style={{background:`${PRIMARY}10`,border:"none",borderRadius:"8px",padding:"0.35rem 0.5rem",cursor:"pointer",color:PRIMARY}}>
-              <RefreshCw size={14} style={{animation:cargandoOps?"spin 1s linear infinite":"none"}}/>
+        {/* ── RIBBON: Clientes + Período + Acciones ── */}
+        <div className="xl-ribbon">
+          <span style={{fontSize:"0.72rem",fontWeight:"700",color:"#374151"}}>Cliente:</span>
+          {clientes.map(c=>(
+            <button key={c.id} onClick={()=>setClienteActivo(c.id)}
+              className={`xl-tab${clienteActivo===c.id?" active":""}`}>
+              {c.emoji||"🏢"} {c.nombre}
+              {(c.id==="cliente1"||c.id==="cliente2"||c.id==="cliente3")&&<span style={{marginLeft:"0.3rem",fontSize:"0.6rem",opacity:0.8}}>DESTAJO</span>}
             </button>
-          </div>
+          ))}
+          <div className="xl-sep"/>
+          <span style={{fontSize:"0.72rem",color:"#374151"}}>📅</span>
+          <input type="date" value={periodoDesde} onChange={e=>setPeriodoDesde(e.target.value)}
+            className="xl-input" style={{fontWeight:"600",color:"#217346",width:"130px"}}/>
+          <span style={{fontSize:"0.72rem",color:"#888"}}>→</span>
+          <input type="date" value={periodoHasta} onChange={e=>setPeriodoHasta(e.target.value)}
+            className="xl-input" style={{fontWeight:"600",color:"#217346",width:"130px"}}/>
+          <button onClick={cargarOperaciones} className="xl-btn primary" style={{display:"flex",alignItems:"center",gap:"0.25rem"}}>
+            <RefreshCw size={12} style={{animation:cargandoOps?"spin 1s linear infinite":"none"}}/> Actualizar
+          </button>
+          <div className="xl-sep"/>
+          <button onClick={()=>setShowDetalleModal(true)} className="xl-btn">📊 Detalle/Excel</button>
         </div>
 
-        {/* ── STATS ── */}
-          <button onClick={()=>setShowTotalesPanel(p=>!p)}
-            style={{marginLeft:"0.5rem",padding:"0.45rem 1rem",borderRadius:"20px",border:`2px solid ${showTotalesPanel?SUCCESS:"#e2e8f0"}`,background:showTotalesPanel?SUCCESS:"#fff",color:showTotalesPanel?"#fff":"#475569",fontWeight:"700",fontSize:"0.82rem",cursor:"pointer",transition:"all 0.15s",display:"flex",alignItems:"center",gap:"0.35rem"}}>
-            📈 {showTotalesPanel?"Ocultar":"Ver Totales"}
-          </button>
+        {/* ── STATS compactos ── */}
+        <div className="xl-stats">
+          <span>📋 {opsFiltradas.length} registros</span>
+          <span>👥 {totalCuadrillas} {isCiamsa?"trabajadores":"cuadrillas"}</span>
+          <span className="total">💰 {formatCOP(totalNeto)}</span>
+          <span style={{color:"#374151"}}>{periodoDesde} → {periodoHasta}</span>
+          {cargandoOps&&<RefreshCw size={11} style={{animation:"spin 1s linear infinite",color:"#217346"}}/> }
+        </div>
+
+        {/* ── PANELES MINI/CONJUNTOS ── */}
 
         {/* Panel Totales por Servicio */}
         {showTotalesPanel&&(
@@ -4194,7 +4167,7 @@ export default function NominaMatriz() {
         )}
 
         {/* ── TABLA ── */}
-        <div ref={tablaRef}>
+        <div ref={tablaRef} style={{margin:"0.5rem 0.75rem 1rem"}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"0.75rem",flexWrap:"wrap",gap:"0.75rem"}}>
             <div>
               <h2 style={{margin:0,color:PRIMARY,fontSize:"1.1rem",fontWeight:"800"}}>
@@ -4245,24 +4218,18 @@ export default function NominaMatriz() {
 
           {/* ─── Vista registros ─── */}
           {vistaTabla==="registros" && (
-            <div style={{background:"#fff",borderRadius:"14px",boxShadow:"0 2px 12px rgba(0,0,0,0.07)",overflow:"hidden"}}>
+            <div style={{background:"#fff",overflow:"hidden",border:"1px solid #d0d7e0"}}>
               {cargandoOps ? (
-                <div style={{textAlign:"center",padding:"3rem",color:"#94a3b8"}}>
-                  <RefreshCw size={28} style={{animation:"spin 1s linear infinite",display:"block",margin:"0 auto 0.5rem"}}/>
-                  <div>Cargando operaciones...</div>
+                <div style={{textAlign:"center",padding:"2rem",color:"#94a3b8"}}>
+                  <RefreshCw size={24} style={{animation:"spin 1s linear infinite",display:"block",margin:"0 auto 0.5rem"}}/>
+                  <div style={{fontSize:"0.85rem"}}>Cargando...</div>
                 </div>
               ) : (
                 <div style={{overflowX:"auto"}}>
                   {/* ── Tabla CIAMSA ── */}
                   {isCiamsa ? (
-                    <table style={{width:"100%",borderCollapse:"collapse"}}>
-                      <thead>
-                        <tr style={{background:colorCiamsa}}>
-                          {["#","Trabajador","Cédula","Fecha","Servicio","Cantidad","N.Per","PER","Tarifa","Neto","Acc."].map(h=>(
-                            <th key={h} style={{padding:"0.8rem 0.7rem",textAlign:"left",fontSize:"0.75rem",fontWeight:"700",color:"#fff",whiteSpace:"nowrap"}}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
+                    <table className="xl-table">
+                      <thead><tr>{["#","Trabajador","Cédula","Fecha","Servicio","Cantidad","N.Per","PER","Tarifa","Neto","Acc."].map(h=>(<th key={h}>{h}</th>))}</tr></thead>
                       <tbody>
                         {opsFiltradas.length===0 ? (
                           <tr><td colSpan="11" style={{textAlign:"center",padding:"3.5rem",color:"#94a3b8"}}>
@@ -4322,15 +4289,8 @@ export default function NominaMatriz() {
                       </tbody>
                     </table>
                   ) : (
-                    /* ── Tabla SPIA/C1 ── */
-                    <table style={{width:"100%",borderCollapse:"collapse"}}>
-                      <thead>
-                        <tr style={{background:PRIMARY}}>
-                          {["#","Cuadrilla","Fecha","Asistentes","Servicio","Cant.","Neto","X Persona","Acc."].map(h=>(
-                            <th key={h} style={{padding:"0.8rem 0.9rem",textAlign:"left",fontSize:"0.78rem",fontWeight:"700",color:"#fff",whiteSpace:"nowrap"}}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
+                    <table className="xl-table">
+                      <thead><tr>{["#","Cuadrilla","Fecha","Asistentes","Servicio","Cant.","Neto","X Persona","Acc."].map(h=>(<th key={h}>{h}</th>))}</tr></thead>
                       <tbody>
                         {opsFiltradas.length===0 ? (
                           <tr><td colSpan="9" style={{textAlign:"center",padding:"3.5rem",color:"#94a3b8"}}>
@@ -4592,7 +4552,43 @@ export default function NominaMatriz() {
         </div>
       )}
 
-      <style jsx global>{`@keyframes spin{to{transform:rotate(360deg);}}`}</style>
+      <style jsx global>{`
+        @keyframes spin{to{transform:rotate(360deg);}}
+        /* ── EXCEL THEME ── */
+        body { font-family: Calibri, Arial, sans-serif; }
+        .xl-wrap { background:#f0f0f0; min-height:100vh; }
+        .xl-header { background:#217346; padding:0.4rem 0.75rem; display:flex; align-items:center; gap:0.75rem; border-bottom:2px solid #185a34; }
+        .xl-header h1 { margin:0; color:#fff; font-size:1rem; font-weight:800; letter-spacing:0.01em; }
+        .xl-header p  { margin:0; color:rgba(255,255,255,0.75); font-size:0.72rem; }
+        .xl-ribbon { background:#e9efda; border-bottom:1px solid #b8ccad; padding:0.3rem 0.75rem; display:flex; gap:0.35rem; flex-wrap:wrap; align-items:center; }
+        .xl-tab { padding:0.28rem 0.8rem; border-radius:3px; border:1px solid #b8ccad; background:#fff; color:#374151; font-weight:600; font-size:0.77rem; cursor:pointer; transition:all 0.1s; }
+        .xl-tab.active { background:#217346; border-color:#217346; color:#fff; font-weight:800; box-shadow:0 1px 4px rgba(33,115,70,0.3); }
+        .xl-sep { width:1px; height:18px; background:#b8ccad; margin:0 0.3rem; flex-shrink:0; }
+        .xl-stats { background:#d4e9c7; border-bottom:1px solid #b8ccad; padding:0.25rem 0.75rem; display:flex; gap:1.25rem; align-items:center; font-size:0.76rem; flex-wrap:wrap; }
+        .xl-stats span { color:#217346; font-weight:700; }
+        .xl-stats .total { color:#065f46; font-weight:900; font-family:monospace; }
+        /* Tabla Excel */
+        .xl-table { border-collapse:collapse; width:100%; font-size:0.8rem; }
+        .xl-table th { background:#217346; color:#fff; font-size:0.73rem; font-weight:700; padding:0.45rem 0.65rem; border:1px solid #185a34; white-space:nowrap; position:sticky; top:0; z-index:2; text-align:left; }
+        .xl-table td { padding:0.35rem 0.6rem; border:1px solid #d0d7e0; vertical-align:middle; }
+        .xl-table tr:nth-child(even) td { background:#eef4ea; }
+        .xl-table tr:nth-child(odd) td { background:#ffffff; }
+        .xl-table tr:hover td { background:#d4edda!important; }
+        .xl-table .row-num td:first-child { background:#f2f2f2!important; color:#888; text-align:center; border-right:2px solid #d0d7e0; min-width:28px; font-size:0.72rem; }
+        .xl-table tfoot td { background:#e2efda!important; border-top:2px solid #217346!important; font-weight:800; color:#065f46; }
+        /* Sección nueva operación */
+        .xl-newop { background:#fff; border:1px solid #b8ccad; border-top:3px solid #217346; margin:0.5rem 0.75rem 0; border-radius:3px; overflow:hidden; }
+        .xl-newop-header { background:#e9efda; padding:0.3rem 0.75rem; font-size:0.73rem; font-weight:800; color:#217346; border-bottom:1px solid #b8ccad; text-transform:uppercase; letter-spacing:0.05em; display:flex; align-items:center; gap:0.5rem; }
+        .xl-newop-body { padding:0.6rem 0.75rem; }
+        .xl-table-wrap { margin:0 0.75rem 0.75rem; border:1px solid #d0d7e0; overflow:hidden; }
+        .xl-toolbar { background:#f2f2f2; border:1px solid #d0d7e0; border-bottom:none; padding:0.3rem 0.6rem; display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; }
+        .xl-btn { padding:0.25rem 0.65rem; border:1px solid #b8ccad; border-radius:3px; background:#fff; color:#374151; font-size:0.75rem; font-weight:600; cursor:pointer; }
+        .xl-btn:hover { background:#e9efda; border-color:#217346; }
+        .xl-btn.primary { background:#217346; color:#fff; border-color:#217346; }
+        .xl-btn.primary:hover { background:#185a34; }
+        .xl-input { border:1px solid #b8ccad; border-radius:2px; padding:0.22rem 0.45rem; font-size:0.8rem; outline:none; background:#fff; font-family:inherit; }
+        .xl-input:focus { border-color:#217346; box-shadow:0 0 0 2px rgba(33,115,70,0.15); }
+      `}</style>
     </LayoutWithSidebar>
   );
 }
@@ -4601,4 +4597,4 @@ const labelSt   = {display:"block",fontWeight:"700",color:"#374151",marginBottom
 const inputSt   = {width:"100%",padding:"0.7rem 0.9rem",border:"1.5px solid #e2e8f0",borderRadius:"10px",fontSize:"0.93rem",outline:"none",boxSizing:"border-box"};
 const selectSt  = {width:"100%",padding:"0.7rem 2.2rem 0.7rem 0.9rem",border:"1.5px solid #e2e8f0",borderRadius:"10px",fontSize:"0.9rem",outline:"none",boxSizing:"border-box",cursor:"pointer",appearance:"none",background:"#fff"};
 const readonlySt= {padding:"0.7rem 0.9rem",background:"#f8fafc",border:"1.5px solid #e2e8f0",borderRadius:"10px",fontSize:"0.9rem",minHeight:"42px",display:"flex",alignItems:"center"};
-const tdSt      = {padding:"0.75rem 0.7rem",verticalAlign:"middle"};
+const tdSt      = {padding:"0.38rem 0.6rem",verticalAlign:"middle",borderBottom:"1px solid #d0d7e0",borderRight:"1px solid #e8ecf0",fontSize:"0.8rem"};

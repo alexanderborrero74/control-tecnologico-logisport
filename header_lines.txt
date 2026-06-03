@@ -1,0 +1,43 @@
+2954:   return (
+2955:     <LayoutWithSidebar>
+2956:       <div className="xl-wrap">
+2957: 
+2958:         {/* ƒ"?ƒ"? HEADER ƒ"?ƒ"? */}
+2959:         <div style={{display:"flex",alignItems:"center",gap:"1rem",marginBottom:"1rem",flexWrap:"wrap"}}>
+2960:           <button
+2961:             onClick={()=>{
+2962:               if(showMiniCuad) setShowMiniCuad(false);
+2963:               else router.push("/nomina");
+2964:             }}
+2965:             style={{background:"none",border:"none",cursor:"pointer",color:PRIMARY}}>
+2966:             <ArrowLeft size={22}/>
+2967:           </button>
+2968:           <div style={{flex:1}}>
+2969:             <h1 style={{margin:0,color:PRIMARY,fontSize:"1.6rem",fontWeight:"800"}}>ÐY"< Matriz de Operaciones</h1>
+2970:             <p style={{margin:0,color:"#64748b",fontSize:"0.88rem"}}>
+2971:               {isCiamsa
+2972:                 ? "Destajo individual por tonelada/unidad ¶ú FÇürmula: PER = Cantidad Çú N¶øPersonas Ç- Tarifa"
+2973:                 : "Registro diario por cuadrilla ¶ú asistencia en tiempo real"}
+2974:             </p>
+2975:           </div>
+2976:           {clienteActivo === "spia" && (
+2977:             <button onClick={() => setShowMiniCuad(p => !p)}
+2978:               style={{
+2979:                 background: showMiniCuad ? "#e11d48" : "#fff5f7",
+2980:                 border: `2px solid ${showMiniCuad ? "#e11d48" : "#fecdd3"}`,
+2981:                 borderRadius: "10px",
+2982:                 padding: "0.55rem 1rem",
+2983:                 color: showMiniCuad ? "#fff" : "#e11d48",
+2984:                 fontWeight: "800",
+2985:                 fontSize: "0.85rem",
+2986:                 cursor: "pointer",
+2987:                 display: "flex",
+2988:                 alignItems: "center",
+2989:                 gap: "0.4rem",
+2990:                 transition: "all 0.15s",
+2991:                 flexShrink: 0,
+2992:               }}>
+2993:               <Zap size={15}/> ƒs­ Mini Cuadrillas
+2994:               {showMiniCuad && <X size={13} style={{marginLeft:"2px"}}/>}
+2995:             </button>
+2996:           )}
