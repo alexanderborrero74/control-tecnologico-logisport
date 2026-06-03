@@ -1,0 +1,47 @@
+
+LineNumber Line                                                                                                        
+---------- ----                                                                                                        
+       717   const guardar = async () => {                                                                             
+       749         trabajadoresAsisten:                                                                                
+           form.trabajadoresSeleccionados.map(t=>({id:t.id,nombre:t.nombre,cedula:t.cedula||""})),                     
+      1240   const guardar = async () => {                                                                             
+      1293         trabajadoresAsisten: miniForm.miembrosSeleccionados,                                                
+      1866   const [asistentesForm, setAsistentesForm] = useState([]);                                                 
+      1983       setAsistentesForm([]);                                                                                
+      2008       setAsistentesForm([]);                                                                                
+      2192         setAsistentesForm([]); setAusentesForm([]); setCargandoAsist(false); return;                        
+      2206         setAsistentesForm([]); setAusentesForm([]); setCargandoAsist(false); return;                        
+      2225       setAsistentesForm(asistentesM);                                                                       
+      2241       setAsistentesForm([]); setAusentesForm([]);                                                           
+      2303   const cuadrillaDiaGuardar = async () => {                                                                 
+      2339       trabajadoresAsisten: f.trabajadoresSeleccionados.map(t => ({                                          
+      2407       setAsistentesForm([]); setAusentesForm([]); return;                                                   
+      2413       setAsistentesForm([{ id:t.id, nombre:t.nombre, cedula:String(t.cedula||"") }]);                       
+      2507             trabajadoresAsisten:  asisten.map(a=>({id:a.id,nombre:a.nombre,cedula:a.cedula||""})),          
+      2526       setAsistentesForm([]); setAusentesForm([]);                                                           
+      2536   const guardar = async () => {                                                                             
+      2569       trabajadoresAsisten: asistentesForm.map(a=>({id:a.id,nombre:a.nombre,cedula:a.cedula||""})),          
+      2702       trabajadoresAsisten: [{ id:c2Form.trabajadorId, nombre:c2Form.trabajadorNombre,                       
+           cedula:c2Form.trabajadorCedula }],                                                                          
+      2831       trabajadoresAsisten: [{                                                                               
+      2934         const asisten = op.trabajadoresAsisten || [];                                                       
+      3136             (op.trabajadoresAsisten || []).forEach(w => {                                                   
+      3490                   <button onClick={cuadrillaDiaGuardar}                                                     
+      3749                         setAsistentesForm([]); setAusentesForm([]);                                         
+      3846                         <span style={{color:SUCCESS,fontWeight:"700"}}>{asistentesForm.length}              
+           asisten</span>                                                                                              
+      3854                         ? Asisten ({asistentesForm.length})                                                 
+      3856                       {asistentesForm.length===0&&!cargandoAsist ? (                                        
+      3858                       ) : asistentesForm.map(w=>(                                                           
+      3970                               trabajadorCedula:asistentesForm[0]?.cedula || "",                             
+      3980                               trabajadoresAsisten:                                                          
+           asistentesForm.map(a=>({id:a.id,nombre:a.nombre,cedula:a.cedula||""})),                                     
+      4184                     disabled={guardando||!form.cuadrillaNombre||!form.servicioNombre||asistentesForm.length=
+           ==0||!puedeEditarMatriz||(form.tipoSeleccion!=="trabajador"&&!form.cantidad)}                               
+      4186                     style={{background:(guardando||!form.cuadrillaNombre||!form.servicioNombre||asistentesFo
+           rm.length===0||!puedeEditarMatriz)?"#94a3b8":editandoId?"#f59e0b":PRIMARY,                                  
+      4194                 {diasSemanalSeleccionados.length === 0 && asistentesForm.length===0 && form.cuadrillaId && (
+      4340                           const asisten = op.trabajadoresAsisten||[];                                       
+      4457           const asisten = op.trabajadoresAsisten||[];                                                       
+
+

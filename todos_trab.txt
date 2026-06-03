@@ -1,0 +1,41 @@
+3116:               <div>
+3117:                 <div style={{fontWeight:"800",color:s.color,fontSize:i===3?"0.82rem":"1.25rem",lineHeight:1.2}}>{s.value}</div>
+3118:                 <div style={{color:"#64748b",fontSize:"0.72rem"}}>{s.label}</div>
+3119:               </div>
+3120:             </div>
+3121:           ))}
+3122:         </div>
+3123: 
+3124:         {/* ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?
+3125:             FORMULARIO CUADRILLA DIARIA
+3126:             Terrestre (cliente1), Ciamsa 2 (cliente2), Ciamsa 3 (cliente3)
+3127:             ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ?ƒ? */}
+3128:         {clienteActivo !== "spia" && (() => {
+3129:           const f   = cuadrillaDiaForm;
+3130:           const sel = f.trabajadoresSeleccionados;
+3131:           // Trabajadores del cliente activo
+3132:           const trabCliente = listaTrabajadores;
+3133:           // Trabajadores de SPIA disponibles para incluir
+3134:           const trabSpia = todosTrabajadores.filter(t =>
+3135:             !(t.clienteIds || ["spia"]).includes(clienteActivo) &&
+3136:             (t.clienteIds || ["spia"]).includes("spia")
+3137:           );
+3138:           const qC = busqTrabCiamsa.toLowerCase().trim();
+3139:           const qS = busqSpiaCiamsa.toLowerCase().trim();
+3140:           const filtCliente = qC
+3141:             ? trabCliente.filter(t => t.nombre?.toLowerCase().includes(qC) || String(t.cedula||"").includes(busqTrabCiamsa))
+3142:             : trabCliente;
+3143:           const filtSpia = qS
+3144:             ? trabSpia.filter(t => t.nombre?.toLowerCase().includes(qS) || String(t.cedula||"").includes(busqSpiaCiamsa))
+3145:             : trabSpia;
+3146: 
+3147:           // Acumulado por trabajador en el perÇðodo actual
+3148:           const acum = {};
+3149:           opsFiltradas.forEach(op => {
+3150:             (op.trabajadoresAsisten || []).forEach(w => {
+3151:               if (!acum[w.id]) acum[w.id] = { nombre: w.nombre, cedula: w.cedula || "", total: 0, registros: 0 };
+3152:               acum[w.id].total    += op.netoAPagar || 0;
+3153:               acum[w.id].registros++;
+3154:             });
+3155:           });
+3156:           const acumLista = Object.values(acum).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));

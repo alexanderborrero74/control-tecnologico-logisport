@@ -1,0 +1,26 @@
+4176:                       border:"none",borderRadius:"10px",padding:"0.85rem 2rem",color:"#fff",fontWeight:"800",fontSize:"1rem",cursor:puedeEditarMatriz?"pointer":"not-allowed",
+4177:                       display:"flex",alignItems:"center",gap:"0.6rem",boxShadow:"0 4px 12px rgba(5,150,105,0.3)"}}>
+4178:                     {guardando?<><RefreshCw size={18} style={{animation:"spin 1s linear infinite"}}/> Guardando...</>
+4179:                       :guardadoOk?<><CheckCircle size={18}/> ¶­{diasSemanalSeleccionados.length} registros guardados!</>
+4180:                       :<><Save size={18}/> Guardar {diasSemanalSeleccionados.length} dÇða{diasSemanalSeleccionados.length!==1?"s":""} ({diasSemanalSeleccionados.map(d=>d.label).join(", ")})</>}
+4181:                   </button>
+4182:                 ) : (
+4183:                   <button onClick={guardar}
+4184:                     disabled={guardando||!form.cuadrillaNombre||!form.servicioNombre||asistentesForm.length===0||!puedeEditarMatriz||(form.tipoSeleccion!=="trabajador"&&!form.cantidad)}
+4185:                     title={!puedeEditarMatriz?"Sin permiso de ediciÇün en Matriz":""}
+4186:                     style={{background:(guardando||!form.cuadrillaNombre||!form.servicioNombre||asistentesForm.length===0||!puedeEditarMatriz)?"#94a3b8":editandoId?"#f59e0b":PRIMARY,
+4187:                       border:"none",borderRadius:"10px",padding:"0.85rem 2rem",color:"#fff",fontWeight:"800",fontSize:"1rem",cursor:puedeEditarMatriz?"pointer":"not-allowed",
+4188:                       display:"flex",alignItems:"center",gap:"0.6rem",boxShadow:"0 4px 12px rgba(11,61,145,0.25)"}}>
+4189:                     {guardando?<><RefreshCw size={18} style={{animation:"spin 1s linear infinite"}}/> Guardando...</>
+4190:                       :guardadoOk?<><CheckCircle size={18}/> ¶­Guardado!</>
+4191:                       :<><Save size={18}/> {editandoId?"Actualizar":"Guardar"}</>}
+4192:                   </button>
+4193:                 )}
+4194:                 {diasSemanalSeleccionados.length === 0 && asistentesForm.length===0 && form.cuadrillaId && (
+4195:                   <span style={{color:DANGER,fontSize:"0.82rem",fontWeight:"600"}}>ƒsÿ‹÷? Sin asistentes ƒ?" registra asistencia primero</span>
+4196:                 )}
+4197:                 {!puedeEditarMatriz && (
+4198:                   <span style={{color:"#94a3b8",fontSize:"0.8rem",fontWeight:"600"}}>ÐY"' Solo lectura ƒ?" solicita permiso de ediciÇün</span>
+4199:                 )}
+4200:               </div>
+4201:               </>)}

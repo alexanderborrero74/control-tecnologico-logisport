@@ -1,0 +1,36 @@
+2131:       }, { merge: true });
+2132:     } catch (e) {
+2133:       console.error("Error guardando motivo en registro:", e);
+2134:     }
+2135:   };
+2136: 
+2137:   /* ƒ"?ƒ"? CatÇ­logos ƒ"?ƒ"? */
+2138:   const cargarCuadrillas = async () => {
+2139:     const snap = await getDocs(collection(db,"nomina_asistencia"));
+2140:     const lista = snap.docs.map(d=>({id:d.id,...d.data()}));
+2141:     lista.sort((a,b)=>(a.orden||99)-(b.orden||99));
+2142:     setCuadrillasAsistencia(lista);
+2143:   };
+2144: 
+2145:   const cargarClientes = async () => {
+2146:     try {
+2147:       const snap = await getDocs(collection(db,"nomina_clientes"));
+2148:       if (!snap.empty) {
+2149:         const data = snap.docs.map(d=>({id:d.id,...d.data()}))
+2150:           .filter(c => c.id !== "admon"); // admon excluido de la matriz
+2151:         const orden = ["spia","cliente1","cliente2","cliente3"];
+2152:         data.sort((a,b)=>orden.indexOf(a.id)-orden.indexOf(b.id));
+2153:         const merged = data.map(c=>{const base=CLIENTES_BASE.find(b=>b.id===c.id);return{...base,...c};});
+2154:         setClientes(merged.length>0?merged:CLIENTES_BASE);
+2155:       }
+2156:     } catch {}
+2157:   };
+2158: 
+2159:   const cargarServicios = async (cId) => {
+2160:     const cActivo = cId || "spia";
+2161:     const snap = await getDocs(query(collection(db,"nomina_servicios"),orderBy("nombre")));
+2162:     const all = snap.docs.map(d=>({id:d.id,...d.data()}));
+2163:     const filtered = all.filter(s=>(s.clienteId||"spia")===cActivo);
+2164:     setServicios(filtered.length>0 ? filtered : (cActivo==="spia" ? all.filter(s=>!s.clienteId) : []));
+2165:   };
+2166: 

@@ -1,0 +1,25 @@
+
+LineNumber Line                                                                                                        
+---------- ----                                                                                                        
+      1788   const [busqSpiaCiamsa,         setBusqSpiaCiamsa]         = useState("");                                 
+      1992       setBusqSpiaCiamsa("");                                                                                
+      2298   const cuadrillaDiaToggleTrabajador = (t) => {                                                             
+      3134           const trabSpia = todosTrabajadores.filter(t =>                                                    
+      3139           const qS = busqSpiaCiamsa.toLowerCase().trim();                                                   
+      3140           const filtCliente = qC                                                                            
+      3143           const filtSpia = qS                                                                               
+      3144             ? trabSpia.filter(t => t.nombre?.toLowerCase().includes(qS) ||                                  
+           String(t.cedula||"").includes(busqSpiaCiamsa))                                                              
+      3145             : trabSpia;                                                                                     
+      3228                     {filtCliente.length !== trabCliente.length && `                                         
+           (${filtCliente.length}/${trabCliente.length})`}                                                             
+      3264                     {filtCliente.map(t => {                                                                 
+      3267                         <div key={t.id} onClick={() => cuadrillaDiaToggleTrabajador(t)}                     
+      3293                     {filtCliente.length === 0 && (                                                          
+      3301                   {trabSpia.length > 0 && (                                                                 
+      3307                       <input value={busqSpiaCiamsa} onChange={e => setBusqSpiaCiamsa(e.target.value)}       
+      3312                         {filtSpia.map(t => {                                                                
+      3315                             <div key={t.id} onClick={() => cuadrillaDiaToggleTrabajador(t)}                 
+      3442                           <span key={t.id} onClick={() => cuadrillaDiaToggleTrabajador(t)}                  
+
+

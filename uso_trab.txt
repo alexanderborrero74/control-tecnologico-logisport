@@ -1,0 +1,7 @@
+
+LineNumber Line                                                                                                   
+---------- ----                                                                                                   
+      1884   const [cuadDiaTrabajadores, setCuadDiaTrabajadores] = useState([]); // qui‚nes trabajan hoy          
+      1885   const [trabsServicio,       setTrabsServicio]       = useState([]); // qui‚nes hicieron este servicio
+
+

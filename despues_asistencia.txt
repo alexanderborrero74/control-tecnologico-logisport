@@ -1,0 +1,72 @@
+3910:               )}
+3911: 
+3912:               {/* ƒ"?ƒ"? Banner novedad activa ƒ?" muestra info + botÇün para registrar la novedad ƒ"?ƒ"? */}
+3913:               {form.tipoSeleccion === "trabajador" && novedadActivaWorker && (() => {
+3914:                 const ncat = novMapState[novedadActivaWorker.novedad] || { emoji:"ÐY".", label: novedadActivaWorker.novedad, color:"#7c3aed", bg:"#ede9fe" };
+3915:                 return (
+3916:                   <div style={{
+3917:                     borderRadius:"12px", overflow:"hidden",
+3918:                     border:`2px solid ${ncat.color}`,
+3919:                     marginTop:"0.75rem", marginBottom:"0.5rem",
+3920:                   }}>
+3921:                     {/* Barra titular */}
+3922:                     <div style={{
+3923:                       background:ncat.color, padding:"0.75rem 1.1rem",
+3924:                       display:"flex", alignItems:"center", justifyContent:"space-between",
+3925:                     }}>
+3926:                       <div style={{display:"flex",alignItems:"center",gap:"0.6rem"}}>
+3927:                         <span style={{fontSize:"1.4rem"}}>{ncat.emoji}</span>
+3928:                         <div>
+3929:                           <div style={{fontWeight:"800",color:"#fff",fontSize:"0.95rem"}}>
+3930:                             {ncat.label} ƒ?" Novedad marcada en Llamado a Lista
+3931:                           </div>
+3932:                           <div style={{color:"rgba(255,255,255,0.85)",fontSize:"0.75rem"}}>
+3933:                             Registrada para el {form.fecha}
+3934:                           </div>
+3935:                         </div>
+3936:                       </div>
+3937:                       <span style={{background:"rgba(255,255,255,0.2)",color:"#fff",borderRadius:"8px",padding:"3px 10px",fontSize:"0.72rem",fontWeight:"800",fontFamily:"monospace"}}>
+3938:                         {novedadActivaWorker.novedad}
+3939:                       </span>
+3940:                     </div>
+3941:                     {/* Cuerpo */}
+3942:                     <div style={{background:ncat.bg, padding:"0.85rem 1.1rem"}}>
+3943:                       <div style={{fontWeight:"700",color:ncat.color,fontSize:"0.88rem",marginBottom:"0.4rem"}}>
+3944:                         ƒsÿ‹÷? Este trabajador tiene novedad registrada para el <strong>{form.fecha}</strong> desde el Llamado a Lista.
+3945:                       </div>
+3946:                       <div style={{fontSize:"0.8rem",color:ncat.color,opacity:0.85,marginBottom:"0.75rem"}}>
+3947:                         No genera producciÇün este dÇða. Solo puedes guardar la novedad en la matriz.
+3948:                       </div>
+3949:                       {/* BotÇün registrar novedad */}
+3950:                       <button
+3951:                         onClick={async () => {
+3952:                           if (!form.cuadrillaNombre || !form.fecha) return;
+3953:                           setGuardando(true);
+3954:                           try {
+3955:                             const trabId = form.cuadrillaId.replace("trab_","");
+3956:                             const codNov = novedadActivaWorker.novedad;
+3957:                             const data = {
+3958:                               periodoDesde, periodoHasta,
+3959:                               clienteId:       clienteActivo,
+3960:                               modoCiamsa:      false,
+3961:                               modoNovedad:     true,
+3962:                               quincenaId:      `${periodoDesde} al ${periodoHasta}`,
+3963:                               quincenaLabel:   `${periodoDesde} al ${periodoHasta}`,
+3964:                               cuadrillaId:     form.cuadrillaId,
+3965:                               cuadrillaNombre: form.cuadrillaNombre.trim().toUpperCase(),
+3966:                               cuadrilla:       form.cuadrillaNombre.trim().toUpperCase(),
+3967:                               cuadrillaPersonas: 1,
+3968:                               trabajadorId:    trabId,
+3969:                               trabajadorNombre:form.cuadrillaNombre.trim().toUpperCase(),
+3970:                               trabajadorCedula:asistentesForm[0]?.cedula || "",
+3971:                               fecha:           Timestamp.fromDate(new Date(form.fecha+"T12:00:00")),
+3972:                               fechaStr:        form.fecha,
+3973:                               servicioNombre:  codNov,
+3974:                               novedad:         codNov,
+3975:                               netoAPagar:      0,
+3976:                               personas:        1,
+3977:                               cantidad:        1,
+3978:                               modoHorasExtras: false,
+3979:                               horasExtras:     null,
+3980:                               trabajadoresAsisten: asistentesForm.map(a=>({id:a.id,nombre:a.nombre,cedula:a.cedula||""})),
+3981:                               trabajadoresAusentes:[],

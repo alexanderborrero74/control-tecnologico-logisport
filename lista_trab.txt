@@ -1,0 +1,23 @@
+
+LineNumber Line                                                                                                        
+---------- ----                                                                                                        
+       650 function ConjuntosPanel({ cuadrillas, servicios, clienteId, onGuardado, onClose, todosTrabajadores,         
+           clientes }) {                                                                                               
+      1185 function MiniCuadrillaPanel({ cuadrillas, servicios, clienteId, onGuardado, onClose, todosTrabajadores,     
+           clientes }) {                                                                                               
+      1442           {cuadActual && (todosTrabajadores||[]).length > 0 && (() => {                                     
+      1446             const adicionales = (todosTrabajadores||[])                                                     
+      1743   const [listaTrabajadores,    setListaTrabajadores]    = useState([]);                                     
+      1744   const [todosTrabajadores,    setTodosTrabajadores]    = useState([]); // todos sin filtro de cliente      
+      2185         setListaTrabajadores(filtered.length>0?filtered:activos);                                           
+      2186         setTodosTrabajadores(activos); // todos los activos sin filtro de cliente                           
+      2422       const t = listaTrabajadores.find(x=>x.id===tId);                                                      
+      2668     const t = listaTrabajadores.find(x=>x.id===trabId);                                                     
+      2793     const t = listaTrabajadores.find(x=>x.id===trabId);                                                     
+      3132           const trabCliente = listaTrabajadores;                                                            
+      3134           const trabSpia = todosTrabajadores.filter(t =>                                                    
+      3686           todosTrabajadores={todosTrabajadores||listaTrabajadores}                                          
+      3697             todosTrabajadores={todosTrabajadores}                                                           
+      3753                     trabajadores={listaTrabajadores}                                                        
+
+

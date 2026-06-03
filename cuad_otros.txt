@@ -1,0 +1,7 @@
+
+LineNumber Line                                                                   
+---------- ----                                                                   
+      1742   const [cuadrillasAsistencia, setCuadrillasAsistencia] = useState([]);
+      2142     setCuadrillasAsistencia(lista);                                    
+
+

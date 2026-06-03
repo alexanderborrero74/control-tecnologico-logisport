@@ -1,0 +1,24 @@
+2563:       quincenaId:`${periodoDesde} al ${periodoHasta}`,
+2564:       quincenaLabel:`${periodoDesde} al ${periodoHasta}`,
+2565:       cuadrillaId:       form.cuadrillaId,
+2566:       cuadrillaNombre:   form.cuadrillaNombre.trim().toUpperCase(),
+2567:       cuadrilla:         form.cuadrillaNombre.trim().toUpperCase(),
+2568:       cuadrillaPersonas: form.cuadrillaPersonas,
+2569:       fecha:             form.fecha ? Timestamp.fromDate(new Date(form.fecha+"T12:00:00")) : null,
+2570:       fechaStr:          form.fecha,
+2571:       servicioNombre:    form.servicioNombre.trim().toUpperCase(),
+2572:       servicioValorUnitario: valorUnitario,
+2573:       servicioValor:     esTrabajadorIndividual ? netoFinal : valorUnitario * cantidad,
+2574:       cantidad,
+2575:       personas,
+2576:       horasExtras,       // null para cuadrillas, nǧmero para individuales
+2577:       modoHorasExtras:   esTrabajadorIndividual, // flag para identificar este modo
+2578:       netoAPagar:        netoFinal,
+2579:       trabajadoresAsisten: asistentesForm.map(a=>({id:a.id,nombre:a.nombre,cedula:a.cedula||""})),
+2580:       trabajadoresAusentes: ausentesForm.map(a=>({id:a.id,nombre:a.nombre,novedad:a.novedad})),
+2581:       actualizadoEn: new Date(),
+2582:     };
+2583:     try {
+2584:       if (editandoId) {
+2585:         await updateDoc(doc(db,"nomina_operaciones",editandoId),data);
+2586:         setEditandoId(null);

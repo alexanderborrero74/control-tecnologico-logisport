@@ -1,0 +1,16 @@
+
+LineNumber Line                                                                                                  
+---------- ----                                                                                                  
+      1475                       const cIds = t.clienteIds||["spia"];                                            
+      1744   const [todosTrabajadores,    setTodosTrabajadores]    = useState([]); // todos sin filtro de cliente
+      2183         const activos   = all.filter(w => w.activo !== false);                                        
+      2184         const filtered  = activos.filter(w=>(w.clienteIds||["spia"]).includes(cActivo));              
+      2185         setListaTrabajadores(filtered.length>0?filtered:activos);                                     
+      2186         setTodosTrabajadores(activos); // todos los activos sin filtro de cliente                     
+      3135             !(t.clienteIds || ["spia"]).includes(clienteActivo) &&                                    
+      3136             (t.clienteIds || ["spia"]).includes("spia")                                               
+      3780                     <label style={labelSt}>???????? Trabajadores activos</label>                      
+      3935                   (t.clienteIds||["spia"]).some(id=>["cliente1","cliente2","cliente3"].includes(id))  
+      3986                           const tCli = filtOtros.filter(t=>(t.clienteIds||[]).includes(cli.id));      
+
+

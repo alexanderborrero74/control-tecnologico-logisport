@@ -1,0 +1,47 @@
+
+LineNumber Line                                                                                                        
+---------- ----                                                                                                        
+      1886   const [trabsAdicionales,    setTrabsAdicionales]    = useState([]); // trabajadores adicionales           
+           seleccionados (cross-cliente)                                                                               
+      1887   const [cuadsOtrosClientes,  setCuadsOtrosClientes]  = useState([]); // cuadrillas de C1/C2/C3 para        
+           mostrar en SPIA                                                                                             
+      1888   const [showTrabsPanel,      setShowTrabsPanel]      = useState(false);                                    
+      1889   const [busqTrabAd,          setBusqTrabAd]          = useState("");                                       
+      1998       setTrabsAdicionales([]);                                                                              
+      1999       setShowTrabsPanel(false);                                                                             
+      2000       setBusqTrabAd("");                                                                                    
+      2150     // Cargar cuadrillas de otros clientes para "Trabajadores adicionales" en SPIA                          
+      2152     setCuadsOtrosClientes(otros);                                                                           
+      2203       setTrabsAdicionales([]); setShowTrabsPanel(false); setCargandoAsist(false); return;                   
+      2582         ...trabsAdicionales.map(t=>({id:t.id,nombre:t.nombre,cedula:t.cedula||"",clienteId:t.clienteId||"",c
+           lienteLabel:t.clienteLabel||""})),                                                                          
+      3926               {/* ÄÄ TRABAJADORES ADICIONALES (cross-cliente) ÄÄ */}                                        
+      3929                   <div onClick={()=>setShowTrabsPanel(p=>!p)}                                               
+      3930                     style={{padding:"0.6rem 1rem",background:showTrabsPanel?"#4f46e5":"#eef2ff",            
+      3932                     <span style={{fontWeight:"800",color:showTrabsPanel?"#fff":"#4f46e5",fontSize:"0.85rem",
+           display:"flex",alignItems:"center",gap:"0.5rem"}}>                                                          
+      3933                       ?? Trabajadores adicionales                                                           
+      3934                       {trabsAdicionales.length>0&&<span style={{background:showTrabsPanel?"rgba(255,255,255,
+           0.25)":"#4f46e5",color:"#fff",borderRadius:"12px",padding:"1px                                              
+           8px",fontSize:"0.72rem"}}>{trabsAdicionales.length} sel.</span>}                                            
+      3936                     <span                                                                                   
+           style={{color:showTrabsPanel?"rgba(255,255,255,0.75)":"#6366f1",fontSize:"0.7rem"}}>{showTrabsPanel?"      
+           Cerrar":" De otros clientes"}</span>                                                                       
+      3938                   {trabsAdicionales.length>0&&(                                                             
+      3940                       {trabsAdicionales.map(t=>(                                                            
+      3944                           <button onClick={()=>setTrabsAdicionales(prev=>prev.filter(x=>x.id!==t.id))}      
+           style={{background:"none",border:"none",cursor:"pointer",color:"#94a3b8",padding:0,display:"flex"}}><X      
+           size={11}/></button>                                                                                        
+      3949                   {showTrabsPanel&&(                                                                        
+      3951                       <input value={busqTrabAd} onChange={e=>setBusqTrabAd(e.target.value)}                 
+      3955                         const cuadsCli=cuadsOtrosClientes.filter(c=>c.clienteId===cli.id);                  
+      3958                         const filt=busqTrabAd?membs.filter(m=>m.nombre?.toLowerCase().includes(busqTrabAd.to
+           LowerCase())||String(m.cedula||'').includes(busqTrabAd)):membs;                                             
+      3965                                 const sel=trabsAdicionales.some(x=>x.id===m.id);                            
+      3967                                   <div key={m.id}                                                           
+           onClick={()=>sel?setTrabsAdicionales(p=>p.filter(x=>x.id!==m.id)):setTrabsAdicionales(p=>[...p,m])}         
+      3983                       {!cuadsOtrosClientes.length&&<div                                                     
+           style={{textAlign:"center",padding:"1rem",color:"#94a3b8",fontSize:"0.82rem"}}>No hay cuadrillas de otros   
+           clientes</div>}                                                                                             
+
+

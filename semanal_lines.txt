@@ -1,0 +1,60 @@
+
+LineNumber Line                                                                                                        
+---------- ----                                                                                                        
+       103 // Genera los d¡as Lun-S b de una cuadrilla semanal como entradas individuales                              
+       104 function diasDeCuadrillaSemanal(c) {                                                                        
+       105   if (c.tipo !== "semanal" || !c.semanaDesde || !c.semanaHasta) return [];                                  
+       109   const ini = new Date(c.semanaDesde + "T12:00:00");                                                        
+       114       id: `semanal_dia_${c.id}_${fecha.replace(/-/g,"")}`,                                                  
+       141       return `?? ${cuad?.nombre||"Semanal"} ú ${labels} (${diasSeleccionados.length}                        
+           d¡a${diasSeleccionados.length!==1?"s":""})`;    }                                                           
+       147     if (value.startsWith("semanal_dia_")) {                                                                 
+       149         const dia = diasDeCuadrillaSemanal(c).find(d => d.id === value);                                    
+       167   // Cuadrillas normales (no semanales)                                                                     
+       169     .filter(c => c.tipo !== "semanal")                                                                      
+       172   // Cuadrillas semanales con sus d¡as                                                                      
+       173   const cuadSemanales = cuadrillas                                                                          
+       174     .filter(c => c.tipo === "semanal")                                                                      
+       176       diasDeCuadrillaSemanal(c).some(d => d.label.toLowerCase().includes(q)));                              
+       244             {/* CUADRILLAS SEMANALES - checkboxes multi-selecci¢n por d¡a */}                               
+       245             {cuadSemanales.length > 0 && (                                                                  
+       251                   <span>?? CUADRILLAS SEMANALES - marca los d¡as</span>                                     
+       260                 {cuadSemanales.map(c => {                                                                   
+       261                   const todosLosDias = diasDeCuadrillaSemanal(c);                                           
+       300                             {c.semanaDesde}  {c.semanaHasta}                                               
+       857               {cuadrillas.filter(c=>c.tipo!=="semanal").map(c => {                                          
+      1742   // ÄÄ Multi-d¡a semanal - d¡as seleccionados para guardar en lote                                         
+      1744   const [diasSemanalSeleccionados, setDiasSemanalSeleccionados] = useState([]);                             
+      1945       setDiasSemanalSeleccionados([]);                                                                      
+      1964   // de cuadrilla semanal se recargue autom ticamente el snapshot correcto                                  
+      2381     // Cuadrilla semanal - d¡a espec¡fico: semanal_dia_{cuadId}_{YYYYMMDD}                                  
+      2382     if (val.startsWith("semanal_dia_")) {                                                                   
+      2383       // Extraer el cuadId buscando en todas las cuadrillas semanales                                       
+      2385         c.tipo === "semanal" && val.startsWith(`semanal_dia_${c.id}_`)                                      
+      2389       const fechaCompacta = val.replace(`semanal_dia_${cuad.id}_`, ""); // YYYYMMDD                         
+      2415   /* ÄÄ SPIA: Guardar m£ltiples d¡as de cuadrilla semanal ÄÄ                                                
+      2422     if (diasSemanalSeleccionados.length === 0) return;                                                      
+      2430       for (const dia of diasSemanalSeleccionados) {                                                         
+      2482       setDiasSemanalSeleccionados([]);                                                                      
+      2493       if (errores.length > 0) alert(`Se guardaron ${guardados} de ${diasSemanalSeleccionados.length}        
+           d¡as.\n\nErrores:\n${errores.join("\n")}`);                                                                 
+      3707                     diasSeleccionados={diasSemanalSeleccionados}                                            
+      3709                       setDiasSemanalSeleccionados(nuevos);                                                  
+      3740               {/* Í PANEL MULTI-DÖA: visible cuando hay d¡as semanal seleccionados Í */}                    
+      3741               {diasSemanalSeleccionados.length > 0 && (                                                     
+      3748                       ?? Modo semanal - se crear n {diasSemanalSeleccionados.length}                        
+           registro{diasSemanalSeleccionados.length!==1?"s":""} independientes                                         
+      3751                         setDiasSemanalSeleccionados([]);                                                    
+      3761                     {diasSemanalSeleccionados.map(d => (                                                    
+      3770                             const nuevo = diasSemanalSeleccionados.filter(x=>x.id!==d.id);                  
+      3771                             setDiasSemanalSeleccionados(nuevo);                                             
+      3792               {diasSemanalSeleccionados.length === 0 && form.cuadrillaId && form.fecha && (                 
+      4133                 {/* Bot¢n: modo multi-d¡a semanal */}                                                       
+      4134                 {diasSemanalSeleccionados.length > 0 ? (                                                    
+      4142                       :guardadoOk?<><CheckCircle size={18}/> ­{diasSemanalSeleccionados.length} registros   
+           guardados!</>                                                                                               
+      4143                       :<><Save size={18}/> Guardar {diasSemanalSeleccionados.length}                        
+           d¡a{diasSemanalSeleccionados.length!==1?"s":""} ({diasSemanalSeleccionados.map(d=>d.label).join(", ")})</>} 
+      4157                 {diasSemanalSeleccionados.length === 0 && asistentesForm.length===0 && form.cuadrillaId && (
+
+

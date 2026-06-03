@@ -1,0 +1,96 @@
+3286:                             </div>
+3287:                             <div style={{ fontSize:"0.68rem", color:"#94a3b8", fontFamily:"monospace" }}>{t.cedula}</div>
+3288:                           </div>
+3289:                           <span style={{ fontSize:"0.65rem", color:"#94a3b8", flexShrink:0 }}>{t.cargo}</span>
+3290:                         </div>
+3291:                       );
+3292:                     })}
+3293:                     {filtCliente.length === 0 && (
+3294:                       <div style={{ padding:"1rem", textAlign:"center", color:"#94a3b8", fontSize:"0.8rem" }}>
+3295:                         Sin resultados
+3296:                       </div>
+3297:                     )}
+3298:                   </div>
+3299: 
+3300:                   {/* Personal SPIA adicional */}
+3301:                   {trabSpia.length > 0 && (
+3302:                     <>
+3303:                       <div style={{ fontSize:"0.72rem", fontWeight:"700", color:"#0B3D91",
+3304:                         textTransform:"uppercase", letterSpacing:"0.05em", marginBottom:"0.35rem" }}>
+3305:                         ÐYõü Personal SPIA adicional
+3306:                       </div>
+3307:                       <input value={busqSpiaCiamsa} onChange={e => setBusqSpiaCiamsa(e.target.value)}
+3308:                         placeholder="ÐY"? Buscar SPIA..."
+3309:                         style={{ ...inputSt, padding:"0.45rem 0.75rem", fontSize:"0.82rem", marginBottom:"0.5rem" }} />
+3310:                       <div style={{ border:"1px solid #dbeafe", borderRadius:"10px",
+3311:                         overflow:"hidden", maxHeight:"140px", overflowY:"auto" }}>
+3312:                         {filtSpia.map(t => {
+3313:                           const selec = sel.some(x => x.id === t.id);
+3314:                           return (
+3315:                             <div key={t.id} onClick={() => cuadrillaDiaToggleTrabajador(t)}
+3316:                               style={{ display:"flex", alignItems:"center", gap:"0.5rem",
+3317:                                 padding:"0.4rem 0.65rem",
+3318:                                 background: selec ? "#eff6ff" : "#fff",
+3319:                                 borderBottom:"1px solid #f0f9ff",
+3320:                                 cursor:"pointer" }}
+3321:                               onMouseEnter={e=>{ if(!selec) e.currentTarget.style.background="#f0f9ff"; }}
+3322:                               onMouseLeave={e=>{ if(!selec) e.currentTarget.style.background="#fff"; }}>
+3323:                               <div style={{ width:"15px", height:"15px", borderRadius:"4px", flexShrink:0,
+3324:                                 border:`2px solid ${selec ? "#0B3D91" : "#cbd5e1"}`,
+3325:                                 background: selec ? "#0B3D91" : "#fff",
+3326:                                 display:"flex", alignItems:"center", justifyContent:"center" }}>
+3327:                                 {selec && <CheckCircle size={9} color="#fff" strokeWidth={3}/>}
+3328:                               </div>
+3329:                               <div style={{ flex:1, minWidth:0 }}>
+3330:                                 <div style={{ fontWeight: selec?"700":"400", fontSize:"0.82rem",
+3331:                                   color: selec ? "#0B3D91" : "#1e293b",
+3332:                                   overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+3333:                                   {t.nombre}
+3334:                                 </div>
+3335:                                 <div style={{ fontSize:"0.67rem", color:"#94a3b8", fontFamily:"monospace" }}>{t.cedula}</div>
+3336:                               </div>
+3337:                               <span style={{ fontSize:"0.6rem", background:"#dbeafe", color:"#1d4ed8",
+3338:                                 borderRadius:"4px", padding:"1px 5px", fontWeight:"700", flexShrink:0 }}>SPIA</span>
+3339:                             </div>
+3340:                           );
+3341:                         })}
+3342:                       </div>
+3343:                     </>
+3344:                   )}
+3345:                 </div>
+3346: 
+3347:                 {/* COLUMNA DERECHA: Registro del servicio */}
+3348:                 <div style={{ background:"#fff", borderRadius:"14px", padding:"1.25rem",
+3349:                   boxShadow:"0 2px 10px rgba(0,0,0,0.06)",
+3350:                   border:`2px solid ${cuadrillaDiaGuardando || cuadrillaDiaOk ? colorCiamsa : "#e2e8f0"}` }}>
+3351:                   <div style={{ fontWeight:"800", fontSize:"0.82rem", color:"#475569",
+3352:                     textTransform:"uppercase", letterSpacing:"0.05em", marginBottom:"1rem" }}>
+3353:                     ƒs-‹÷? Registrar servicio
+3354:                   </div>
+3355: 
+3356:                   {/* Servicio */}
+3357:                   <div style={{ marginBottom:"0.9rem" }}>
+3358:                     <label style={labelSt}>ÐY"õ Servicio *</label>
+3359:                     <div style={{ position:"relative" }}>
+3360:                       <select value={f.servicioId} onChange={e => cuadrillaDiaSelServicio(e.target.value)}
+3361:                         style={{ ...selectSt, border:`1.5px solid ${colorCiamsa}50` }}>
+3362:                         <option value="">ƒ?" Seleccionar servicio ƒ?"</option>
+3363:                         {servicios.map(s => (
+3364:                           <option key={s.id} value={s.id}>
+3365:                             {s.nombre}{(s.valor||s.tarifa) > 0 ? ` ¶ú ${formatCOP(s.valor||s.tarifa||0)}/${s.unidad||"ton"}` : ""}
+3366:                           </option>
+3367:                         ))}
+3368:                       </select>
+3369:                       <ChevronDown size={15} style={{ position:"absolute", right:"0.75rem", top:"50%",
+3370:                         transform:"translateY(-50%)", color:"#94a3b8", pointerEvents:"none" }}/>
+3371:                     </div>
+3372:                   </div>
+3373: 
+3374:                   {/* CÇ­lculo destajo */}
+3375:                   {f.servicioId && (
+3376:                     <div style={{ background:`${colorCiamsa}06`, border:`1.5px solid ${colorCiamsa}20`,
+3377:                       borderRadius:"12px", padding:"1rem", marginBottom:"0.9rem" }}>
+3378:                       <div style={{ fontSize:"0.7rem", fontWeight:"800", color:colorCiamsa,
+3379:                         textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:"0.75rem" }}>
+3380:                         {f.unidad === "dia" ? "ÐY". DÇðas trabajados por persona" :
+3381:                          f.unidad === "hora" ? "ƒ?ø Horas trabajadas por persona" :

@@ -1,0 +1,93 @@
+3829:               {diasSemanalSeleccionados.length === 0 && form.cuadrillaId && form.fecha && (
+3830:                 <div style={{margin:"1rem 0",borderRadius:"12px",border:"1px solid #e2e8f0",overflow:"hidden"}}>
+3831:                   <div style={{padding:"0.65rem 1rem",background:usandoSnapshotHistorico?"#f0fdf4":`${PRIMARY}08`,display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:"1px solid #e2e8f0"}}>
+3832:                     <span style={{fontWeight:"700",color:usandoSnapshotHistorico?"#059669":PRIMARY,fontSize:"0.85rem",display:"flex",alignItems:"center",gap:"0.5rem"}}>
+3833:                       {form.tipoSeleccion==="trabajador" ? "ÐY'Ï Trabajador individual" : `ÐY"< Asistencia del dÇða ƒ?" ${form.fecha}`}
+3834:                       {usandoSnapshotHistorico && form.tipoSeleccion!=="trabajador" && (
+3835:                         <span style={{background:"#059669",color:"#fff",borderRadius:"6px",padding:"1px 8px",fontSize:"0.65rem",fontWeight:"800"}}>
+3836:                           ÐY"÷ COMPOSICIÇ"N HISTÇ"RICA DEL DÇ?A
+3837:                         </span>
+3838:                       )}
+3839:                     </span>
+3840:                     {cargandoAsist ? (
+3841:                       <span style={{fontSize:"0.75rem",color:"#94a3b8",display:"flex",alignItems:"center",gap:"0.35rem"}}>
+3842:                         <RefreshCw size={12} style={{animation:"spin 1s linear infinite"}}/> Cargando...
+3843:                       </span>
+3844:                     ) : (
+3845:                       <span style={{fontSize:"0.75rem",color:"#64748b"}}>
+3846:                         <span style={{color:SUCCESS,fontWeight:"700"}}>{asistentesForm.length} asisten</span>
+3847:                         {ausentesForm.length>0&&<span style={{color:DANGER,fontWeight:"700",marginLeft:"0.5rem"}}> ¶ú {ausentesForm.length} con novedad</span>}
+3848:                       </span>
+3849:                     )}
+3850:                   </div>
+3851:                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:0}}>
+3852:                     <div style={{padding:"0.75rem 1rem",borderRight:"1px solid #e2e8f0"}}>
+3853:                       <div style={{fontSize:"0.72rem",fontWeight:"700",color:SUCCESS,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:"0.4rem"}}>
+3854:                         ƒo. Asisten ({asistentesForm.length})
+3855:                       </div>
+3856:                       {asistentesForm.length===0&&!cargandoAsist ? (
+3857:                         <div style={{fontSize:"0.78rem",color:"#94a3b8"}}>Sin registro para este dÇða</div>
+3858:                       ) : asistentesForm.map(w=>(
+3859:                         <div key={w.id} style={{display:"flex",alignItems:"center",gap:"0.5rem",padding:"0.3rem 0",borderBottom:"1px solid #f1f5f9",fontSize:"0.8rem"}}>
+3860:                           <span style={{color:SUCCESS}}>ƒo"</span>
+3861:                           <span style={{fontWeight:"600",color:"#1e293b"}}>{w.nombre}</span>
+3862:                           <span style={{color:"#94a3b8",fontSize:"0.68rem",fontFamily:"monospace"}}>{w.cedula}</span>
+3863:                         </div>
+3864:                       ))}
+3865:                     </div>
+3866:                     <div style={{padding:"0.75rem 1rem"}}>
+3867:                       <div style={{fontSize:"0.72rem",fontWeight:"700",color:DANGER,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:"0.4rem"}}>
+3868:                         ƒ?O Con novedad ({ausentesForm.length})
+3869:                       </div>
+3870:                       {ausentesForm.length===0 ? (
+3871:                         <div style={{fontSize:"0.78rem",color:"#94a3b8"}}>Todos asistieron ÐYZ%</div>
+3872:                       ) : ausentesForm.map(w=>(
+3873:                         <div key={w.id} style={{padding:"0.3rem 0",borderBottom:"1px solid #f1f5f9"}}>
+3874:                           <div style={{display:"flex",alignItems:"center",gap:"0.5rem",fontSize:"0.8rem",marginBottom:"0.25rem"}}>
+3875:                             <span>ƒ?O</span>
+3876:                             <div>
+3877:                               <div style={{fontWeight:"600",color:"#475569"}}>{w.nombre}</div>
+3878:                               <div style={{fontSize:"0.68rem",color:DANGER,fontWeight:"700"}}>{novLabel(w.novedad)}</div>
+3879:                             </div>
+3880:                           </div>
+3881:                           {/* Selector de motivo inline ƒ?" dropdown compacto */}
+3882:                           <div style={{marginLeft:"1.5rem",marginTop:"0.25rem"}}>
+3883:                             <select
+3884:                               value={w.novedad||""}
+3885:                               onChange={async e=>{
+3886:                                 const val = e.target.value;
+3887:                                 setAusentesForm(prev=>prev.map(x=>x.id===w.id?{...x,novedad:val}:x));
+3888:                                 if (val) await guardarMotivoEnRegistro(w.id, form.fecha, val);
+3889:                               }}
+3890:                               style={{
+3891:                                 padding:"0.3rem 1.8rem 0.3rem 0.55rem",
+3892:                                 border:`1.5px solid ${novedades.find(n=>n.codigo===w.novedad)?.color||DANGER}`,
+3893:                                 borderRadius:"8px",fontSize:"0.72rem",fontWeight:"700",cursor:"pointer",
+3894:                                 appearance:"none",outline:"none",
+3895:                                 background:novedades.find(n=>n.codigo===w.novedad)?.bg||"#fee2e2",
+3896:                                 color:novedades.find(n=>n.codigo===w.novedad)?.color||DANGER,
+3897:                                 minWidth:"160px",
+3898:                               }}
+3899:                             >
+3900:                               {novedades.map(n=>(
+3901:                                 <option key={n.codigo} value={n.codigo}>{n.emoji} {n.label} ({n.codigo})</option>
+3902:                               ))}
+3903:                             </select>
+3904:                           </div>
+3905:                         </div>
+3906:                       ))}
+3907:                     </div>
+3908:                   </div>
+3909:                 </div>
+3910:               )}
+3911: 
+3912:               {/* ƒ"?ƒ"? Banner novedad activa ƒ?" muestra info + botÇün para registrar la novedad ƒ"?ƒ"? */}
+3913:               {form.tipoSeleccion === "trabajador" && novedadActivaWorker && (() => {
+3914:                 const ncat = novMapState[novedadActivaWorker.novedad] || { emoji:"ÐY".", label: novedadActivaWorker.novedad, color:"#7c3aed", bg:"#ede9fe" };
+3915:                 return (
+3916:                   <div style={{
+3917:                     borderRadius:"12px", overflow:"hidden",
+3918:                     border:`2px solid ${ncat.color}`,
+3919:                     marginTop:"0.75rem", marginBottom:"0.5rem",
+3920:                   }}>
+3921:                     {/* Barra titular */}

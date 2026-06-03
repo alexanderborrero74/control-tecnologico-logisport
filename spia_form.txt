@@ -1,0 +1,81 @@
+3751:                     }}
+3752:                     onMiniClick={c => {
+3753:                       seleccionarCuadrilla(c.id);
+3754:                       setShowMiniCuad(true);
+3755:                     }}
+3756:                   />
+3757:                 </div>
+3758:                 <div>
+3759:                   <label style={labelSt}>ÐY". Fecha *</label>
+3760:                   <input type="date" value={form.fecha} onChange={e=>setField("fecha",e.target.value)} style={inputSt}/>
+3761:                 </div>
+3762: 
+3763:                 {/* Solo mostrar contador de personas en modo cuadrilla */}
+3764:                 {form.tipoSeleccion !== "trabajador" && (
+3765:                   <div>
+3766:                     <label style={labelSt}>ÐYõ'ƒ??ÐYÏ?ƒ??ÐYõ' Trabajadores activos</label>
+3767:                     <div style={{position:"relative"}}>
+3768:                       <input type="number" min="1" value={form.personas} onChange={e=>setField("personas",e.target.value)} style={inputSt}/>
+3769:                       {cargandoAsist&&<span style={{position:"absolute",right:"0.65rem",top:"50%",transform:"translateY(-50%)"}}>
+3770:                         <RefreshCw size={13} color="#94a3b8" style={{animation:"spin 1s linear infinite"}}/>
+3771:                       </span>}
+3772:                     </div>
+3773:                   </div>
+3774:                 )}
+3775:               </div>
+3776: 
+3777:               {/* ƒ? PANEL MULTI-DÇ?A: visible cuando hay dÇðas semanal seleccionados ƒ? */}
+3778:               {diasSemanalSeleccionados.length > 0 && (
+3779:                 <div style={{margin:"1rem 0",borderRadius:"12px",overflow:"hidden",
+3780:                   border:"2px solid #059669",background:"#f0fdf4"}}>
+3781:                   {/* Header */}
+3782:                   <div style={{padding:"0.65rem 1rem",background:"#059669",
+3783:                     display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+3784:                     <span style={{fontWeight:"800",color:"#fff",fontSize:"0.88rem"}}>
+3785:                       ÐY". Modo semanal ƒ?" se crearÇ­n {diasSemanalSeleccionados.length} registro{diasSemanalSeleccionados.length!==1?"s":""} independientes
+3786:                     </span>
+3787:                     <button onClick={()=>{
+3788:                         setDiasSemanalSeleccionados([]);
+3789:                         setForm(prev=>({...prev,cuadrillaId:"",cuadrillaNombre:"",tipoSeleccion:""}));
+3790:                       }}
+3791:                       style={{background:"rgba(255,255,255,0.2)",border:"none",borderRadius:"6px",
+3792:                         padding:"2px 8px",cursor:"pointer",color:"#fff",fontWeight:"700",fontSize:"0.75rem"}}>
+3793:                       Ç- Limpiar
+3794:                     </button>
+3795:                   </div>
+3796:                   {/* Chips de dÇðas */}
+3797:                   <div style={{padding:"0.65rem 1rem",display:"flex",flexWrap:"wrap",gap:"0.4rem",alignItems:"center"}}>
+3798:                     {diasSemanalSeleccionados.map(d => (
+3799:                       <span key={d.id} style={{
+3800:                         background:"#fff",border:"1.5px solid #86efac",
+3801:                         color:"#065f46",borderRadius:"20px",
+3802:                         padding:"0.2rem 0.6rem 0.2rem 0.8rem",
+3803:                         fontSize:"0.78rem",fontWeight:"700",
+3804:                         display:"flex",alignItems:"center",gap:"0.3rem"}}>
+3805:                         {d.label}
+3806:                         <button onClick={()=>{
+3807:                             const nuevo = diasSemanalSeleccionados.filter(x=>x.id!==d.id);
+3808:                             setDiasSemanalSeleccionados(nuevo);
+3809:                             if(nuevo.length===0){
+3810:                               setForm(prev=>({...prev,cuadrillaId:"",cuadrillaNombre:"",tipoSeleccion:""}));
+3811:                             }
+3812:                           }}
+3813:                           style={{background:"none",border:"none",cursor:"pointer",
+3814:                             color:"#94a3b8",padding:0,display:"flex",lineHeight:1}}>
+3815:                           <X size={11}/>
+3816:                         </button>
+3817:                       </span>
+3818:                     ))}
+3819:                   </div>
+3820:                   {/* Info */}
+3821:                   <div style={{padding:"0.4rem 1rem 0.65rem",fontSize:"0.78rem",color:"#065f46"}}>
+3822:                     ƒ"û‹÷? Cada dÇða usa su propio snapshot de composiciÇün y cuenta sus asistentes para calcular el neto.
+3823:                     Selecciona el servicio y cantidad abajo, luego guarda.
+3824:                   </div>
+3825:                 </div>
+3826:               )}
+3827: 
+3828:               {/* Panel asistencia (solo en modo dÇða Ç§nico) */}
+3829:               {diasSemanalSeleccionados.length === 0 && form.cuadrillaId && form.fecha && (
+3830:                 <div style={{margin:"1rem 0",borderRadius:"12px",border:"1px solid #e2e8f0",overflow:"hidden"}}>
+3831:                   <div style={{padding:"0.65rem 1rem",background:usandoSnapshotHistorico?"#f0fdf4":`${PRIMARY}08`,display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:"1px solid #e2e8f0"}}>
