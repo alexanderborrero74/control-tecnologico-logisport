@@ -1,0 +1,27 @@
+4430:         const filasFilt=filas.filter(f=>(!qN||f.nombre.toLowerCase().includes(qN))&&(!qC||f.cedula.includes(qC))&&(!qS||f.servicio.toLowerCase().includes(qS))).sort((a,b)=>{const n=a.nombre.localeCompare(b.nombre,"es");return n!==0?n:a.fecha.localeCompare(b.fecha);});
+4431:         const totalFilt=filasFilt.reduce((s,f)=>s+f.neto,0);
+4432:         const serviciosUnicos=[...new Set(filas.map(f=>f.servicio).filter(Boolean))].sort();
+4433:         const exportarCSV=()=>{
+4434:           const BOM='\uFEFF';
+4435:           const csv=BOM+[["Trabajador","CÇ¸dula","Fecha","Cuadrilla","Servicio","Cantidad","Neto"],...filasFilt.map(f=>[f.nombre,f.cedula,f.fecha,f.cuadrilla,f.servicio,f.cantidad,f.neto])].map(r=>r.map(c=>'"'+String(c==null?'':c).replace(/"/g,'""')+'"').join(',')).join('\n');
+4436:           const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});const url=URL.createObjectURL(blob);const a=document.createElement('a');
+4437:           a.href=url;a.download=`detalle_${periodoDesde}_${periodoHasta}.csv`;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+4438:         };
+4439:         return (
+4440:           <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:9999,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"1.5rem",overflowY:"auto"}}
+4441:             onClick={e=>{if(e.target===e.currentTarget)setShowDetalleModal(false);}}>
+4442:             <div style={{background:"#fff",borderRadius:"16px",width:"100%",maxWidth:"1100px",boxShadow:"0 20px 60px rgba(0,0,0,0.3)",overflow:"hidden"}}>
+4443:               <div style={{background:`linear-gradient(135deg,${PRIMARY} 0%,#1a56c4 100%)`,padding:"1rem 1.5rem",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+4444:                 <div>
+4445:                   <div style={{fontWeight:"800",color:"#fff",fontSize:"1.1rem"}}>ÐY"S Detalle por Trabajador</div>
+4446:                   <div style={{color:"rgba(255,255,255,0.8)",fontSize:"0.8rem"}}>{periodoDesde} al {periodoHasta} ¶ú {filasFilt.length} registros ¶ú Total: {formatCOP(totalFilt)}</div>
+4447:                 </div>
+4448:                 <div style={{display:"flex",gap:"0.5rem"}}>
+4449:                   <button onClick={exportarCSV} style={{background:"#22c55e",border:"none",borderRadius:"8px",padding:"0.5rem 1rem",cursor:"pointer",color:"#fff",fontWeight:"700",fontSize:"0.82rem",display:"flex",alignItems:"center",gap:"0.4rem"}}>ƒªÎ‹÷? Exportar CSV</button>
+4450:                   <button onClick={()=>setShowDetalleModal(false)} style={{background:"rgba(255,255,255,0.15)",border:"none",borderRadius:"8px",padding:"0.5rem",cursor:"pointer",color:"#fff"}}><X size={18}/></button>
+4451:                 </div>
+4452:               </div>
+4453:               <div style={{padding:"0.85rem 1.5rem",background:"#f8fafc",borderBottom:"1px solid #e2e8f0",display:"flex",gap:"0.6rem",flexWrap:"wrap",alignItems:"center"}}>
+4454:                 <div style={{position:"relative",flex:"1",minWidth:"170px"}}>
+4455:                   <Search size={13} style={{position:"absolute",left:"0.6rem",top:"50%",transform:"translateY(-50%)",color:"#94a3b8",pointerEvents:"none"}}/>
+4456:                   <input value={filtroDetNombre} onChange={e=>setFiltroDetNombre(e.target.value)} placeholder="Nombre..." style={{...inputSt,padding:"0.45rem 0.75rem 0.45rem 2rem"}}/>

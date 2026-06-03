@@ -1,0 +1,30 @@
+
+LineNumber Line                                                                                                        
+---------- ----                                                                                                        
+      1648                   {/* Detalle */}                                                                           
+      1695 export default function NominaMatriz() {                                                                    
+      1710   // Vista Excel / Detalle                                                                                  
+      1711   const [showDetalleExcel, setShowDetalleExcel] = useState(false);                                          
+      1712   const [tabDetalle,       setTabDetalle]       = useState("trabajadores");                                 
+      1717   const exportarCSV = (filas, nombre) => {                                                                  
+      1719     const csv = BOM + filas.map(row =>                                                                      
+      1722     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });                                      
+      1723     const url  = URL.createObjectURL(blob);                                                                 
+      1725     a.href = url; a.download = nombre + '.csv';                                                             
+      1857   // Modal Detalle por trabajador                                                                           
+      1858   const [showDetalleModal, setShowDetalleModal] = useState(false);                                          
+      3006           <button onClick={()=>setShowDetalleModal(true)} className="xl-btn">?? Detalle/Excel</button>      
+      4192               <button onClick={()=>setShowDetalleModal(true)}                                               
+      4196                 ?? Detalle / Excel                                                                          
+      4416       {/* ÍÍ MODAL DETALLE POR TRABAJADOR ÍÍ */}                                                            
+      4417       {showDetalleModal && (() => {                                                                         
+      4433         const exportarCSV=()=>{                                                                             
+      4435           const csv=BOM+[["Trabajador","C‚dula","Fecha","Cuadrilla","Servicio","Cantidad","Neto"],...fila...
+      4436           const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});const url=URL.createObjectURL(blob)...
+      4437           a.href=url;a.download=`detalle_${periodoDesde}_${periodoHasta}.csv`;document.body.appendChild(a...
+      4441             onClick={e=>{if(e.target===e.currentTarget)setShowDetalleModal(false);}}>                       
+      4445                   <div style={{fontWeight:"800",color:"#fff",fontSize:"1.1rem"}}>?? Detalle por Trabajado...
+      4449                   <button onClick={exportarCSV} style={{background:"#22c55e",border:"none",borderRadius:"...
+      4450                   <button onClick={()=>setShowDetalleModal(false)} style={{background:"rgba(255,255,255,0...
+
+

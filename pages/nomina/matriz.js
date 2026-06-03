@@ -4430,11 +4430,15 @@ export default function NominaMatriz() {
         const filasFilt=filas.filter(f=>(!qN||f.nombre.toLowerCase().includes(qN))&&(!qC||f.cedula.includes(qC))&&(!qS||f.servicio.toLowerCase().includes(qS))).sort((a,b)=>{const n=a.nombre.localeCompare(b.nombre,"es");return n!==0?n:a.fecha.localeCompare(b.fecha);});
         const totalFilt=filasFilt.reduce((s,f)=>s+f.neto,0);
         const serviciosUnicos=[...new Set(filas.map(f=>f.servicio).filter(Boolean))].sort();
-        const exportarCSV=()=>{
-          const BOM='\uFEFF';
-          const csv=BOM+[["Trabajador","Cédula","Fecha","Cuadrilla","Servicio","Cantidad","Neto"],...filasFilt.map(f=>[f.nombre,f.cedula,f.fecha,f.cuadrilla,f.servicio,f.cantidad,f.neto])].map(r=>r.map(c=>'"'+String(c==null?'':c).replace(/"/g,'""')+'"').join(',')).join('\n');
-          const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});const url=URL.createObjectURL(blob);const a=document.createElement('a');
-          a.href=url;a.download=`detalle_${periodoDesde}_${periodoHasta}.csv`;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+        const exportarXLS=()=>{
+          const hdr=['Trabajador','Cedula','Fecha','Cuadrilla','Servicio','Cantidad','Neto'];
+          const esc=(v)=>String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+          const row=(vals,types)=>'<Row>'+vals.map((v,i)=>'<Cell><Data ss:Type="'+types[i]+'">'+( types[i]==='Number'?(+v||0):esc(v))+'</Data></Cell>').join('')+'</Row>';
+          const rows=filasFilt.map(f=>row([f.nombre,f.cedula,f.fecha,f.cuadrilla,f.servicio,f.cantidad,f.neto],['String','String','String','String','String','Number','Number']));
+          const xml='<?xml version="1.0"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Detalle"><Table>'+row(hdr,hdr.map(()=>'String'))+rows.join('')+'</Table></Worksheet></Workbook>';
+          const blob=new Blob([xml],{type:'application/vnd.ms-excel'});
+          const url=URL.createObjectURL(blob);const a=document.createElement('a');
+          a.href=url;a.download=`detalle_${periodoDesde}_${periodoHasta}.xls`;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
         };
         return (
           <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:9999,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"1.5rem",overflowY:"auto"}}
@@ -4446,7 +4450,7 @@ export default function NominaMatriz() {
                   <div style={{color:"rgba(255,255,255,0.8)",fontSize:"0.8rem"}}>{periodoDesde} al {periodoHasta} · {filasFilt.length} registros · Total: {formatCOP(totalFilt)}</div>
                 </div>
                 <div style={{display:"flex",gap:"0.5rem"}}>
-                  <button onClick={exportarCSV} style={{background:"#22c55e",border:"none",borderRadius:"8px",padding:"0.5rem 1rem",cursor:"pointer",color:"#fff",fontWeight:"700",fontSize:"0.82rem",display:"flex",alignItems:"center",gap:"0.4rem"}}>⬇️ Exportar CSV</button>
+                  <button onClick={exportarXLS} style={{background:"#22c55e",border:"none",borderRadius:"8px",padding:"0.5rem 1rem",cursor:"pointer",color:"#fff",fontWeight:"700",fontSize:"0.82rem",display:"flex",alignItems:"center",gap:"0.4rem"}}>⬇️ Exportar XLS</button>
                   <button onClick={()=>setShowDetalleModal(false)} style={{background:"rgba(255,255,255,0.15)",border:"none",borderRadius:"8px",padding:"0.5rem",cursor:"pointer",color:"#fff"}}><X size={18}/></button>
                 </div>
               </div>
