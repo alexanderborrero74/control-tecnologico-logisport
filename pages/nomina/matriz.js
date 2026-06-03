@@ -1750,6 +1750,30 @@ export default function NominaMatriz() {
   const [busqTrabCiamsa,         setBusqTrabCiamsa]         = useState("");
   const [busqSpiaCiamsa,         setBusqSpiaCiamsa]         = useState("");
 
+  // ── Multi-servicio Cuadrilla Diaria (Terrestre/CIAMSA) ──
+  const [serviciosMultiCiamsa, setServiciosMultiCiamsa] = useState([]);
+  const sMultiCiamsaNext = useRef(1);
+  const sMultiCiamsaAdd = () => setServiciosMultiCiamsa(prev => [
+    ...prev, { uid: sMultiCiamsaNext.current++, servicioId:"", servicioNombre:"", tarifaUnitaria:0, unidad:"ton", cantidad:"", netoCalculado:0 }
+  ]);
+  const sMultiCiamsaUpdate = (uid, field, val) => setServiciosMultiCiamsa(prev => prev.map(s => {
+    if (s.uid !== uid) return s;
+    const next = { ...s, [field]: val };
+    if (field === "servicioId") {
+      const srv = servicios.find(x => x.id === val);
+      next.servicioNombre  = srv?.nombre || "";
+      next.tarifaUnitaria  = srv?.valor || srv?.tarifa || 0;
+      next.unidad          = srv?.unidad || "ton";
+    }
+    const n      = cuadrillaDiaForm.trabajadoresSeleccionados.length || 1;
+    const cant   = parseFloat(next.cantidad) || 0;
+    const unidad = next.unidad || "ton";
+    const per    = (unidad==="dia"||unidad==="hora") ? cant : (n>0 ? cant/n : 0);
+    next.netoCalculado = Math.round(per * (parseFloat(next.tarifaUnitaria)||0) * 100) / 100;
+    return next;
+  }));
+  const sMultiCiamsaRemove = (uid) => setServiciosMultiCiamsa(prev => prev.filter(s => s.uid !== uid));
+
   // ── Multi-servicio SPIA ──
   const [serviciosMulti, setServiciosMulti] = useState([]);
   // serviciosMulti = [{ uid, servicioId, servicioNombre, servicioValor, cantidad, netoCalculado }]
@@ -1777,6 +1801,23 @@ export default function NominaMatriz() {
   }));
 
   const sMultiRemove = (uid) => setServiciosMulti(prev => prev.filter(s => s.uid !== uid));
+
+  // ── Multi-servicio CIAMSA/Terrestre ──
+  const [serviciosExtraCia, setServiciosExtraCia] = useState([]);
+  const sExtraCiaNext = useRef(1);
+  const sExtraCiaAdd = () => setServiciosExtraCia(prev=>[...prev,{uid:sExtraCiaNext.current++,servicioId:"",servicioNombre:"",tarifaUnitaria:0,unidad:"ton",cantidad:"",netoCalculado:0}]);
+  const sExtraCiaUpdate = (uid,field,val) => setServiciosExtraCia(prev=>prev.map(s=>{
+    if(s.uid!==uid) return s;
+    const next={...s,[field]:val};
+    if(field==="servicioId"){const srv=servicios.find(x=>x.id===val);next.servicioNombre=srv?.nombre||"";next.tarifaUnitaria=srv?.valor||srv?.tarifa||0;next.unidad=srv?.unidad||"ton";}
+    const n=cuadrillaDiaForm.trabajadoresSeleccionados.length||1;
+    const cant=parseFloat(next.cantidad)||0;
+    const unidad=next.unidad||"ton";
+    const per=(unidad==="dia"||unidad==="hora")?cant:(n>0?cant/n:0);
+    next.netoCalculado=Math.round(per*(parseFloat(next.tarifaUnitaria)||0)*100)/100;
+    return next;
+  }));
+  const sExtraCiaRemove = (uid) => setServiciosExtraCia(prev=>prev.filter(s=>s.uid!==uid));
 
   // ── Formulario SPIA/C1 ──
   const [form,       setForm]      = useState(FORM_INIT);
@@ -1816,6 +1857,33 @@ export default function NominaMatriz() {
   const [filtroDetNombre,  setFiltroDetNombre]  = useState("");
   const [filtroDetCedula,  setFiltroDetCedula]  = useState("");
   const [filtroDetServicio,setFiltroDetServicio]= useState("");
+
+  // Multi-servicio CIAMSA 2
+  const [serviciosExtraC2, setServiciosExtraC2] = useState([]);
+  const sExtraC2Next = useRef(1);
+  const sExtraC2Add = () => setServiciosExtraC2(prev=>[...prev,{uid:sExtraC2Next.current++,servicioId:"",servicioNombre:"",servicioValor:0,dias:1,netoCalculado:0}]);
+  const sExtraC2Update = (uid,field,val) => setServiciosExtraC2(prev=>prev.map(s=>{
+    if(s.uid!==uid) return s;
+    const next={...s,[field]:val};
+    if(field==="servicioId"){const srv=servicios.find(x=>x.id===val);next.servicioNombre=srv?.nombre||"";next.servicioValor=srv?.tarifa||srv?.valor||0;}
+    next.netoCalculado=Math.round((parseFloat(next.servicioValor)||0)*(parseFloat(next.dias)||0)*100)/100;
+    return next;
+  }));
+  const sExtraC2Remove = (uid) => setServiciosExtraC2(prev=>prev.filter(s=>s.uid!==uid));
+
+  // Multi-servicio CIAMSA 3
+  const [serviciosExtraC3, setServiciosExtraC3] = useState([]);
+  const sExtraC3Next = useRef(1);
+  const sExtraC3Add = () => setServiciosExtraC3(prev=>[...prev,{uid:sExtraC3Next.current++,servicioId:"",servicioNombre:"",servicioValor:0,cantidad:"",nPersonas:1,netoCalculado:0}]);
+  const sExtraC3Update = (uid,field,val) => setServiciosExtraC3(prev=>prev.map(s=>{
+    if(s.uid!==uid) return s;
+    const next={...s,[field]:val};
+    if(field==="servicioId"){const srv=servicios.find(x=>x.id===val);next.servicioNombre=srv?.nombre||"";next.servicioValor=srv?.tarifa||srv?.valor||0;}
+    const cant=parseFloat(next.cantidad)||0; const np=parseInt(next.nPersonas)||1;
+    next.netoCalculado=Math.round((cant/np)*(parseFloat(next.servicioValor)||0)*100)/100;
+    return next;
+  }));
+  const sExtraC3Remove = (uid) => setServiciosExtraC3(prev=>prev.filter(s=>s.uid!==uid));
 
   // Modal eliminación
   const [modalElim, setModalElim] = useState(null);
@@ -1876,6 +1944,7 @@ export default function NominaMatriz() {
       setAsistentesForm([]);
       setAusentesForm([]);
       setCuadrillaDiaForm(CUADRILLA_DIA_FORM_INIT);
+      setServiciosExtraCia([]);
       setBusqTrabCiamsa("");
       setBusqSpiaCiamsa("");
       setC2Form(CIAMSA2_FORM_INIT);
@@ -1883,6 +1952,8 @@ export default function NominaMatriz() {
       setCiamsaForm(CIAMSA_FORM_INIT);
       setCiamsaEditId(null);
       setEditandoId(null);
+      setServiciosExtraC2([]);
+      setServiciosExtraC3([]);
     }
   }, [clienteActivo]);
 
@@ -2234,6 +2305,28 @@ export default function NominaMatriz() {
     };
     try {
       await addDoc(collection(db, "nomina_operaciones"), { ...data, creadoEn: new Date() });
+      // Servicios adicionales
+      for (const se of serviciosExtraCia) {
+        if (!se.servicioNombre || !se.cantidad) continue;
+        const cantSe  = parseFloat(se.cantidad)||0;
+        const unidSe  = se.unidad||"ton";
+        const perSe   = (unidSe==="dia"||unidSe==="hora") ? cantSe : (n>0 ? cantSe/n : 0);
+        const netoSe  = Math.round(perSe*(parseFloat(se.tarifaUnitaria)||0)*100)/100;
+        await addDoc(collection(db,"nomina_operaciones"),{
+          ...data,
+          servicioId:        se.servicioId,
+          servicioNombre:    se.servicioNombre.trim().toUpperCase(),
+          tarifaUnitaria:    parseFloat(se.tarifaUnitaria)||0,
+          unidad:            unidSe,
+          cantidadTons:      cantSe,
+          per:               Math.round(perSe*10000)/10000,
+          servicioValorUnitario: parseFloat(se.tarifaUnitaria)||0,
+          servicioValor:     netoSe,
+          netoAPagar:        netoSe,
+          creadoEn:          new Date(),
+          actualizadoEn:     new Date(),
+        });
+      }
       await cargarOperaciones();
       // Conserva fecha y trabajadores para el siguiente registro del mismo día
       setCuadrillaDiaForm(prev => ({
@@ -2241,6 +2334,7 @@ export default function NominaMatriz() {
         fecha: prev.fecha,
         trabajadoresSeleccionados: prev.trabajadoresSeleccionados,
       }));
+      setServiciosExtraCia([]);
       setCuadrillaDiaOk(true);
       setTimeout(() => setCuadrillaDiaOk(false), 2500);
       tablaRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -2580,9 +2674,24 @@ export default function NominaMatriz() {
       if (c2Form.motivo && c2Form.trabajadorId && c2Form.fecha) {
         await guardarMotivoEnRegistro(c2Form.trabajadorId, c2Form.fecha, c2Form.motivo);
       }
+      // Servicios adicionales C2
+      for (const se of serviciosExtraC2) {
+        if (!se.servicioNombre || !se.dias) continue;
+        const netoSe = Math.round((parseFloat(se.servicioValor)||0)*(parseFloat(se.dias)||0)*100)/100;
+        await addDoc(collection(db,"nomina_operaciones"),{
+          ...data, servicioId:se.servicioId||data.servicioId,
+          servicioNombre:se.servicioNombre.toUpperCase(),
+          tarifaUnitaria:parseFloat(se.servicioValor)||0,
+          servicioValorUnitario:parseFloat(se.servicioValor)||0,
+          servicioValor:netoSe, cantidadDias:parseFloat(se.dias)||0,
+          per:parseFloat(se.dias)||0, netoAPagar:netoSe,
+          creadoEn:new Date(), actualizadoEn:new Date(),
+        });
+      }
       if (c2Form.fecha && c2Form.fecha > periodoHasta) setPeriodoHasta(c2Form.fecha);
       await cargarOperaciones();
       setC2Form({...CIAMSA2_FORM_INIT, trabajadorId:c2Form.trabajadorId, trabajadorNombre:c2Form.trabajadorNombre, trabajadorCedula:c2Form.trabajadorCedula, fecha:c2Form.fecha, servicioId:c2Form.servicioId, servicioNombre:c2Form.servicioNombre, tarifaUnitaria:tarifa, unidad:c2Form.unidad});
+      setServiciosExtraC2([]);
       setC2Ok(true);
       setTimeout(()=>setC2Ok(false),2000);
       tablaRef.current?.scrollIntoView({behavior:"smooth",block:"start"});
@@ -2700,9 +2809,27 @@ export default function NominaMatriz() {
       if (ciamsaForm.motivo && ciamsaForm.trabajadorId && ciamsaForm.fecha) {
         await guardarMotivoEnRegistro(ciamsaForm.trabajadorId, ciamsaForm.fecha, ciamsaForm.motivo);
       }
+      // Servicios adicionales C3
+      for (const se of serviciosExtraC3) {
+        if (!se.servicioNombre || !se.cantidad) continue;
+        const np3 = parseInt(se.nPersonas)||1;
+        const per3 = (parseFloat(se.cantidad)||0)/np3;
+        const netoSe = Math.round(per3*(parseFloat(se.servicioValor)||0)*100)/100;
+        await addDoc(collection(db,"nomina_operaciones"),{
+          ...data, servicioId:se.servicioId||data.servicioId,
+          servicioNombre:se.servicioNombre.toUpperCase(),
+          tarifaUnitaria:parseFloat(se.servicioValor)||0,
+          servicioValorUnitario:parseFloat(se.servicioValor)||0,
+          cantidadTons:parseFloat(se.cantidad)||0,
+          nPersonas:np3, per:Math.round(per3*10000)/10000,
+          servicioValor:netoSe, netoAPagar:netoSe,
+          creadoEn:new Date(), actualizadoEn:new Date(),
+        });
+      }
       if (ciamsaForm.fecha && ciamsaForm.fecha > periodoHasta) setPeriodoHasta(ciamsaForm.fecha);
       await cargarOperaciones();
       setCiamsaForm({...CIAMSA_FORM_INIT, trabajadorId:ciamsaForm.trabajadorId, trabajadorNombre:ciamsaForm.trabajadorNombre, trabajadorCedula:ciamsaForm.trabajadorCedula, fecha:ciamsaForm.fecha});
+      setServiciosExtraC3([]);
       setCiamsaOk(true);
       setTimeout(()=>setCiamsaOk(false),2000);
       tablaRef.current?.scrollIntoView({behavior:"smooth",block:"start"});
@@ -3255,6 +3382,47 @@ export default function NominaMatriz() {
                       ✅ Operación guardada — trabajadores conservados para el siguiente registro
                     </div>
                   )}
+
+                  {/* ══ MULTI-SERVICIO Terrestre/CIAMSA ══ */}
+                  {serviciosExtraCia.length>0 && (
+                    <div style={{borderRadius:"10px",border:"1.5px solid #e0e7ff",overflow:"hidden",background:"#f5f8ff",marginBottom:"0.5rem"}}>
+                      <div style={{padding:"0.4rem 0.8rem",background:"#4f46e5",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                        <span style={{fontWeight:"800",color:"#fff",fontSize:"0.78rem"}}>➕ Servicios adicionales ({serviciosExtraCia.length})</span>
+                        <span style={{fontSize:"0.68rem",color:"rgba(255,255,255,0.75)"}}>Un registro por servicio al guardar</span>
+                      </div>
+                      {serviciosExtraCia.map((se,si)=>(
+                        <div key={se.uid} style={{display:"grid",gridTemplateColumns:"1fr auto auto auto",gap:"0.5rem",alignItems:"end",padding:"0.55rem 0.8rem",borderBottom:"1px solid #e0e7ff",background:si%2===0?"#f5f8ff":"#eef2ff"}}>
+                          <div>
+                            <label style={{...labelSt,color:"#4f46e5",fontSize:"0.7rem"}}>🔧 Servicio {si+2}</label>
+                            <div style={{position:"relative"}}>
+                              <select value={se.servicioId} onChange={e=>sExtraCiaUpdate(se.uid,"servicioId",e.target.value)} style={{...selectSt,border:"1.5px solid #a5b4fc",fontSize:"0.82rem"}}>
+                                <option value="">— Seleccionar —</option>
+                                {servicios.map(s=>(<option key={s.id} value={s.id}>{s.nombre}{(s.valor||s.tarifa)>0?` · ${formatCOP(s.valor||s.tarifa||0)}`:""}</option>))}
+                              </select>
+                              <ChevronDown size={12} style={{position:"absolute",right:"0.5rem",top:"50%",transform:"translateY(-50%)",color:"#94a3b8",pointerEvents:"none"}}/>
+                            </div>
+                          </div>
+                          <div style={{minWidth:"80px"}}>
+                            <label style={{...labelSt,color:"#4f46e5",fontSize:"0.7rem"}}>📦 Cant.</label>
+                            <input type="number" min="0" step="0.01" value={se.cantidad} onChange={e=>sExtraCiaUpdate(se.uid,"cantidad",e.target.value)} style={{...inputSt,border:"1.5px solid #a5b4fc",textAlign:"center",fontSize:"0.82rem"}}/>
+                          </div>
+                          <div style={{minWidth:"95px"}}>
+                            <label style={{...labelSt,color:"#065f46",fontSize:"0.7rem"}}>💰 Neto/p</label>
+                            <div style={{...readonlySt,background:se.netoCalculado>0?"#f0fdf4":"#f8fafc",border:`1.5px solid ${se.netoCalculado>0?"#6ee7b7":"#e2e8f0"}`,fontWeight:"800",color:"#065f46",fontFamily:"monospace",fontSize:"0.85rem"}}>
+                              {se.netoCalculado>0?formatCOP(se.netoCalculado):"—"}
+                            </div>
+                          </div>
+                          <button onClick={()=>sExtraCiaRemove(se.uid)} style={{background:"#fff1f2",border:"1px solid #fecdd3",borderRadius:"7px",padding:"0.45rem 0.5rem",cursor:"pointer",color:"#e11d48",display:"flex",alignItems:"center"}}>
+                            <X size={13}/>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <button type="button" onClick={sExtraCiaAdd}
+                    style={{width:"100%",marginBottom:"0.6rem",background:"#eef2ff",border:"1.5px dashed #818cf8",borderRadius:"8px",padding:"0.4rem",cursor:"pointer",color:"#4f46e5",fontWeight:"700",fontSize:"0.78rem",display:"flex",alignItems:"center",justifyContent:"center",gap:"0.35rem"}}>
+                    <Plus size={13}/> Agregar otro servicio
+                  </button>
                   <button onClick={cuadrillaDiaGuardar}
                     disabled={cuadrillaDiaGuardando || sel.length === 0 || !f.servicioNombre || !f.cantidad || !puedeEditarMatriz}
                     title={!puedeEditarMatriz ? "Sin permiso" : ""}
@@ -3366,7 +3534,46 @@ export default function NominaMatriz() {
                 </div>
               </div>
 
-              {/* Botón guardar */}
+              {/* Multi-servicio C3 */}
+              {serviciosExtraC3.length>0 && (
+                <div style={{borderRadius:"10px",border:"1.5px solid #e0e7ff",overflow:"hidden",background:"#f5f8ff",marginTop:"0.75rem",marginBottom:"0.5rem"}}>
+                  <div style={{padding:"0.4rem 0.8rem",background:"#4f46e5"}}>
+                    <span style={{fontWeight:"800",color:"#fff",fontSize:"0.78rem"}}>➕ Servicios adicionales ({serviciosExtraC3.length})</span>
+                  </div>
+                  {serviciosExtraC3.map((se,si)=>(
+                    <div key={se.uid} style={{display:"grid",gridTemplateColumns:"1fr auto auto auto auto",gap:"0.5rem",alignItems:"end",padding:"0.55rem 0.8rem",borderBottom:"1px solid #e0e7ff"}}>
+                      <div>
+                        <label style={{...labelSt,color:"#4f46e5",fontSize:"0.7rem"}}>🔧 Servicio {si+2}</label>
+                        <div style={{position:"relative"}}>
+                          <select value={se.servicioId} onChange={e=>sExtraC3Update(se.uid,"servicioId",e.target.value)} style={{...selectSt,border:"1.5px solid #a5b4fc",fontSize:"0.82rem"}}>
+                            <option value="">— Seleccionar —</option>
+                            {servicios.map(s=>(<option key={s.id} value={s.id}>{s.nombre}</option>))}
+                          </select>
+                          <ChevronDown size={12} style={{position:"absolute",right:"0.5rem",top:"50%",transform:"translateY(-50%)",color:"#94a3b8",pointerEvents:"none"}}/>
+                        </div>
+                      </div>
+                      <div style={{minWidth:"80px"}}>
+                        <label style={{...labelSt,color:"#4f46e5",fontSize:"0.7rem"}}>📦 Cant.</label>
+                        <input type="number" min="0" step="0.01" value={se.cantidad} onChange={e=>sExtraC3Update(se.uid,"cantidad",e.target.value)} style={{...inputSt,border:"1.5px solid #a5b4fc",textAlign:"center",fontSize:"0.82rem"}}/>
+                      </div>
+                      <div style={{minWidth:"60px"}}>
+                        <label style={{...labelSt,color:"#4f46e5",fontSize:"0.7rem"}}>Nº Per.</label>
+                        <input type="number" min="1" value={se.nPersonas} onChange={e=>sExtraC3Update(se.uid,"nPersonas",e.target.value)} style={{...inputSt,border:"1.5px solid #a5b4fc",textAlign:"center",fontSize:"0.82rem"}}/>
+                      </div>
+                      <div style={{minWidth:"90px"}}>
+                        <label style={{...labelSt,color:"#065f46",fontSize:"0.7rem"}}>💰 Neto</label>
+                        <div style={{...readonlySt,background:se.netoCalculado>0?"#f0fdf4":"#f8fafc",border:`1.5px solid ${se.netoCalculado>0?"#6ee7b7":"#e2e8f0"}`,fontWeight:"800",color:"#065f46",fontFamily:"monospace",fontSize:"0.85rem"}}>{se.netoCalculado>0?formatCOP(se.netoCalculado):"—"}</div>
+                      </div>
+                      <button onClick={()=>sExtraC3Remove(se.uid)} style={{background:"#fff1f2",border:"1px solid #fecdd3",borderRadius:"7px",padding:"0.45rem 0.5rem",cursor:"pointer",color:"#e11d48",display:"flex",alignItems:"center"}}><X size={13}/></button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button type="button" onClick={sExtraC3Add}
+                style={{width:"100%",marginTop:"0.5rem",marginBottom:"0.75rem",background:"#eef2ff",border:"1.5px dashed #818cf8",borderRadius:"8px",padding:"0.4rem",cursor:"pointer",color:"#4f46e5",fontWeight:"700",fontSize:"0.78rem",display:"flex",alignItems:"center",justifyContent:"center",gap:"0.35rem"}}>
+                <Plus size={13}/> Agregar otro servicio
+              </button>
+              {/* Botón guardar CIAMSA 3 */}
               <div style={{marginTop:"1.25rem",display:"flex",gap:"0.75rem",alignItems:"center",flexWrap:"wrap"}}>
                 <button onClick={ciamsaGuardar}
                   disabled={ciamsaGuardando||!ciamsaForm.trabajadorNombre||!ciamsaForm.servicioNombre||!ciamsaForm.cantidad||!puedeEditarMatriz}
