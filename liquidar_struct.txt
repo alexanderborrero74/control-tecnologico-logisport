@@ -1,0 +1,137 @@
+
+LineNumber Line                                                                                                        
+---------- ----                                                                                                        
+         6 //     netoAPagar  = (valorServicio ž cantidad) ö personas   ya es POR PERSONA                             
+         9 //   Liquidar suma: para cada operaci¢n, por cada asistente  prod[cedula] += op.netoAPagar                 
+        29   calcularNominaEmpleado, calcularNominaCiamsa, formatCOP,                                                  
+        52   "B":      { emoji:"?", label:"Bloqueado muelle" },                                                        
+        71   { id:"cliente2", nombre:"Cliente 2",color:"#8b5cf6", emoji:"???" },                                       
+       115 // Elimina filas con c‚dula duplicada - conserva la primera ocurrencia                                      
+       145   const [filas,          setFilas]          = useState([]);                                                 
+       165   const [clienteActivo,  setClienteActivo]  = useState("spia");                                             
+       168   const [personalFijoC2,       setPersonalFijoC2]       = useState([]); // personal fijo CIAMSA 2 //        
+           [{desde,hasta,ops,cliente}]                                                                                 
+       171   const qId     = clienteActivo === "spia"                                                                  
+       173     : `${clienteActivo}_${periodoId(fechaInicio, fechaFin)}`;                                               
+       204       setFilas([]);                                                                                         
+       207       cargarCatalogos(clienteActivo);                                                                       
+       209   }, [clienteActivo]);                                                                                      
+       218   }, [loading, clienteActivo]);                                                                             
+       240           return clienteActivo === "spia" ? (!op.clienteId || cid === "spia") : cid === clienteActivo;      
+       267         const pId   = clienteActivo === "spia"                                                              
+       269           : `${clienteActivo}_${periodoId(grupo.desde, grupo.hasta)}`;                                      
+       289     const cli = cliente || clienteActivo;                                                                   
+       300     // Cargar personal fijo CIAMSA 2                                                                        
+       301     if (cli === "cliente2") {                                                                               
+       303         const fijoSnap = await getDocs(query(collection(db, "nomina_fijo_c2"), orderBy("orden")));          
+       304         setPersonalFijoC2(fijoSnap.docs.map(d => ({ id: d.id, ...d.data() })));                             
+       305       } catch(e) { console.warn("nomina_fijo_c2 no encontrada:", e); setPersonalFijoC2([]); }               
+       307       setPersonalFijoC2([]);                                                                                
+       330         return clienteActivo === "spia" ? (!cid || cid === "spia") : cid === clienteActivo;                 
+       348           const netoPorPersona = op.netoAPagar || 0;                                                        
+       361           const v = op.netoAPagar || 0;                                                                     
+       405         //    Estas ops tienen novedad:codNov, fecha y netoAPagar:0                                         
+       457       // Cargar comida pendiente - filtrar por clienteActivo                                                
+       467           if (c.clienteId && c.clienteId !== clienteActivo) return;                                         
+       480         setFilas(deduplicar((data.empleados || []).map(e => ({                                              
+       494         setFilas([]);                                                                                       
+       503   const agregarFila = () => setFilas(p => [...p, filaVacia(diasDef)]);                                      
+       504   const eliminarFila = key => setFilas(p => p.filter(f => f._key !== key));                                 
+       507     setFilas(prev => prev.map(f => {                                                                        
+       519     setFilas(prev => prev.map(f => {                                                                        
+       530     setFilas(prev => prev.map(f => {                                                                        
+       544     const cedulasExistentes = new Set(filas.map(f => String(f.cedula || "").trim()).filter(Boolean));       
+       546     if (filas.length === 0) {                                                                               
+       553     const fuente = filas.length === 0 ? listaTrabaj : trabajadoresNuevos;                                   
+       554     setFilas(prev => deduplicar([...prev, ...fuente.map(t => {                                              
+       603       if (filas.length > 0 && !confirm(`¨Reemplazar ${filas.length} filas con ${nuevas.length} del          
+           Excel?`)) { setImportando(false); return; }                                                                 
+       604       setFilas(deduplicar(nuevas));                                                                         
+       611   // ÄÄ Clientes que usan f¢rmula Ciamsa (destajo puro) ÄÄ                                                  
+       612   const isCiamsaCliente = ["cliente1", "cliente2", "cliente3"].includes(clienteActivo);                     
+       614   const filasCalculadas = filas.map((f, i) => {                                                             
+       620     if (isCiamsaCliente) {                                                                                  
+       621       // F¢rmula Terrestre / Ciamsa 2 / Ciamsa 3                                                            
+       622       const raw = calcularNominaCiamsa({                                                                    
+       627         esTerrestre:     clienteActivo === "cliente1",                                                      
+       629       // Normalizar al mismo shape que calcularNominaEmpleado para que el render no cambie                  
+       645         netoAPagar:              raw.netoAPagar,                                                            
+       650       calc = calcularNominaEmpleado({                                                                       
+       661     const { total: totalExtras, desglose: desgloseExtras } = isCiamsaCliente                                
+       682     const netoFinal = Math.max(0, calc.netoAPagar - adelantosDeducidos); // comida NO resta por ahora       
+       693   const filasFiltradas = filasCalculadas.filter(f => {                                                      
+       707       horas: filasCalculadas.reduce((s, e) => s + (e.horasExtras?.[t.codigo] || 0), 0),                     
+       708       valor: filasCalculadas.reduce((s, e) => s + (e.desgloseExtras?.[t.codigo]?.valor || 0), 0),           
+       714     totalProduccion:     filasCalculadas.reduce((s, e) => s + e.totalProduccion, 0),                        
+       715     complementoSalario:  filasCalculadas.reduce((s, e) => s + e.complementoSalario, 0),                     
+       716     totalExtras:         filasCalculadas.reduce((s, e) => s + (e.totalExtras || 0), 0),                     
+       717     salud:               filasCalculadas.reduce((s, e) => s + e.salud, 0),                                  
+       718     pension:             filasCalculadas.reduce((s, e) => s + e.pension, 0),                                
+       719     subsidioTransporte:  filasCalculadas.reduce((s, e) => s + e.subsidioTransporte, 0),                     
+       720     salarioMenosDeducciones: filasCalculadas.reduce((s, e) => s + e.salarioMenosDeducciones, 0),            
+       721     valorIncapacidad:    filasCalculadas.reduce((s, e) => s + (e.valorIncapacidad    || 0), 0),             
+       722     valorIncapacidad100: filasCalculadas.reduce((s, e) => s + (e.valorIncapacidad100 || 0), 0),             
+       723     netoAPagar:          filasCalculadas.reduce((s, e) => s + e.netoAPagar, 0),                             
+       724     adelantosDeducidos:  filasCalculadas.reduce((s, e) => s + (e.adelantosDeducidos || 0), 0),              
+       725     comidaDeducida:      filasCalculadas.reduce((s, e) => s + (e.comidaDeducida     || 0), 0),              
+       726     netoFinal:           filasCalculadas.reduce((s, e) => s + (e.netoFinal || 0), 0), // solo resta         
+           adelantos                                                                                                   
+       728   const conComplemento = filasCalculadas.filter(e => e.complementoSalario > 0).length;                      
+       734       `?? APROBACIàN DEFINITIVA\n\nPERÖODO: ${qLabel}\nEMPLEADOS: ${filas.length}\n\nAl aprobar:\n La      
+           n¢mina quedar  bloqueada para edici¢n.\n Las operaciones del per¡odo se archivar n (dejar n de aparecer en 
+           avisos de per¡odos sin liquidar).\n\n¨Confirma que desea aprobar?`                                          
+       761           return clienteActivo === "spia"                                                                   
+       763             : cid === clienteActivo;                                                                        
+       778         // No bloqueamos la aprobaci¢n si el archivado falla                                                
+       793     if (filas.length === 0)        { alert("No hay filas para guardar."); return; }                         
+       802       const empleadosData = filasCalculadas.map(e => ({                                                     
+       822         netoAPagar:              e.netoAPagar,                                                              
+       830         clienteId: clienteActivo,                                                                           
+       832         totalGeneral:      totales.netoAPagar,                                                              
+       866           netoAPagar:              e.netoAPagar,                                                            
+       883     if (filas.length === 0) { alert("No hay datos para exportar."); return; }                               
+       894       filasCalculadas.forEach((e, i) => {                                                                   
+       899           e.salarioMenosDeducciones, e.subsidioTransporte, e.valorIncapacidad || 0, e.netoAPagar, e.firma   
+           || "",                                                                                                      
+       904                  "", totales.subsidioTransporte, totales.valorIncapacidad || 0, totales.netoAPagar, ""]);   
+       924     if (filasCalculadas.length === 0) { alert("No hay datos para exportar."); return; }                     
+       928       const clienteNombre = clientes.find(c => c.id === clienteActivo)?.nombre || clienteActivo;            
+       968       filasCalculadas.forEach(e => {                                                                        
+      1028       filasCalculadas.forEach((e, i) => rows2.push([                                                        
+      1045         Math.round(e.netoAPagar),                                                                           
+      1061         Math.round(totales.netoAPagar),                                                                     
+      1114         [`Empleados: ${filasCalculadas.length}`],                                                           
+      1115         [`Total Neto: ${Math.round(totales.netoAPagar).toLocaleString("es-CO")}`],                          
+      1122       XLSX.writeFile(wb, `DATAX_novedades_${clienteActivo}_${qId}.xlsx`);                                   
+      1123       alert(`? Archivo DATAX generado:\n Hoja 1: NOVEDADES_DATAX (${rows1.length - 1} filas para           
+           importar)\n Hoja 2: RESUMEN_COMPLETO\n Hoja 3: INSTRUCCIONES`);                                           
+      1135     filasCalculadas.forEach((e, i) => {                                                                     
+      1141         e.subsidioTransporte, e.netoAPagar, `"${e.firma||""}"`].join(",") + "\n";                           
+      1172                 ? `? Guardada - ${nominaGuardada.estado} - ${filas.length} empleados`                       
+      1173                 : filas.length > 0 ? `?? Nueva - ${filas.length} filas` : "?? Nueva liquidaci¢n"}           
+      1232             <button key={cl.id} onClick={() => setClienteActivo(cl.id)}                                     
+      1234                 border: clienteActivo === cl.id ? `2px solid ${cl.color}` : "2px solid #e2e8f0",            
+      1236                 fontWeight: clienteActivo === cl.id ? "800" : "600",                                        
+      1238                 background: clienteActivo === cl.id ? cl.color : "#f8fafc",                                 
+      1239                 color: clienteActivo === cl.id ? "#fff" : "#64748b",                                        
+      1281             { label: "Empleados",         value: filas.length,                                  color:      
+           "#3b82f6", icon: "??" },                                                                                    
+      1286             { label: "NETO A PAGAR", value: formatCOP(totales.netoAPagar), color: PRIMARY, icon: "??" },    
+      1306         {infoMatriz.ops === 0 && !recalculando && filas.length > 0 && (                                     
+      1395                   LOGISPORT S.A.S. - {clientes.find(c=>c.id===clienteActivo)?.nombre || clienteActivo} -    
+           {new Date().toLocaleDateString("es-CO")} - {filas.length} empleados                                         
+      1498                     {filasFiltradas.length} / {filas.length}                                                
+      1514                 <UserPlus size={14} /> Cargar trabajadores BD                                               
+      1516               {filas.length > 0 && (                                                                        
+      1517                 <button onClick={() => { if (confirm("¨Limpiar todas las filas?")) setFilas([]); }}         
+      1556             {filas.length === 0 ? (                                                                         
+      1562                   o <strong>"Cargar trabajadores BD"</strong> para cargar desde el sistema.                 
+      1566                   <button onClick={cargarTodosTrabajadores} style={btnStyle(PRIMARY)}><UserPlus size={16}   
+           /> Cargar trabajadores BD</button>                                                                          
+      1570             ) : filasFiltradas.length === 0 ? (                                                             
+      1660                   {filasFiltradas.map(e => (                                                                
+      1673                         TOTALES - {filas.length} empleados                                                  
+      1710                         {formatCOP(totales.netoAPagar)}                                                     
+      2033         {formatCOP(e.netoAPagar)}                                                                           
+
+

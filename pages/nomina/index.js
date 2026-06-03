@@ -134,6 +134,15 @@ export default function NominaIndex() {
       moduloId:   "liquidar",
     },
     {
+      titulo:     "Nómina CIAMSA 2 💜",
+      descripcion:"Personal fijo + por servicios · quincena · h.extras",
+      icon:       DollarSign,
+      color:      "#8b5cf6",
+      path:       "/nomina/nomina-ciamsa2",
+      roles:      ["admin", "admin_nomina", "nomina"],
+      moduloId:   "nomina_ciamsa2",
+    },
+    {
       titulo:     "Liquidación Unificada 🆕",
       descripcion:"Todos los clientes en una sola nómina · detalle producción por operación",
       icon:       FileText,

@@ -164,7 +164,8 @@ export default function NominaLiquidar() {
   const [comidaMap,      setComidaMap]      = useState({});  // { cedula: total comida pendiente }
   const [clienteActivo,  setClienteActivo]  = useState("spia");
   const [clientes,       setClientes]       = useState(CLIENTES_BASE);
-  const [periodosNoLiquidados, setPeriodosNoLiquidados] = useState([]); // [{desde,hasta,ops,cliente}]
+  const [periodosNoLiquidados, setPeriodosNoLiquidados] = useState([]);
+  const [personalFijoC2,       setPersonalFijoC2]       = useState([]); // personal fijo CIAMSA 2 // [{desde,hasta,ops,cliente}]
 
   // qId incluye cliente para separar períodos — SPIA conserva formato original
   const qId     = clienteActivo === "spia"
@@ -292,13 +293,19 @@ export default function NominaLiquidar() {
       getDocs(query(collection(db, "nomina_subgrupos"),    orderBy("orden"))),
     ]);
     setListaCargos(cSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-    // Filtrar trabajadores por clienteIds — sin clienteIds significa SPIA (compatibilidad)
     const todos = tSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    // Excluir trabajadores inactivos de la nómina
     setListaTrabaj(todos.filter(t => t.activo !== false && (t.clienteIds || ["spia"]).includes(cli)));
-    // Subgrupos contables del cliente activo
     setSubgruposCliente(sgSnap.docs.map(d => ({ id:d.id, ...d.data() })).filter(s => s.clienteId === cli));
-    setFiltroSubgrupo(""); // reset al cambiar cliente
+    setFiltroSubgrupo("");
+    // Cargar personal fijo CIAMSA 2
+    if (cli === "cliente2") {
+      try {
+        const fijoSnap = await getDocs(query(collection(db, "nomina_fijo_c2"), orderBy("orden")));
+        setPersonalFijoC2(fijoSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      } catch(e) { console.warn("nomina_fijo_c2 no encontrada:", e); setPersonalFijoC2([]); }
+    } else {
+      setPersonalFijoC2([]);
+    }
   };
 
   const cargarPeriodo = async () => {
@@ -342,7 +349,8 @@ export default function NominaLiquidar() {
           asisten.forEach(w => {
             const cc = String(w.cedula || w.id || "").trim();
             if (!cc) return;
-            if (!prod[cc]) prod[cc] = { total: 0, ops: [] };
+            if (!prod[cc]) prod[cc] = { total: 0, ops: [], nombre: w.nombre || "", cargo: w.cargo || "" };
+            if (!prod[cc].nombre && w.nombre) prod[cc].nombre = w.nombre;
             prod[cc].total += netoPorPersona;
             prod[cc].ops.push({ fecha: fechaStr, servicio: servNom, valor: netoPorPersona, modoHE, horasExtras: hExtras, cantidad: cantOp, modoNovedad: esModoNovedad, novedad: codNovedad });
             trabajadoresSet.add(cc);
@@ -360,6 +368,7 @@ export default function NominaLiquidar() {
 
       setProduccion(prod);
       setInfoMatriz({ ops: opsCount, trabajadores: trabajadoresSet.size });
+      // NO return aqui - continuar cargando motivos, adelantos, etc.
 
       // Motivos desde asistencia_registro
       try {
@@ -487,6 +496,7 @@ export default function NominaLiquidar() {
         setFilas([]);
         setAprobando(false);
       }
+      return prod; // retornar al final para cargarTodosTrabajadores
     } catch (err) {
       console.error("Error cargando período:", err);
     }
@@ -532,7 +542,40 @@ export default function NominaLiquidar() {
     }));
   }, [listaTrabaj, listaCargos]);
 
-  const cargarTodosTrabajadores = () => {
+  const cargarTodosTrabajadores = async () => {
+    // ── CIAMSA 2: Bloque 1 = fijo / Bloque 2 = quienes trabajaron en la Matriz ──
+    if (clienteActivo === "cliente2" && personalFijoC2.length > 0) {
+      // Primero actualizar producción desde Firestore para tener datos frescos
+      const prodFresh = await cargarPeriodo() || {};
+      const cedsFijo = new Set(personalFijoC2.map(p => String(p.cedula || "").trim()));
+      // Bloque 1: personal fijo
+      const fijoFilas = personalFijoC2.map(p => ({
+        _key: ++_rowCounter,
+        nombre: p.nombre || "", cedula: String(p.cedula || ""),
+        cargo: p.cargo || "", basicoMensual: p.salarioMensual || 0,
+        dias: diasDef, retroactivo: 0, horasExtras: HORAS_VACIAS(),
+        firma: "", observacion: "", tipoFila: "fijo",
+      }));
+      // Bloque 2: SOLO trabajadores con operaciones reales en la Matriz del período
+      // Si no hay producción, bloque 2 queda vacío (correcto)
+      const varFilas = Object.entries(prodFresh)
+        .filter(([ced]) => !cedsFijo.has(ced))
+        .map(([ced, data]) => {
+        const t = listaTrabaj.find(w => String(w.cedula||"")=== ced)
+             || { nombre: data.nombre || "", cargo: data.cargo || "", basicoMensual: 0 };
+      const nombre = t.nombre || data.nombre || ced;
+      const c = listaCargos.find(c => c.nombre === t.cargo);
+      return {
+      _key: ++_rowCounter, nombre, cedula: ced,
+      cargo: t.cargo || "", basicoMensual: c?.basicoMensual || t.basicoMensual || 0,
+      dias: diasDef, retroactivo: 0, horasExtras: HORAS_VACIAS(),
+      firma: "", observacion: "", tipoFila: "variable",
+      };
+      })
+      .sort((a,b)=>a.nombre.localeCompare(b.nombre,"es"));
+      setFilas(deduplicar([...fijoFilas, ...varFilas]));
+      return;
+    }
     // Deduplicar: cédulas ya presentes en la tabla
     const cedulasExistentes = new Set(filas.map(f => String(f.cedula || "").trim()).filter(Boolean));
     const trabajadoresNuevos = listaTrabaj.filter(t => !cedulasExistentes.has(String(t.cedula || "").trim()));
@@ -606,7 +649,15 @@ export default function NominaLiquidar() {
 
   const filasCalculadas = filas.map((f, i) => {
     const prodData        = produccion[String(f.cedula).trim()] || { total: 0, ops: [] };
-    const totalProduccion = prodData.total;
+    // Personal fijo C2: usa producción de la Matriz si existe, si no usa salario proporcional
+    const esFijoC2 = clienteActivo === "cliente2" && f.tipoFila === "fijo";
+    const { total: hextrasFijo } = esFijoC2
+      ? calcularHorasExtras(f.basicoMensual || 0, f.horasExtras || {})
+      : { total: 0 };
+    const salarioPropFijo = Math.round(((f.basicoMensual || 0) / 30) * (parseInt(f.dias) || 0));
+    const totalProduccion = esFijoC2
+      ? (prodData.total > 0 ? prodData.total : salarioPropFijo) + hextrasFijo + (parseFloat(f.retroactivo)||0)
+      : prodData.total;
     const mots = motivosMap[String(f.cedula).trim()] || {};
 
     let calc;
@@ -1506,6 +1557,36 @@ export default function NominaLiquidar() {
               <button onClick={cargarTodosTrabajadores} style={btnStyle("#8b5cf6", false, "sm")}>
                 <UserPlus size={14} /> Cargar trabajadores BD
               </button>
+              {clienteActivo==="cliente2" && personalFijoC2.length === 0 && (
+                <button onClick={async()=>{
+                  const FIJO_C2=[
+                    {orden:1,nombre:"SAA MOSQUERA BERNARDO",cedula:"16482805",cargo:"AUXILIAR OPE",salarioMensual:2090000,activo:true},
+                    {orden:2,nombre:"ALEGRIA GONGORA ERNESTO",cedula:"16481219",cargo:"EST",salarioMensual:1160000,activo:true},
+                    {orden:3,nombre:"DONISABE NEGRIA YILBERSON",cedula:"1193042818",cargo:"O.V",salarioMensual:1160000,activo:false},
+                    {orden:4,nombre:"RIASCOS JORI JESUS",cedula:"14471709",cargo:"EST",salarioMensual:1160000,activo:true},
+                    {orden:5,nombre:"ROSERO OBREGON DUBAN",cedula:"1148951460",cargo:"EST",salarioMensual:1160000,activo:true},
+                    {orden:6,nombre:"RIASCOS RIASCOS JOSE GREGORIO",cedula:"16487221",cargo:"EST",salarioMensual:1160000,activo:true},
+                    {orden:7,nombre:"VALENCIA HECTOR FABIO",cedula:"16493345",cargo:"EST",salarioMensual:1160000,activo:false},
+                    {orden:8,nombre:"PALMA ANGULO AKON SAMUEL",cedula:"1151443150",cargo:"O.V",salarioMensual:1160000,activo:true},
+                    {orden:9,nombre:"VIVEROS RIASCOS HERNANDO",cedula:"16507408",cargo:"EST",salarioMensual:1160000,activo:true},
+                    {orden:10,nombre:"ARIAS PALACIOS CARLOS ALBERTO",cedula:"16505544",cargo:"ESTIBADOR",salarioMensual:1160000,activo:true},
+                  ];
+                  if(!confirm(`¿Cargar los 10 trabajadores fijos base de CIAMSA 2 en Firestore?`)) return;
+                  const { getDocs:gD, addDoc:aD, collection:col2 } = await import("firebase/firestore");
+                  const snap2 = await gD(col2(db,"nomina_fijo_c2"));
+                  const existe = new Set(snap2.docs.map(d=>String(d.data().cedula||"")));
+                  let n=0;
+                  for(const p of FIJO_C2){
+                    if(existe.has(p.cedula)) continue;
+                    await aD(col2(db,"nomina_fijo_c2"),{...p,creadoEn:new Date(),actualizadoEn:new Date()});
+                    n++;
+                  }
+                  await cargarCatalogos("cliente2");
+                  alert(`✅ ${n} trabajadores fijos cargados en Firestore.`);
+                }} style={btnStyle("#7c3aed",false,"sm")}>
+                  ⬇️ Personal Fijo Base C2
+                </button>
+              )}
               {filas.length > 0 && (
                 <button onClick={() => { if (confirm("¿Limpiar todas las filas?")) setFilas([]); }}
                   style={btnStyle(DANGER, false, "sm")}>
@@ -1650,14 +1731,55 @@ export default function NominaLiquidar() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filasFiltradas.map(e => (
-                    <FilaNomina
-                      key={e._key} fila={e} listaCargos={listaCargos}
-                      onCambio={actualizarFila} onBlurCedula={buscarPorCedula}
-                      onHoraExtra={actualizarHoraExtra}
-                      onEliminar={() => eliminarFila(e._key)}
-                    />
-                  ))}
+                  {clienteActivo==="cliente2" ? (
+                    // ── CIAMSA 2: dos bloques separados ──
+                    (() => {
+                      const filasFijo = filasFiltradas.filter(f=>f.tipoFila==="fijo");
+                      const filasVar  = filasFiltradas.filter(f=>f.tipoFila!=="fijo");
+                      const totalFijo = filasFijo.reduce((s,e)=>s+(e.netoAPagar||0),0);
+                      const totalVar2 = filasVar.reduce((s,e)=>s+(e.netoAPagar||0),0);
+                      return (
+                        <>
+                          {/* BLOQUE 1: Personal Fijo */}
+                          <tr style={{background:"#ede9fe",borderTop:"3px solid #7c3aed"}}>
+                            <td colSpan={35} style={{padding:"0.45rem 0.75rem",fontWeight:"900",color:"#6d28d9",fontSize:"0.82rem"}}>
+                              👔 BLOQUE 1 — PERSONAL FIJO CIAMSA 2 ({filasFijo.length} personas) · Salario mensual garantizado · Total: {formatCOP(totalFijo)}
+                              <button onClick={()=>{
+                                setFilas(prev=>[...prev,{_key:++_rowCounter,nombre:"",cedula:"",cargo:"",basicoMensual:0,dias:diasDef,retroactivo:0,horasExtras:HORAS_VACIAS(),firma:"",observacion:"",tipoFila:"fijo"}]);
+                              }} style={{marginLeft:"1rem",background:"#7c3aed",border:"none",borderRadius:"5px",padding:"2px 10px",cursor:"pointer",color:"#fff",fontWeight:"700",fontSize:"0.73rem"}}>
+                                + Agregar Reemplazo Temporal
+                              </button>
+                            </td>
+                          </tr>
+                          {filasFijo.map(e=>(
+                            <FilaNomina key={e._key} fila={e} listaCargos={listaCargos}
+                              onCambio={actualizarFila} onBlurCedula={buscarPorCedula}
+                              onHoraExtra={actualizarHoraExtra} onEliminar={()=>eliminarFila(e._key)}/>
+                          ))}
+                          {/* BLOQUE 2: Personal Variable */}
+                          <tr style={{background:"#dcfce7",borderTop:"3px solid #10b981"}}>
+                            <td colSpan={35} style={{padding:"0.45rem 0.75rem",fontWeight:"900",color:"#065f46",fontSize:"0.82rem"}}>
+                              ⚙️ BLOQUE 2 — PERSONAL POR SERVICIOS ({filasVar.length} personas) · Producción desde Matriz · Total: {formatCOP(totalVar2)}
+                            </td>
+                          </tr>
+                          {filasVar.map(e=>(
+                            <FilaNomina key={e._key} fila={e} listaCargos={listaCargos}
+                              onCambio={actualizarFila} onBlurCedula={buscarPorCedula}
+                              onHoraExtra={actualizarHoraExtra} onEliminar={()=>eliminarFila(e._key)}/>
+                          ))}
+                        </>
+                      );
+                    })()
+                  ) : (
+                    filasFiltradas.map(e => (
+                      <FilaNomina
+                        key={e._key} fila={e} listaCargos={listaCargos}
+                        onCambio={actualizarFila} onBlurCedula={buscarPorCedula}
+                        onHoraExtra={actualizarHoraExtra}
+                        onEliminar={() => eliminarFila(e._key)}
+                      />
+                    ))
+                  )}
 
                   {/* Totales — 29 cols — solo si no hay filtro */}
                   {!hayFiltro && (

@@ -1,0 +1,16 @@
+
+LineNumber Line                                                                         
+---------- ----                                                                         
+       128       titulo:     "Liquidar N¢mina",                                         
+       132       path:       "/nomina/liquidar",                                        
+       134       moduloId:   "liquidar",                                                
+       141       path:       "/nomina/liquidar_unificada",                              
+       143       moduloId:   "liquidar_unificada",                                      
+       146       titulo:     "Historial de N¢minas",                                    
+       150       path:       "/nomina/historial",                                       
+       152       moduloId:   "historial",                                               
+       244           {/* Bot¢n Nueva N¢mina solo si tiene permiso de editar liquidar */}
+       245           {puedeVer("liquidar") && (                                         
+       247               onClick={() => handleNavegar("/nomina/liquidar")}              
+
+

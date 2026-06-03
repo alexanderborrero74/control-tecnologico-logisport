@@ -335,6 +335,8 @@ service cloud.firestore {
     match /nomina_conjuntos/{id}            { allow read, write: if isSignedIn(); }
     match /nomina_conjuntos_operacion/{id} { allow read, write: if isSignedIn(); }
     match /nomina_cuadrilla_snapshot/{id}  { allow read, write: if isSignedIn(); }
+    match /nomina_fijo_c2/{id}             { allow read, write: if isSignedIn(); }
+    match /nomina_resultado_c2/{id}        { allow read, write: if isSignedIn(); }
     match /nomina_permisos_usuario/{uid}   {
       allow read: if isSignedIn() && (request.auth.uid == uid || isAdmin());
       allow write: if isAdmin();
