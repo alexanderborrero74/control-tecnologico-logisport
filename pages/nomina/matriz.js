@@ -1729,6 +1729,59 @@ function MiniCuadrillaPanel({ cuadrillas, servicios, clienteId, onGuardado, onCl
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
+
+// ── Componente: lista editable de novedades por trabajador ──
+function NovEditList({ todos, novedades, onGuardar, onCancelar, puedeEditar }) {
+  const [lista, setLista] = useState(todos.map(w=>({...w})));
+  const setNov = (id, val) => setLista(prev => prev.map(w => w.id===id ? {...w, novedad:val} : w));
+  const conNov = lista.filter(w=>w.novedad).length;
+  return (
+    <div>
+      <div style={{fontSize:"0.78rem",color:"#64748b",marginBottom:"0.75rem"}}>
+        {lista.length} trabajadores en este registro · {conNov} con novedad
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:"0.4rem",marginBottom:"1rem"}}>
+        {lista.map(w=>{
+          const nov = novedades.find(n=>n.codigo===w.novedad);
+          return (
+            <div key={w.id} style={{display:"flex",alignItems:"center",gap:"0.5rem",padding:"0.4rem 0.6rem",borderRadius:"8px",
+              background:w.novedad?(nov?.bg||"#fff1f2"):"#f8fafc",border:`1px solid ${w.novedad?(nov?.color||"#fecdd3"):"#e2e8f0"}`}}>
+              <div style={{flex:1,fontWeight:"600",fontSize:"0.82rem",color:"#1e293b",minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                {w.nombre}
+                {w.cedula&&<span style={{fontSize:"0.68rem",color:"#94a3b8",marginLeft:"0.4rem",fontFamily:"monospace"}}>{w.cedula}</span>}
+              </div>
+              {puedeEditar ? (
+                <select value={w.novedad||""} onChange={e=>setNov(w.id,e.target.value)}
+                  style={{border:`1.5px solid ${w.novedad?(nov?.color||"#fecdd3"):"#e2e8f0"}`,borderRadius:"6px",
+                    padding:"0.25rem 0.5rem",fontSize:"0.75rem",fontWeight:w.novedad?"700":"400",
+                    background:w.novedad?(nov?.bg||"#fff1f2"):"#fff",color:w.novedad?(nov?.color||"#dc2626"):"#475569",outline:"none",cursor:"pointer",minWidth:"180px"}}>
+                  <option value="">✓ Sin novedad — asistió normal</option>
+                  {novedades.map(n=>(<option key={n.codigo} value={n.codigo}>{n.emoji} {n.label} ({n.codigo})</option>))}
+                </select>
+              ) : (
+                <span style={{fontSize:"0.75rem",fontWeight:"700",color:nov?.color||"#475569",background:nov?.bg||"#f1f5f9",borderRadius:"5px",padding:"2px 8px"}}>
+                  {nov?nov.emoji+" "+nov.label:"✓ Normal"}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {puedeEditar && (
+        <div style={{display:"flex",gap:"0.5rem",justifyContent:"flex-end",borderTop:"1px solid #e2e8f0",paddingTop:"0.75rem"}}>
+          <button onClick={onCancelar} style={{background:"#f1f5f9",border:"1px solid #e2e8f0",borderRadius:"7px",padding:"0.4rem 0.9rem",cursor:"pointer",color:"#475569",fontWeight:"700",fontSize:"0.82rem"}}>
+            Cancelar
+          </button>
+          <button onClick={()=>onGuardar(lista)} style={{background:"#dc2626",border:"none",borderRadius:"7px",padding:"0.4rem 1rem",cursor:"pointer",color:"#fff",fontWeight:"800",fontSize:"0.82rem",display:"flex",alignItems:"center",gap:"0.3rem"}}>
+            💾 Guardar Novedades
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 export default function NominaMatriz() {
   const router = useRouter();
   const [rol,     setRol]     = useState(null);
@@ -1937,6 +1990,10 @@ export default function NominaMatriz() {
 
   // Novedad del día del trabajador (leída de nomina_asistencia_registro — fuente: Llamado a Lista)
   const [novedadActivaWorker, setNovedadActivaWorker] = useState(null);
+  const [showEditNovModal,    setShowEditNovModal]    = useState(false);
+  const [editNovOp,           setEditNovOp]           = useState(null);
+  const [showRegNovForm,      setShowRegNovForm]      = useState(false);
+  const [regNovForm,          setRegNovForm]          = useState({fecha:"",trabajadorId:"",trabajadorNombre:"",novedad:"",observacion:""});
   // Indica si cargarAsistenciaDia usó un snapshot histórico (true) o miembros actuales (false)
   const [usandoSnapshotHistorico, setUsandoSnapshotHistorico] = useState(false);
 
@@ -4394,7 +4451,7 @@ export default function NominaMatriz() {
                   {/* ── Tabla CIAMSA ── */}
                   {isCiamsa ? (
                     <table className="xl-table">
-                      <thead><tr>{["#","Trabajador","Cédula","Fecha","Servicio","Cantidad","N.Per","PER","Tarifa","Neto","Acc."].map(h=>(<th key={h}>{h}</th>))}</tr></thead>
+                      <thead><tr>{["#","Trabajador","Cédula","Fecha","Nov.","Servicio","Cantidad","N.Per","PER","Tarifa","Neto","Acc."].map(h=>(<th key={h}>{h}</th>))}</tr></thead>
                       <tbody>
                         {opsFiltradas.length===0 ? (
                           <tr><td colSpan="11" style={{textAlign:"center",padding:"3.5rem",color:"#94a3b8"}}>
@@ -4415,6 +4472,19 @@ export default function NominaMatriz() {
                               </td>
                               <td style={{...tdSt,fontFamily:"monospace",color:"#64748b",fontSize:"0.8rem"}}>{op.trabajadorCedula||"—"}</td>
                               <td style={{...tdSt,color:"#475569",fontSize:"0.85rem",whiteSpace:"nowrap"}}>{op.fechaStr||"—"}{op.creadoEn ? <span style={{display:"block",fontSize:"0.68rem",color:"#94a3b8",fontFamily:"monospace"}}>{(() => { try { const d = op.creadoEn?.toDate ? op.creadoEn.toDate() : new Date(op.creadoEn?.seconds*1000||op.creadoEn); return d.toLocaleTimeString("es-CO",{hour:"2-digit",minute:"2-digit"}); } catch(e){ return ""; } })()}</span> : null}</td>
+                              <td style={{...tdSt,textAlign:"center"}}>
+                                {(op.trabajadoresAusentes?.length>0||op.modoNovedad) ? (
+                                  <button onClick={()=>{setEditNovOp(op);setShowEditNovModal(true);}}
+                                    style={{background:"#fff1f2",border:"1px solid #fecdd3",borderRadius:"6px",padding:"2px 7px",cursor:"pointer",color:"#dc2626",fontWeight:"700",fontSize:"0.7rem"}}>
+                                    ⚠️ {op.trabajadoresAusentes?.length||1}
+                                  </button>
+                                ) : (
+                                  <button onClick={()=>{setEditNovOp(op);setShowEditNovModal(true);}}
+                                    style={{background:"#f0fdf4",border:"1px solid #bbf7d0",borderRadius:"6px",padding:"2px 7px",cursor:"pointer",color:"#10b981",fontWeight:"700",fontSize:"0.7rem"}}>
+                                    ✓
+                                  </button>
+                                )}
+                              </td>
                               <td style={{...tdSt,maxWidth:"180px"}}>
                                 <div style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:"0.83rem",color:"#374151"}}>{op.servicioNombre||"—"}</div>
                               </td>
@@ -4455,7 +4525,7 @@ export default function NominaMatriz() {
                     </table>
                   ) : (
                     <table className="xl-table">
-                      <thead><tr>{["#","Cuadrilla","Fecha","Asistentes","Servicio","Cant.","Neto","X Persona","Acc."].map(h=>(<th key={h}>{h}</th>))}</tr></thead>
+                      <thead><tr>{["#","Cuadrilla","Fecha","Asistentes","Nov.","Servicio","Cant.","Neto","X Persona","Acc."].map(h=>(<th key={h}>{h}</th>))}</tr></thead>
                       <tbody>
                         {opsFiltradas.length===0 ? (
                           <tr><td colSpan="9" style={{textAlign:"center",padding:"3.5rem",color:"#94a3b8"}}>
@@ -4494,6 +4564,19 @@ export default function NominaMatriz() {
                                   {asisten.slice(0,2).map(w=>w.nombre?.split(" ")[0]).join(", ")}{asisten.length>2?` +${asisten.length-2}`:""}
                                 </div>
                               </td>
+              <td style={{...tdSt,textAlign:"center"}}>
+                {(op.trabajadoresAusentes?.length>0||op.modoNovedad) ? (
+                  <button onClick={()=>{setEditNovOp(op);setShowEditNovModal(true);}}
+                    style={{background:"#fff1f2",border:"1px solid #fecdd3",borderRadius:"6px",padding:"2px 8px",cursor:"pointer",color:"#dc2626",fontWeight:"700",fontSize:"0.72rem"}}>
+                    ⚠️ {op.trabajadoresAusentes?.length||1}
+                  </button>
+                ) : (
+                  <button onClick={()=>{setEditNovOp(op);setShowEditNovModal(true);}}
+                    style={{background:"#f0fdf4",border:"1px solid #bbf7d0",borderRadius:"6px",padding:"2px 8px",cursor:"pointer",color:"#10b981",fontWeight:"700",fontSize:"0.72rem"}}>
+                    ✓
+                  </button>
+                )}
+              </td>
                               <td style={{...tdSt,maxWidth:"180px"}}>
                                 <div style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:"0.85rem",color:"#374151"}}>{op.servicioNombre}</div>
                               </td>
@@ -4578,6 +4661,107 @@ export default function NominaMatriz() {
       </div>
 
       {/* ── Modal eliminación ── */}
+      {/* ══ MODAL EDITAR NOVEDADES ══ */}
+      {showEditNovModal && editNovOp && (() => {
+        const todos = (editNovOp.trabajadoresAsisten||[]).map(w=>({
+          ...w, novedad:(editNovOp.trabajadoresAusentes||[]).find(a=>a.id===w.id)?.novedad||""
+        }));
+        const guardarNovedades = async (nuevosTodos) => {
+          const ausentes = nuevosTodos.filter(w=>w.novedad).map(w=>({id:w.id,nombre:w.nombre,novedad:w.novedad}));
+          const {updateDoc,doc:dc} = await import("firebase/firestore");
+          await updateDoc(dc(db,"nomina_operaciones",editNovOp.id),{trabajadoresAusentes:ausentes,actualizadoEn:new Date()});
+          setShowEditNovModal(false); setEditNovOp(null); await cargarOperaciones();
+        };
+        return (
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.65)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:"1rem"}}
+            onClick={e=>{if(e.target===e.currentTarget){setShowEditNovModal(false);setEditNovOp(null);}}}>
+            <div style={{background:"#fff",borderRadius:"16px",width:"100%",maxWidth:"680px",boxShadow:"0 20px 60px rgba(0,0,0,0.3)",overflow:"hidden"}}>
+              <div style={{background:"linear-gradient(135deg,#dc2626,#b91c1c)",padding:"1rem 1.5rem",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                <div>
+                  <div style={{fontWeight:"800",color:"#fff",fontSize:"1rem"}}>⚠️ Novedades del Registro</div>
+                  <div style={{color:"rgba(255,255,255,0.8)",fontSize:"0.78rem"}}>{editNovOp.fechaStr} · {editNovOp.cuadrillaNombre||editNovOp.cuadrilla} · {editNovOp.servicioNombre}</div>
+                </div>
+                <button onClick={()=>{setShowEditNovModal(false);setEditNovOp(null);}} style={{background:"rgba(255,255,255,0.15)",border:"none",borderRadius:"8px",padding:"0.4rem",cursor:"pointer",color:"#fff"}}><X size={18}/></button>
+              </div>
+              <div style={{padding:"1rem 1.5rem",maxHeight:"60vh",overflowY:"auto"}}>
+                <NovEditList todos={todos} novedades={novedades} onGuardar={guardarNovedades} onCancelar={()=>{setShowEditNovModal(false);setEditNovOp(null);}} puedeEditar={puedeEditarMatriz}/>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ══ PANEL REGISTRAR NOVEDAD PURA ══ */}
+      {showRegNovForm && clienteActivo==="spia" && (
+        <div style={{margin:"0 0.75rem 1rem",background:"#fff",borderRadius:"12px",border:"2px solid #fecdd3",overflow:"hidden"}}>
+          <div style={{background:"#fff1f2",padding:"0.55rem 1rem",fontWeight:"800",color:"#dc2626",fontSize:"0.85rem",borderBottom:"1px solid #fecdd3",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <span>📋 Registrar Novedad (sin producción)</span>
+            <button onClick={()=>setShowRegNovForm(false)} style={{background:"none",border:"none",cursor:"pointer",color:"#94a3b8"}}><X size={16}/></button>
+          </div>
+          <div style={{padding:"1rem",display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"0.75rem",alignItems:"end"}}>
+            <div>
+              <label style={{display:"block",fontSize:"0.72rem",fontWeight:"700",color:"#374151",marginBottom:"0.2rem"}}>👤 Trabajador</label>
+              <select value={regNovForm.trabajadorId} onChange={e=>{
+                const t=listaTrabajadores.find(x=>x.id===e.target.value)||{};
+                setRegNovForm(p=>({...p,trabajadorId:e.target.value,trabajadorNombre:t.nombre||""}));
+              }} style={{width:"100%",border:"1px solid #fecdd3",borderRadius:"6px",padding:"0.38rem 0.6rem",fontSize:"0.82rem",outline:"none"}}>
+                <option value="">— Seleccionar —</option>
+                {listaTrabajadores.map(t=>(<option key={t.id} value={t.id}>{t.nombre}</option>))}
+              </select>
+            </div>
+            <div>
+              <label style={{display:"block",fontSize:"0.72rem",fontWeight:"700",color:"#374151",marginBottom:"0.2rem"}}>📅 Fecha</label>
+              <input type="date" value={regNovForm.fecha} onChange={e=>setRegNovForm(p=>({...p,fecha:e.target.value}))}
+                style={{width:"100%",border:"1px solid #fecdd3",borderRadius:"6px",padding:"0.38rem 0.6rem",fontSize:"0.82rem",outline:"none",boxSizing:"border-box"}}/>
+            </div>
+            <div>
+              <label style={{display:"block",fontSize:"0.72rem",fontWeight:"700",color:"#374151",marginBottom:"0.2rem"}}>⚠️ Novedad</label>
+              <select value={regNovForm.novedad} onChange={e=>setRegNovForm(p=>({...p,novedad:e.target.value}))}
+                style={{width:"100%",border:"1px solid #fecdd3",borderRadius:"6px",padding:"0.38rem 0.6rem",fontSize:"0.82rem",outline:"none"}}>
+                <option value="">— Tipo —</option>
+                {novedades.map(n=>(<option key={n.codigo} value={n.codigo}>{n.emoji} {n.label}</option>))}
+              </select>
+            </div>
+            <div style={{gridColumn:"1/-1"}}>
+              <label style={{display:"block",fontSize:"0.72rem",fontWeight:"700",color:"#374151",marginBottom:"0.2rem"}}>📝 Observación</label>
+              <input value={regNovForm.observacion} onChange={e=>setRegNovForm(p=>({...p,observacion:e.target.value}))}
+                placeholder="Detalle de la novedad..."
+                style={{width:"100%",border:"1px solid #fecdd3",borderRadius:"6px",padding:"0.38rem 0.6rem",fontSize:"0.82rem",outline:"none",boxSizing:"border-box"}}/>
+            </div>
+            <div style={{gridColumn:"1/-1",display:"flex",gap:"0.5rem"}}>
+              <button onClick={async()=>{
+                if(!regNovForm.trabajadorId||!regNovForm.fecha||!regNovForm.novedad){alert("Completa trabajador, fecha y novedad.");return;}
+                const t=listaTrabajadores.find(x=>x.id===regNovForm.trabajadorId)||{};
+                const nov=novedades.find(n=>n.codigo===regNovForm.novedad)||{};
+                const {addDoc,collection:col,Timestamp}=await import("firebase/firestore");
+                await addDoc(col(db,"nomina_operaciones"),{
+                  periodoDesde,periodoHasta,clienteId:"spia",modoNovedad:true,modoCiamsa:false,
+                  quincenaId:periodoDesde+" al "+periodoHasta,
+                  quincenaLabel:periodoDesde+" al "+periodoHasta,
+                  cuadrillaId:regNovForm.trabajadorId,
+                  cuadrillaNombre:t.nombre||"",trabajadorId:regNovForm.trabajadorId,
+                  trabajadorNombre:t.nombre||"",trabajadorCedula:String(t.cedula||""),
+                  fecha:Timestamp.fromDate(new Date(regNovForm.fecha+"T12:00:00")),
+                  fechaStr:regNovForm.fecha,servicioNombre:regNovForm.novedad,
+                  novedad:regNovForm.novedad,novedadLabel:nov.label||"",
+                  observacion:regNovForm.observacion,
+                  netoAPagar:0,personas:1,cantidad:1,
+                  trabajadoresAsisten:[{id:t.id,nombre:t.nombre,cedula:String(t.cedula||"")}],
+                  trabajadoresAusentes:[{id:t.id,nombre:t.nombre,novedad:regNovForm.novedad}],
+                  actualizadoEn:new Date(),creadoEn:new Date(),
+                });
+                setRegNovForm({fecha:"",trabajadorId:"",trabajadorNombre:"",novedad:"",observacion:""});
+                setShowRegNovForm(false); await cargarOperaciones();
+                alert("✅ Novedad registrada correctamente");
+              }} style={{background:"#dc2626",border:"none",borderRadius:"7px",padding:"0.45rem 1.25rem",cursor:"pointer",color:"#fff",fontWeight:"800",fontSize:"0.82rem"}}>
+                💾 Guardar Novedad
+              </button>
+              <button onClick={()=>setShowRegNovForm(false)} style={{background:"#f1f5f9",border:"1px solid #e2e8f0",borderRadius:"7px",padding:"0.45rem 0.75rem",cursor:"pointer",color:"#475569",fontWeight:"700",fontSize:"0.82rem"}}>Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ══ MODAL DETALLE POR TRABAJADOR ══ */}
       {showDetalleModal && (() => {
         const filas = [];

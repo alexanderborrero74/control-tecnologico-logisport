@@ -16,7 +16,7 @@ import CapsulaEmergente from "@/components/CapsulaEmergente";
 import { usePermisosNomina } from "@/utils/usePermisosNomina";
 
 
-const PRIMARY = "#0B3D91";
+const PRIMARY = "#0c2d6b";   // Azul naval corporativo LOGISPORT
 
 export default function LayoutWithSidebar({ children }) {
   const router = useRouter();
@@ -144,19 +144,20 @@ export default function LayoutWithSidebar({ children }) {
 
   const btnStyle = (isActive) => ({
     width: "100%",
-    padding: collapsed ? "0.75rem 0.5rem" : "0.75rem 1rem",
-    background: isActive ? "rgba(255,255,255,0.15)" : "transparent",
+    padding: collapsed ? "0.6rem 0.5rem" : "0.6rem 1rem",
+    background: isActive ? "rgba(255,255,255,0.13)" : "transparent",
     border: "none",
-    borderLeft: isActive ? "4px solid #00AEEF" : "4px solid transparent",
-    color: "#fff",
+    borderLeft: isActive ? "3px solid rgba(255,255,255,0.85)" : "3px solid transparent",
+    color: isActive ? "#fff" : "rgba(255,255,255,0.72)",
     cursor: "pointer",
     display: "flex",
     alignItems: "center",
-    gap: "0.75rem",
-    fontSize: "0.95rem",
+    gap: "0.65rem",
+    fontSize: "0.82rem",
     fontWeight: isActive ? "600" : "400",
-    transition: "all 0.2s ease",
+    transition: "all 0.15s ease",
     textAlign: "left",
+    letterSpacing: "0.1px",
   });
 
   return (
@@ -164,24 +165,26 @@ export default function LayoutWithSidebar({ children }) {
       {/* SIDEBAR DESKTOP */}
       <aside
         style={{
-          width: collapsed ? "80px" : "280px",
-          background: `linear-gradient(180deg, ${PRIMARY} 0%, #082d6b 100%)`,
+          width: collapsed ? "72px" : "260px",
+          background: "linear-gradient(180deg, #0c2d6b 0%, #091f4d 100%)",
           color: "#fff",
-          transition: "width 0.3s ease",
+          transition: "width 0.25s ease",
           display: "flex",
           flexDirection: "column",
           position: "fixed",
           height: "100vh",
           zIndex: 1000,
-          boxShadow: "4px 0 12px rgba(0,0,0,0.1)",
+          boxShadow: "2px 0 16px rgba(0,0,0,0.18)",
+          borderRight: "1px solid rgba(255,255,255,0.06)",
         }}
         className="sidebar-desktop"
       >
         {/* Header */}
         <div style={{
-          padding: collapsed ? "1.5rem 0.5rem" : "1.5rem 1rem",
-          borderBottom: "1px solid rgba(255,255,255,0.1)",
+          padding: collapsed ? "1rem 0.5rem" : "1rem 1rem",
+          borderBottom: "1px solid rgba(255,255,255,0.08)",
           display: "flex", alignItems: "center", justifyContent: "space-between",
+          background: "rgba(0,0,0,0.15)",
         }}>
           {!collapsed && (
             <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
@@ -189,8 +192,8 @@ export default function LayoutWithSidebar({ children }) {
                 <img src={BRAND.logoUrl} alt={BRAND.clientName} style={{ width: "32px", height: "32px", objectFit: "contain" }} />
               </div>
               <div>
-                <div style={{ fontWeight: "800", fontSize: "1.1rem", lineHeight: 1 }}>{BRAND.clientName}</div>
-                <div style={{ fontSize: "0.75rem", opacity: 0.8 }}>{BRAND.subtitle}</div>
+                <div style={{ fontWeight: "700", fontSize: "0.95rem", lineHeight: 1.2 }}>{BRAND.clientName}</div>
+                <div style={{ fontSize: "0.68rem", opacity: 0.6, marginTop:"1px", letterSpacing:"0.05em" }}>{BRAND.subtitle}</div>
               </div>
             </div>
           )}
@@ -239,12 +242,14 @@ export default function LayoutWithSidebar({ children }) {
               {/* Título sección */}
               {!collapsed && (
                 <div style={{
-                  padding: "0.5rem 1rem 0.75rem",
-                  fontSize: "0.7rem", fontWeight: "800", letterSpacing: "0.12em",
-                  color: "#00AEEF", textTransform: "uppercase",
-                  display: "flex", alignItems: "center", gap: "0.5rem",
+                  padding: "0.65rem 1rem 0.5rem",
+                  fontSize: "0.65rem", fontWeight: "700", letterSpacing: "0.14em",
+                  color: "rgba(255,255,255,0.4)", textTransform: "uppercase",
+                  display: "flex", alignItems: "center", gap: "0.4rem",
+                  borderBottom: "1px solid rgba(255,255,255,0.06)",
+                  marginBottom: "0.25rem",
                 }}>
-                  <DollarSign size={14} />
+                  <DollarSign size={11} />
                   CONTROL OPERATIVO
                 </div>
               )}
@@ -256,23 +261,23 @@ export default function LayoutWithSidebar({ children }) {
                   <button key={i} onClick={() => handleNavegar(sub.path)}
                     style={{
                       width: "100%",
-                      padding: collapsed ? "0.75rem 0.5rem" : "0.75rem 1rem",
-                      background: isSubActive ? "rgba(0,174,239,0.2)" : "transparent",
+                      padding: collapsed ? "0.6rem 0.5rem" : "0.6rem 1rem",
+                      background: isSubActive ? "rgba(255,255,255,0.13)" : "transparent",
                       border: "none",
-                      borderLeft: isSubActive ? "4px solid #00AEEF" : "4px solid transparent",
-                      color: isSubActive ? "#00AEEF" : "#fff",
+                      borderLeft: isSubActive ? "3px solid rgba(255,255,255,0.85)" : "3px solid transparent",
+                      color: isSubActive ? "#fff" : "rgba(255,255,255,0.68)",
                       cursor: "pointer",
                       display: "flex", alignItems: "center",
-                      gap: "0.75rem",
-                      fontSize: "0.95rem",
-                      fontWeight: isSubActive ? "700" : "400",
-                      transition: "all 0.2s",
+                      gap: "0.65rem",
+                      fontSize: "0.82rem",
+                      fontWeight: isSubActive ? "600" : "400",
+                      transition: "all 0.15s",
                       textAlign: "left",
                     }}
-                    onMouseEnter={e => { if (!isSubActive) { e.currentTarget.style.background = "rgba(0,174,239,0.1)"; } }}
-                    onMouseLeave={e => { if (!isSubActive) { e.currentTarget.style.background = "transparent"; } }}
+                    onMouseEnter={e => { if (!isSubActive) { e.currentTarget.style.background = "rgba(255,255,255,0.07)"; e.currentTarget.style.color="#fff"; } }}
+                    onMouseLeave={e => { if (!isSubActive) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color="rgba(255,255,255,0.68)"; } }}
                   >
-                    <sub.icon size={20} style={{ flexShrink: 0 }} />
+                    <sub.icon size={16} style={{ flexShrink: 0 }} />
                     {!collapsed && <span>{sub.label}</span>}
                   </button>
                 );
@@ -365,9 +370,11 @@ export default function LayoutWithSidebar({ children }) {
 
       {/* CONTENIDO */}
       <main style={{
-        marginLeft: collapsed ? "80px" : "280px",
-        flex: 1, padding: "2rem",
-        transition: "margin-left 0.3s ease", minHeight: "100vh",
+        marginLeft: collapsed ? "72px" : "260px",
+        flex: 1,
+        transition: "margin-left 0.25s ease",
+        minHeight: "100vh",
+        background: "#f0f2f7",
       }} className="main-content">
         {children}
       </main>
