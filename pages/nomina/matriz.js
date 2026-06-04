@@ -4414,7 +4414,7 @@ export default function NominaMatriz() {
                                 {op.trabajadorNombre||op.cuadrillaNombre||"—"}
                               </td>
                               <td style={{...tdSt,fontFamily:"monospace",color:"#64748b",fontSize:"0.8rem"}}>{op.trabajadorCedula||"—"}</td>
-                              <td style={{...tdSt,color:"#475569",fontSize:"0.85rem",whiteSpace:"nowrap"}}>{op.fechaStr||"—"}</td>
+                              <td style={{...tdSt,color:"#475569",fontSize:"0.85rem",whiteSpace:"nowrap"}}>{op.fechaStr||"—"}{op.creadoEn ? <span style={{display:"block",fontSize:"0.68rem",color:"#94a3b8",fontFamily:"monospace"}}>{(() => { try { const d = op.creadoEn?.toDate ? op.creadoEn.toDate() : new Date(op.creadoEn?.seconds*1000||op.creadoEn); return d.toLocaleTimeString("es-CO",{hour:"2-digit",minute:"2-digit"}); } catch(e){ return ""; } })()}</span> : null}</td>
                               <td style={{...tdSt,maxWidth:"180px"}}>
                                 <div style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:"0.83rem",color:"#374151"}}>{op.servicioNombre||"—"}</div>
                               </td>
@@ -4484,7 +4484,7 @@ export default function NominaMatriz() {
                                     </span>
                                 }
                               </td>
-                              <td style={{...tdSt,color:"#475569",fontSize:"0.85rem",whiteSpace:"nowrap"}}>{op.fechaStr||"—"}</td>
+                              <td style={{...tdSt,color:"#475569",fontSize:"0.85rem",whiteSpace:"nowrap"}}>{op.fechaStr||"—"}{op.creadoEn ? <span style={{display:"block",fontSize:"0.68rem",color:"#94a3b8",fontFamily:"monospace"}}>{(() => { try { const d = op.creadoEn?.toDate ? op.creadoEn.toDate() : new Date(op.creadoEn?.seconds*1000||op.creadoEn); return d.toLocaleTimeString("es-CO",{hour:"2-digit",minute:"2-digit"}); } catch(e){ return ""; } })()}</span> : null}</td>
                               <td style={tdSt}>
                                 <div style={{fontSize:"0.78rem"}}>
                                   <span style={{fontWeight:"700",color:SUCCESS}}>{op.personas} asisten</span>
@@ -4584,9 +4584,9 @@ export default function NominaMatriz() {
         operaciones.filter(op=>(op.clienteId||"spia")===clienteActivo).forEach(op => {
           const asisten = op.trabajadoresAsisten||[];
           if (asisten.length===0) {
-            filas.push({nombre:op.trabajadorNombre||op.cuadrillaNombre||"",cedula:op.trabajadorCedula||"",fecha:op.fechaStr||"",cuadrilla:op.cuadrillaNombre||op.cuadrilla||"",servicio:op.servicioNombre||"",cantidad:op.cantidad||1,neto:op.netoAPagar||0});
+            filas.push({nombre:op.trabajadorNombre||op.cuadrillaNombre||"",cedula:op.trabajadorCedula||"",fecha:op.fechaStr||"",hora:(()=>{try{const d=op.creadoEn?.toDate?op.creadoEn.toDate():new Date(op.creadoEn?.seconds*1000||op.creadoEn);return d.toLocaleTimeString("es-CO",{hour:"2-digit",minute:"2-digit"});}catch(e){return"";}})(),opId:op.id,cuadrilla:op.cuadrillaNombre||op.cuadrilla||"",servicio:op.servicioNombre||"",cantidad:op.cantidad||1,neto:op.netoAPagar||0});
           } else {
-            asisten.forEach(w=>filas.push({nombre:w.nombre||"",cedula:w.cedula||"",fecha:op.fechaStr||"",cuadrilla:op.cuadrillaNombre||op.cuadrilla||"",servicio:op.servicioNombre||"",cantidad:op.cantidad||1,neto:op.netoAPagar||0}));
+            asisten.forEach(w=>filas.push({nombre:w.nombre||"",cedula:w.cedula||"",fecha:op.fechaStr||"",hora:(()=>{try{const d=op.creadoEn?.toDate?op.creadoEn.toDate():new Date(op.creadoEn?.seconds*1000||op.creadoEn);return d.toLocaleTimeString("es-CO",{hour:"2-digit",minute:"2-digit"});}catch(e){return"";}})(),opId:op.id,cuadrilla:op.cuadrillaNombre||op.cuadrilla||"",servicio:op.servicioNombre||"",cantidad:op.cantidad||1,neto:op.netoAPagar||0}));
           }
         });
         const qN=filtroDetNombre.toLowerCase().trim();
@@ -4642,13 +4642,13 @@ export default function NominaMatriz() {
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:"0.83rem"}}>
                   <thead style={{position:"sticky",top:0,zIndex:2}}>
                     <tr style={{background:PRIMARY}}>
-                      {["#","Trabajador","Cédula","Fecha","Cuadrilla","Servicio","Cant.","Neto"].map(h=>(
+                      {["#","Trabajador","Cédula","Fecha","Hora","Cuadrilla","Servicio","Cant.","Neto","Acc."].map(h=>(
                         <th key={h} style={{padding:"0.7rem 0.8rem",textAlign:"left",color:"#fff",fontWeight:"700",fontSize:"0.75rem",whiteSpace:"nowrap"}}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {filasFilt.length===0?(<tr><td colSpan={8} style={{textAlign:"center",padding:"3rem",color:"#94a3b8"}}>Sin registros con los filtros actuales</td></tr>)
+                    {filasFilt.length===0?(<tr><td colSpan={10} style={{textAlign:"center",padding:"3rem",color:"#94a3b8"}}>Sin registros con los filtros actuales</td></tr>)
                     :filasFilt.map((f,i)=>(
                       <tr key={i} style={{borderBottom:"1px solid #f1f5f9",background:i%2===0?"#fff":"#f8fafc"}}
                         onMouseEnter={e=>e.currentTarget.style.background="#eff6ff"}
@@ -4657,6 +4657,7 @@ export default function NominaMatriz() {
                         <td style={{...tdSt,fontWeight:"700",color:"#1e293b",whiteSpace:"nowrap"}}>{f.nombre}</td>
                         <td style={{...tdSt,fontFamily:"monospace",color:"#64748b",fontSize:"0.8rem"}}>{f.cedula||"—"}</td>
                         <td style={{...tdSt,color:"#475569",whiteSpace:"nowrap"}}>{f.fecha}</td>
+                <td style={{...tdSt,fontFamily:"monospace",fontSize:"0.78rem",color:"#6366f1",whiteSpace:"nowrap",textAlign:"center"}}>{f.hora||"—"}</td>
                         <td style={{...tdSt}}><span style={{background:"#f0f9ff",color:"#0ea5e9",borderRadius:"6px",padding:"2px 8px",fontSize:"0.78rem",fontWeight:"700",whiteSpace:"nowrap"}}>{f.cuadrilla}</span></td>
                         <td style={{...tdSt,maxWidth:"200px"}}><div style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"#374151"}}>{f.servicio}</div></td>
                         <td style={{...tdSt,textAlign:"center",fontWeight:"700"}}>{f.cantidad}</td>
@@ -4667,7 +4668,7 @@ export default function NominaMatriz() {
                   {filasFilt.length>0&&(
                     <tfoot style={{position:"sticky",bottom:0}}>
                       <tr style={{background:"#f0fdf4",borderTop:`2px solid ${SUCCESS}`}}>
-                        <td colSpan={7} style={{padding:"0.75rem 0.8rem",fontWeight:"700",color:"#065f46"}}>TOTAL — {filasFilt.length} registros</td>
+                        <td colSpan={9} style={{padding:"0.75rem 0.8rem",fontWeight:"700",color:"#065f46"}}>TOTAL — {filasFilt.length} registros</td>
                         <td style={{padding:"0.75rem 0.8rem",fontWeight:"900",color:"#065f46",fontFamily:"monospace",fontSize:"1rem",whiteSpace:"nowrap"}}>{formatCOP(totalFilt)}</td>
                       </tr>
                     </tfoot>
