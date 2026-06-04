@@ -2550,7 +2550,10 @@ export default function NominaMatriz() {
     setGuardando(true);
     const valorUnitario = parseFloat(form.servicioValor)||0;
     const cantidad      = parseInt(form.cantidad)||1;
-    const personas      = parseInt(form.personas)||1;
+    // personas = cuadrilla principal + trabajadores adicionales seleccionados
+    const personasCuadrilla  = parseInt(form.personas)||1;
+    const personasAdicionales = trabsAdicionales?.length || 0;
+    const personas      = personasCuadrilla + personasAdicionales;
     const esTrabajadorIndividual = form.tipoSeleccion === "trabajador";
     const horasExtras   = esTrabajadorIndividual ? (parseFloat(form.horasExtras) || 1) : null;
     // Fórmula diferente según modo

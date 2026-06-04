@@ -1,0 +1,58 @@
+2304:       return cuadrillaDiaRecalcular({ ...prev, trabajadoresSeleccionados: nuevos });
+2305:     });
+2306:   };
+2307: 
+2308:   const cuadrillaDiaSelServicio = (servId) => {
+2309:     const s = servicios.find(x => x.id === servId);
+2310:     if (!s) { setCuadrillaDiaForm(prev => cuadrillaDiaRecalcular({ ...prev, servicioId: "", servicioNombre: "", tarifaUnitaria: 0, unidad: "ton" })); return; }
+2311:     setCuadrillaDiaForm(prev => cuadrillaDiaRecalcular({ ...prev, servicioId: s.id, servicioNombre: s.nombre, tarifaUnitaria: s.valor || s.tarifa || 0, unidad: s.unidad || "ton" }));
+2312:   };
+2313: 
+2314:   const cuadrillaDiaGuardar = async () => {
+2315:     const f = cuadrillaDiaForm;
+2316:     if (f.trabajadoresSeleccionados.length === 0) { alert("Selecciona al menos un trabajador."); return; }
+2317:     if (!f.servicioNombre) { alert("Selecciona el servicio."); return; }
+2318:     if (!f.cantidad) { alert("Ingresa la cantidad."); return; }
+2319:     if (!f.fecha) { alert("Indica la fecha."); return; }
+2320:     setCuadrillaDiaGuardando(true);
+2321:     const n      = f.trabajadoresSeleccionados.length;
+2322:     const cant   = parseFloat(f.cantidad) || 0;
+2323:     const unidad = f.unidad || "ton";
+2324:     const per    = (unidad === "dia" || unidad === "hora") ? cant : (n > 0 ? cant / n : 0);
+2325:     const neto   = Math.round(per * f.tarifaUnitaria * 100) / 100;
+2326:     const data = {
+2327:       periodoDesde, periodoHasta,
+2328:       clienteId:  clienteActivo,
+2329:       modoCiamsa: true,
+2330:       modoCuadrillaDiaria: true,
+2331:       quincenaId:   `${periodoDesde} al ${periodoHasta}`,
+2332:       quincenaLabel:`${periodoDesde} al ${periodoHasta}`,
+2333:       cuadrillaId:       `diaria_${f.fecha.replace(/-/g, "")}`,
+2334:       cuadrillaNombre:   `CUADRILLA ${f.fecha}`,
+2335:       cuadrillaPersonas: n,
+2336:       fecha:      Timestamp.fromDate(new Date(f.fecha + "T12:00:00")),
+2337:       fechaStr:   f.fecha,
+2338:       servicioId:     f.servicioId,
+2339:       servicioNombre: f.servicioNombre.trim().toUpperCase(),
+2340:       tarifaUnitaria: f.tarifaUnitaria,
+2341:       unidad,
+2342:       cantidadTons:   cant,
+2343:       nPersonas:      n,
+2344:       per:            Math.round(per * 10000) / 10000,
+2345:       servicioValorUnitario: f.tarifaUnitaria,
+2346:       servicioValor:  neto,
+2347:       cantidad:       n,
+2348:       personas:       n,
+2349:       netoAPagar:     neto,   // neto por persona ƒ?" liquidar.js suma esto por trabajador
+2350:       trabajadoresAsisten: f.trabajadoresSeleccionados.map(t => ({
+2351:         id: t.id, nombre: t.nombre, cedula: String(t.cedula || ""),
+2352:       })),
+2353:       trabajadoresAusentes: [],
+2354:       actualizadoEn: new Date(),
+2355:     };
+2356:     try {
+2357:       await addDoc(collection(db, "nomina_operaciones"), { ...data, creadoEn: new Date() });
+2358:       // Servicios adicionales
+2359:       for (const se of serviciosExtraCia) {
+2360:         if (!se.servicioNombre || !se.cantidad) continue;
+2361:         const cantSe  = parseFloat(se.cantidad)||0;

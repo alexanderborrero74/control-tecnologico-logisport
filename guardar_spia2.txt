@@ -1,0 +1,43 @@
+2549:   const guardar = async () => {
+2550:     if (!form.cuadrillaNombre || !form.servicioNombre) { alert("Selecciona cuadrilla y servicio."); return; }
+2551:     if (form.tipoSeleccion !== "trabajador" && (!form.cantidad || parseInt(form.cantidad) < 1)) { alert("Ingresa la cantidad."); return; }
+2552:     setGuardando(true);
+2553:     const valorUnitario = parseFloat(form.servicioValor)||0;
+2554:     const cantidad      = parseInt(form.cantidad)||1;
+2555:     const personas      = parseInt(form.personas)||1;
+2556:     const esTrabajadorIndividual = form.tipoSeleccion === "trabajador";
+2557:     const horasExtras   = esTrabajadorIndividual ? (parseFloat(form.horasExtras) || 1) : null;
+2558:     // FÇürmula diferente segÇ§n modo
+2559:     const netoFinal = esTrabajadorIndividual
+2560:       ? Math.round(valorUnitario * (horasExtras||1) * 100) / 100
+2561:       : Math.round(calcularNetoOperacion(valorUnitario, personas, cantidad)*100)/100;
+2562:     const data = {
+2563:       periodoDesde, periodoHasta,
+2564:       clienteId: clienteActivo,
+2565:       modoCiamsa: false,
+2566:       quincenaId:`${periodoDesde} al ${periodoHasta}`,
+2567:       quincenaLabel:`${periodoDesde} al ${periodoHasta}`,
+2568:       cuadrillaId:       form.cuadrillaId,
+2569:       cuadrillaNombre:   form.cuadrillaNombre.trim().toUpperCase(),
+2570:       cuadrilla:         form.cuadrillaNombre.trim().toUpperCase(),
+2571:       cuadrillaPersonas: form.cuadrillaPersonas,
+2572:       fecha:             form.fecha ? Timestamp.fromDate(new Date(form.fecha+"T12:00:00")) : null,
+2573:       fechaStr:          form.fecha,
+2574:       servicioNombre:    form.servicioNombre.trim().toUpperCase(),
+2575:       servicioValorUnitario: valorUnitario,
+2576:       servicioValor:     esTrabajadorIndividual ? netoFinal : valorUnitario * cantidad,
+2577:       cantidad,
+2578:       personas,
+2579:       horasExtras,       // null para cuadrillas, nÇ§mero para individuales
+2580:       modoHorasExtras:   esTrabajadorIndividual, // flag para identificar este modo
+2581:       netoAPagar:        netoFinal,
+2582:       trabajadoresAsisten: [
+2583:         ...asistentesForm.map(a=>({id:a.id,nombre:a.nombre,cedula:a.cedula||""})),
+2584:         ...trabsAdicionales.map(t=>({id:t.id,nombre:t.nombre,cedula:t.cedula||"",clienteId:t.clienteId||"",clienteLabel:t.clienteLabel||""})),
+2585:       ],
+2586:       trabajadoresAusentes: ausentesForm.map(a=>({id:a.id,nombre:a.nombre,novedad:a.novedad})),
+2587:       actualizadoEn: new Date(),
+2588:     };
+2589:     try {
+2590:       if (editandoId) {
+2591:         await updateDoc(doc(db,"nomina_operaciones",editandoId),data);
