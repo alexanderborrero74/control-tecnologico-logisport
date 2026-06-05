@@ -25,9 +25,10 @@ const ACCENT = "#00AEEF";
 
 // Clientes que tienen cargos diferenciados
 const CLIENTES_CARGOS = [
-  { id: "spia",     label: "SPIA",     color: "#0B3D91", emoji: "🏭" },
-  { id: "cliente2", label: "CIAMSA 2", color: "#8b5cf6", emoji: "🏗️" },
-  { id: "cliente3", label: "CIAMSA 3", color: "#f59e0b", emoji: "🏭" },
+  { id: "spia",     label: "SPIA",      color: "#0B3D91", emoji: "🏭" },
+  { id: "cliente1", label: "Terrestre", color: "#10b981", emoji: "🚛" },
+  { id: "cliente2", label: "CIAMSA 2",  color: "#8b5cf6", emoji: "🏗️" },
+  { id: "cliente3", label: "CIAMSA 3",  color: "#f59e0b", emoji: "🏭" },
 ];
 
 // Valores iniciales para cargos con su sueldo básico mensual
