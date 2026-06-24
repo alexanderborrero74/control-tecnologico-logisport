@@ -1,0 +1,7 @@
+
+Actualizando cliente1 (44 servicios)...
+[FirebaseError: Missing or insufficient permissions.] {
+  code: 'permission-denied',
+  customData: undefined,
+  toString: [Function (anonymous)]
+}

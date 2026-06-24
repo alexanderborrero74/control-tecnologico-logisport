@@ -5,9 +5,13 @@
 const { initializeApp } = require("firebase/app");
 const { getFirestore, collection, getDocs, addDoc, updateDoc, doc, query, where, deleteDoc } = require("firebase/firestore");
 
-// PEGA TU CONFIG DE FIREBASE AQUI:
 const firebaseConfig = {
-  // apiKey: "...", authDomain: "...", projectId: "ti-logisport-sas", ...
+  apiKey: "AIzaSyBNMXiEGcgp9bHWNPhqaBH_cAcATEZwI8M",
+  authDomain: "ti-logisport-sas.firebaseapp.com",
+  projectId: "ti-logisport-sas",
+  storageBucket: "ti-logisport-sas.appspot.com",
+  messagingSenderId: "111655171359",
+  appId: "1:111655171359:web:030e6831424e8d056fac2a",
 };
 
 const SERVICIOS = {
