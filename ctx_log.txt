@@ -1,0 +1,104 @@
+=== BOTON MULTI SPIA (4350-4370) ===
+4350: <X size={14}/>
+4351: </button>
+4352: </div>
+4353: ))}
+4354: </div>
+4355: )}
+4356: {/* Botón agregar servicio adicional — siempre activo */}
+4357: {form.cuadrillaNombre && (
+4358: <button type="button" onClick={sMultiAdd}
+4359: style={{marginTop:"0.6rem",background:"#eef2ff",border:"1.5px dashed #818cf8",borderRadius:"8px",
+4360: padding:"0.45rem 1rem",cursor:"pointer",color:"#4f46e5",fontWeight:"700",fontSize:"0.8rem",
+4361: display:"flex",alignItems:"center",gap:"0.4rem",width:"100%",justifyContent:"center"}}>
+4362: <Plus size={14}/> Agregar otro servicio
+4363: </button>
+4364: )}
+4365: 
+4366: <div style={{marginTop:"1.5rem",display:"flex",gap:"0.75rem",alignItems:"center"}}>
+4367: {/* Botón: modo multi-día semanal */}
+4368: {diasSemanalSeleccionados.length > 0 ? (
+4369: <button onClick={guardarMultiDia}
+4370: disabled={guardando||!form.servicioNombre||!puedeEditarMatriz}
+
+=== CUADRILLA DIA WORKERS (3125-3165) ===
+3125: <button onClick={cargarOperaciones} className="xl-btn primary" style={{display:"flex",alignItems:"center",gap:"0.25rem"}
+3126: <RefreshCw size={12} style={{animation:cargandoOps?"spin 1s linear infinite":"none"}}/> Actualizar
+3127: </button>
+3128: <div className="xl-sep"/>
+3129: <button onClick={()=>setShowDetalleModal(true)} className="xl-btn">📊 Detalle/Excel</button>
+3130: </div>
+3131: 
+3132: {/* ── STATS compactos ── */}
+3133: <div className="xl-stats">
+3134: <span>📋 {opsFiltradas.length} registros</span>
+3135: <span>👥 {totalCuadrillas} {isCiamsa?"trabajadores":"cuadrillas"}</span>
+3136: <span className="total">💰 {formatCOP(totalNeto)}</span>
+3137: <span style={{color:"#374151"}}>{periodoDesde} → {periodoHasta}</span>
+3138: {cargandoOps&&<RefreshCw size={11} style={{animation:"spin 1s linear infinite",color:"#217346"}}/> }
+3139: </div>
+3140: 
+3141: {/* ── PANELES MINI/CONJUNTOS ── */}
+3142: 
+3143: {/* Panel Totales por Servicio */}
+3144: {showTotalesPanel&&(
+3145: <div style={{background:"#fff",borderRadius:"14px",boxShadow:"0 4px 20px rgba(16,185,129,0.12)",border:`2px solid ${SUCC
+3146: <div style={{background:`linear-gradient(135deg,${SUCCESS} 0%,#059669 100%)`,padding:"0.9rem 1.25rem",display:"flex",ali
+3147: <div><div style={{fontWeight:"800",color:"#fff",fontSize:"1rem"}}>📈 Totales — {clientes.find(c=>c.id===clienteActivo)?.
+3148: <div style={{textAlign:"right"}}><div style={{fontWeight:"900",color:"#fff",fontSize:"1.5rem",fontFamily:"monospace"}}>{
+3149: </div>
+3150: <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:"0.85rem"}}>
+3151: <thead><tr style={{background:"#f0fdf4",borderBottom:`2px solid ${SUCCESS}`}}>{["#","Servicio","Registros","Cantidad","T
+3152: <tbody>{totalesPorServicio.length===0?(<tr><td colSpan={6} style={{textAlign:"center",padding:"2rem",color:"#94a3b8"}}>S
+3153: const pct=totalGeneral>0?Math.round(row.monto/totalGeneral*1000)/10:0;
+3154: return(<tr key={row.servicio} style={{borderBottom:"1px solid #f0fdf4",background:i%2===0?"#fff":"#f9fafb"}} onMouseEnte
+3155: <td style={{padding:"0.6rem 1rem",color:"#94a3b8",fontSize:"0.78rem"}}>{i+1}</td>
+3156: <td style={{padding:"0.6rem 1rem",fontWeight:"700",color:"#1e293b"}}>{row.servicio}</td>
+3157: <td style={{padding:"0.6rem 1rem",textAlign:"right"}}><span style={{background:"#f0f9ff",color:"#0ea5e9",borderRadius:"6
+3158: <td style={{padding:"0.6rem 1rem",textAlign:"right",fontWeight:"700",color:"#374151",fontFamily:"monospace"}}>{Number.is
+3159: <td style={{padding:"0.6rem 1rem",textAlign:"right",fontWeight:"900",color:SUCCESS,fontFamily:"monospace",whiteSpace:"no
+3160: <td style={{padding:"0.6rem 1rem",textAlign:"right"}}><div style={{display:"flex",alignItems:"center",justifyContent:"fl
+3161: </tr>);
+3162: })}</tbody>
+3163: <tfoot><tr style={{background:"#f0fdf4",borderTop:`2px solid ${SUCCESS}`}}>
+3164: <td colSpan={2} style={{padding:"0.7rem 1rem",fontWeight:"800",color:"#065f46"}}>TOTAL — {totalesPorServicio.length} ser
+3165: <td style={{padding:"0.7rem 1rem",textAlign:"right",fontWeight:"800",color:"#065f46"}}>{totalRegistros}</td>
+
+=== BOTONES EDITAR TABLA SPIA (4195-4220) ===
+4195: padding:"0.75rem 1.5rem",
+4196: color:"#fff",
+4197: fontWeight:"800",
+4198: fontSize:"0.9rem",
+4199: cursor:"pointer",
+4200: display:"flex",
+4201: alignItems:"center",
+4202: gap:"0.5rem",
+4203: boxShadow:`0 4px 12px ${ncat.color}50`,
+4204: }}
+4205: >
+4206: {guardando
+4207: ? <><RefreshCw size={16} style={{animation:"spin 1s linear infinite"}}/> Guardando...</>
+4208: : guardadoOk
+4209: ? <><CheckCircle size={16}/> ¡Registrado!</>
+4210: : <><Save size={16}/> Registrar {ncat.emoji} {ncat.label} (neto $0)</>}
+4211: </button>
+4212: </div>
+4213: </div>
+4214: );
+4215: })()}
+4216: 
+4217: {/* Service + horas extras: solo mostrar si NO hay novedad activa para este trabajador */}
+4218: {!(form.tipoSeleccion === "trabajador" && novedadActivaWorker) && (<>
+4219: <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:"1rem",marginTop:"0.5rem"}}>
+4220: 
+4221: {/* Servicio: muestra tarifa/hora si hay servicio */}
+4222: <div style={{gridColumn:"span 2"}}>
+4223: <label style={labelSt}>🔧 Servicio *</label>
+4224: <div style={{position:"relative"}}>
+4225: <select value={form.servicioId} onChange={e=>seleccionarServicio(e.target.value)} style={selectSt}>
+
+=== editandoId estado linea: 1926
+1925: const [guardadoOk, setGuardadoOk]= useState(false);
+1926: const [editandoId, setEditandoId]= useState(null);
+1927: 
+1928: // Asistencia SPIA

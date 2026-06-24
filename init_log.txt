@@ -1,0 +1,21 @@
+796: const iniciarEdicion = (c) => {
+2618: const spiaIniciarEdicion = (op) => {
+2737: const iniciarEdicion = (op) => {
+
+=== Líneas 4645-4660 ===
+4645: : op.cantidad}
+4646: </td>
+4647: <td style={{...tdSt,fontWeight:"800",color:SUCCESS,fontFamily:"monospace",fontSize:"0.9rem",whiteSpace:"nowrap"}}>{forma
+4648: <td style={{...tdSt,fontFamily:"monospace",fontSize:"0.82rem",color:"#475569"}}>{xPersona>0?formatCOP(xPersona):"—"}</td
+4649: <td style={tdSt}>
+4650: <div style={{display:"flex",gap:"0.4rem"}}>
+4651: <button onClick={()=>iniciarEdicion(op)} disabled={!puedeEditarMatriz} title={!puedeEditarMatriz?"Sin permiso":""} style
+4652: <button onClick={()=>eliminar(op)} disabled={!tieneControlMatriz} title={!tieneControlMatriz?"Sin permiso":""} style={{b
+4653: </div>
+4654: </td>
+4655: </tr>
+4656: );
+4657: })}
+4658: {opsFiltradas.length>0&&(
+4659: <tr style={{background:"#f0fdf4",borderTop:`2px solid ${SUCCESS}`}}>
+4660: <td colSpan="6" style={{padding:"0.9rem",fontWeight:"700",color:"#065f46",fontSize:"0.9rem"}}>TOTAL — {opsFiltradas.leng

@@ -1,0 +1,72 @@
+17: ArrowLeft, Save, Trash2, Edit2, RefreshCw,
+  14: import LayoutWithSidebar from "@/components/LayoutWithSidebar";
+  15: import { calcularNetoOperacion, formatCOP } from "@/utils/nominaCalculos";
+  16: import {
+  17: ArrowLeft, Save, Trash2, Edit2, RefreshCw,
+  18: Calendar, ChevronDown, CheckCircle, X,
+  19: FileText, DollarSign, Users, Search, UserCheck,
+  20: Zap, Clock, Plus, ChevronRight, UserPlus
+---
+1130: <Trash2 size={11}/>
+  1127: <button onClick={()=>eliminarConjunto(c)}
+  1128: style={{background:"#fff1f2",border:"none",borderRadius:"6px",
+  1129: padding:"2px 5px",cursor:"pointer",color:"#ef4444"}}>
+  1130: <Trash2 size={11}/>
+  1131: </button>
+  1132: </div>
+  1133: <button onClick={()=>iniciarEdicion(c)}
+---
+1692: <Trash2 size={11}/>
+  1689: <button onClick={() => eliminarMini(mc)}
+  1690: style={{ background:"#fff1f2", border:"none", borderRadius:"6px",
+  1691: padding:"2px 5px", cursor:"pointer", color:"#ef4444" }}>
+  1692: <Trash2 size={11}/>
+  1693: </button>
+  1694: </div>
+  1695: {/* Detalle */}
+---
+4488: <Trash2 size={13}/> Eliminar período
+  4485: </div>
+  4486: <button onClick={()=>abrirModalElim("periodo")} disabled={operaciones.length===0}
+  4487: style={{background:"#fff7ed",border:"1.5px solid #fed7aa",borderRadius:"8px",padding:"0.45
+  4488: <Trash2 size={13}/> Eliminar período
+  4489: </button>
+  4490: <button onClick={()=>abrirModalElim("todo")}
+  4491: style={{background:"#fff1f2",border:"1.5px solid #fecdd3",borderRadius:"8px",padding:"0.45
+---
+4492: <Trash2 size={13}/> Eliminar todo
+  4489: </button>
+  4490: <button onClick={()=>abrirModalElim("todo")}
+  4491: style={{background:"#fff1f2",border:"1.5px solid #fecdd3",borderRadius:"8px",padding:"0.45
+  4492: <Trash2 size={13}/> Eliminar todo
+  4493: </button>
+  4494: </>)}
+  4495: </div>
+---
+4564: <button onClick={()=>eliminar(op)} disabled={!tieneControlMatriz} title={!tieneControlMatriz?"Sin pe
+  4561: <td style={tdSt}>
+  4562: <div style={{display:"flex",gap:"0.3rem"}}>
+  4563: <button onClick={()=>ciamsaIniciarEdicion(op)} disabled={!puedeEditarMatriz} title={!puede
+  4564: <button onClick={()=>eliminar(op)} disabled={!tieneControlMatriz} title={!tieneControlMatr
+  4565: </div>
+  4566: </td>
+  4567: </tr>
+---
+4652: <button onClick={()=>eliminar(op)} disabled={!tieneControlMatriz} title={!tieneControlMatriz?"Sin pe
+  4649: <td style={tdSt}>
+  4650: <div style={{display:"flex",gap:"0.4rem"}}>
+  4651: <button onClick={()=>iniciarEdicion(op)} disabled={!puedeEditarMatriz} title={!puedeEditar
+  4652: <button onClick={()=>eliminar(op)} disabled={!tieneControlMatriz} title={!tieneControlMatr
+  4653: </div>
+  4654: </td>
+  4655: </tr>
+---
+4959: {modalElim.procesando?<><RefreshCw size={16} style={{animation:"spin 1s linear infinite"}}/> Elimina
+  4956: <button onClick={confirmarEliminacion}
+  4957: disabled={modalElim.procesando||modalElim.textoInput!==(modalElim.tipo==="periodo"?"ELIMIN
+  4958: style={{flex:2,padding:"0.75rem",background:modalElim.textoInput===(modalElim.tipo==="peri
+  4959: {modalElim.procesando?<><RefreshCw size={16} style={{animation:"spin 1s linear infinite"}}
+  4960: </button>
+  4961: </div>
+  4962: </div>
+---
