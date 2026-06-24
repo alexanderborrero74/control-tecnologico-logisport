@@ -1,0 +1,10 @@
+1078: <Plus size={13}/> Agregar otro servicio
+1882: const sMultiAdd = () => setServiciosMulti(prev => [
+2618: if (form.tipoSeleccion !== "trabajador" && (!form.cantidad || parseInt(form.cantidad) < 1)) { alert("Ingresa la cantidad
+3574: <Plus size={13}/> Agregar otro servicio
+3724: <Plus size={13}/> Agregar otro servicio
+3850: {form.tipoSeleccion !== "trabajador" && (
+4238: {form.tipoSeleccion !== "trabajador" && (
+4357: {form.cuadrillaNombre && (
+4358: <button type="button" onClick={sMultiAdd}
+4362: <Plus size={14}/> Agregar otro servicio

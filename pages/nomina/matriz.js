@@ -20,6 +20,16 @@ import {
   Zap, Clock, Plus, ChevronRight, UserPlus
 } from "lucide-react";
 
+
+
+
+
+
+const inputSt   = {width:"100%",padding:"0.7rem 0.9rem",border:"1.5px solid #e2e8f0",borderRadius:"10px",fontSize:"0.93rem",outline:"none",boxSizing:"border-box"};
+const selectSt  = {width:"100%",padding:"0.7rem 2.2rem 0.7rem 0.9rem",border:"1.5px solid #e2e8f0",borderRadius:"10px",fontSize:"0.9rem",outline:"none",boxSizing:"border-box",cursor:"pointer",appearance:"none",background:"#fff"};
+const readonlySt= {padding:"0.7rem 0.9rem",background:"#f8fafc",border:"1.5px solid #e2e8f0",borderRadius:"10px",fontSize:"0.9rem",minHeight:"42px",display:"flex",alignItems:"center"};
+const tdSt      = {padding:"0.38rem 0.6rem",verticalAlign:"middle",borderBottom:"1px solid #d0d7e0",borderRight:"1px solid #e8ecf0",fontSize:"0.8rem"};
+
 const PRIMARY = "#0B3D91";
 const ACCENT  = "#00AEEF";
 const SUCCESS = "#10b981";
@@ -1884,7 +1894,7 @@ export default function NominaMatriz() {
     }
     const tarifa = parseFloat(next.servicioValor) || 0;
     const cant   = parseFloat(next.cantidad)       || 0;
-    const pers   = parseInt(form.personas)         || 1;
+    const pers   = (parseInt(form.personas) || 1) + (trabsAdicionales?.length || 0); // incluye adicionales
     next.netoCalculado = Math.round((tarifa * cant / pers) * 100) / 100;
     if (field === "servicioId" || field === "cantidad") next.netoCalculado = Math.round(calcularNetoOperacion(tarifa, pers, parseFloat(next.cantidad)||1)*100)/100;
     return next;
@@ -1892,7 +1902,7 @@ export default function NominaMatriz() {
 
   const sMultiRemove = (uid) => setServiciosMulti(prev => prev.filter(s => s.uid !== uid));
 
-  // ── Multi-servicio CIAMSA/Terrestre ──
+  
   const [serviciosExtraCia, setServiciosExtraCia] = useState([]);
   const sExtraCiaNext = useRef(1);
   const sExtraCiaAdd = () => setServiciosExtraCia(prev=>[...prev,{uid:sExtraCiaNext.current++,servicioId:"",servicioNombre:"",tarifaUnitaria:0,unidad:"ton",cantidad:"",netoCalculado:0}]);
@@ -2292,10 +2302,12 @@ export default function NominaMatriz() {
 
       setAsistentesForm(asistentesM);
       setAusentesForm(ausentes);
+      // form.personas = solo los de la cuadrilla que asisten (sin adicionales)
+      // Los adicionales se suman en el display y al guardar, NO aqui
       setForm(prev => {
-        const personas = asistentesM.length || 1;
-        const neto = Math.round(calcularNetoOperacion(parseFloat(prev.servicioValor)||0, personas, parseInt(prev.cantidad)||1)*100)/100;
-        return { ...prev, personas, cuadrillaPersonas: miembrosDelDia.length, netoCalculado: neto };
+        const personasCuad = asistentesM.length || 1;
+        const neto = Math.round(calcularNetoOperacion(parseFloat(prev.servicioValor)||0, personasCuad, parseInt(prev.cantidad)||1)*100)/100;
+      return { ...prev, personas: personasCuad, cuadrillaPersonas: miembrosDelDia.length, netoCalculado: neto };
       });
 
       setUsandoSnapshotHistorico(usandoSnapshot);
@@ -4295,7 +4307,7 @@ export default function NominaMatriz() {
                       <span style={{fontSize:"0.75rem",color:"#4ade80",background:"#dcfce7",padding:"0.2rem 0.7rem",borderRadius:"20px",fontWeight:"600",fontFamily:"monospace"}}>
                         {form.tipoSeleccion==="trabajador"
                           ? `= ${formatCOP(form.servicioValor)} × ${form.horasExtras}h`
-                          : `= (${formatCOP(form.servicioValor)} × ${form.cantidad}) ÷ ${form.personas} pers.`}
+                          : `= (${formatCOP(form.servicioValor)} × ${form.cantidad}) ÷ ${(parseInt(form.personas)||1)+(trabsAdicionales?.length||0)} pers.`}
                       </span>
                     )}
                   </div>
@@ -4341,8 +4353,8 @@ export default function NominaMatriz() {
                   ))}
                 </div>
               )}
-              {/* Botón agregar servicio adicional */}
-              {form.tipoSeleccion !== "trabajador" && (
+              {/* Botón agregar servicio adicional — siempre activo */}
+              {form.cuadrillaNombre && (
                 <button type="button" onClick={sMultiAdd}
                   style={{marginTop:"0.6rem",background:"#eef2ff",border:"1.5px dashed #818cf8",borderRadius:"8px",
                     padding:"0.45rem 1rem",cursor:"pointer",color:"#4f46e5",fontWeight:"700",fontSize:"0.8rem",
@@ -4948,7 +4960,3 @@ export default function NominaMatriz() {
 }
 
 const labelSt   = {display:"block",fontWeight:"700",color:"#374151",marginBottom:"0.35rem",fontSize:"0.82rem"};
-const inputSt   = {width:"100%",padding:"0.7rem 0.9rem",border:"1.5px solid #e2e8f0",borderRadius:"10px",fontSize:"0.93rem",outline:"none",boxSizing:"border-box"};
-const selectSt  = {width:"100%",padding:"0.7rem 2.2rem 0.7rem 0.9rem",border:"1.5px solid #e2e8f0",borderRadius:"10px",fontSize:"0.9rem",outline:"none",boxSizing:"border-box",cursor:"pointer",appearance:"none",background:"#fff"};
-const readonlySt= {padding:"0.7rem 0.9rem",background:"#f8fafc",border:"1.5px solid #e2e8f0",borderRadius:"10px",fontSize:"0.9rem",minHeight:"42px",display:"flex",alignItems:"center"};
-const tdSt      = {padding:"0.38rem 0.6rem",verticalAlign:"middle",borderBottom:"1px solid #d0d7e0",borderRight:"1px solid #e8ecf0",fontSize:"0.8rem"};

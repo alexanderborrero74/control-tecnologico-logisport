@@ -1,0 +1,4 @@
+=== Contexto alrededor de posicion 63315 ===
+... 100),e}));(0,f.useEffect)(()=>{if(!bs.servicioValor||!bs.cantidad||"trabajador"===bs.tipoSeleccion)return;let a=(parseInt(bs.personas)||1)+(b0?.length||0),b=Math.round(100*(0,n.calcularNetoOperacion)(parseFloat(bs.servicioValor)||0,a,parseInt(bs.cantidad)||1))/100;bt(a=>({...a,netoCalculado:b}))},[b
+>>> ERROR EN ESTA POSICION <<<
+... 0]);let[bo,bp]=(0,f.useState)([]),bq=(0,f.useRef)(1),br=(a,b,c)=>bp(d=>d.map(d=>{if(d.uid!==a)return d;let e={...d,[b]:c};if("servicioId"===b){let a=aK.find(a=>a.id===c);e.servicioNombre=a?.nombre||"",e.tarifaUnitaria=a?.valor||a?.tarifa||0,e.unidad=a?.unidad||"ton"}let f=a8.trabajadoresSeleccionado
