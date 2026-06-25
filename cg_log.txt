@@ -1,0 +1,41 @@
+ciamsaGuardar linea: 2908
+2908: const ciamsaGuardar = async () => {
+2909: if (!ciamsaForm.trabajadorNombre || !ciamsaForm.servicioNombre) { alert("Selecciona trabajador y servicio."); 
+2910: if (!ciamsaForm.cantidad || parseFloat(ciamsaForm.cantidad)<=0) { alert("Ingresa la cantidad (toneladas/unidad
+2911: setCiamsaGuardando(true);
+2912: 
+2913: const cantidad  = parseFloat(ciamsaForm.cantidad) || 0;
+2914: const nPersonas = parseInt(ciamsaForm.nPersonas)  || 1;
+2915: const per       = nPersonas > 0 ? cantidad / nPersonas : 0;
+2916: const netoFinal = Math.round(per * ciamsaForm.tarifaUnitaria * 100) / 100;
+2917: 
+2918: const data = {
+2919: periodoDesde, periodoHasta,
+2920: clienteId:  clienteActivo,
+2921: modoCiamsa: true,
+2922: quincenaId:   `${periodoDesde} al ${periodoHasta}`,
+2923: quincenaLabel:`${periodoDesde} al ${periodoHasta}`,
+2924: // Campos compatibles con resumen por trabajador:
+2925: cuadrillaId:       `trab_${ciamsaForm.trabajadorId}`,
+2926: cuadrillaNombre:   ciamsaForm.trabajadorNombre,
+2927: cuadrilla:         ciamsaForm.trabajadorNombre,
+2928: cuadrillaPersonas: 1,
+2929: // Datos específicos CIAMSA:
+2930: trabajadorId:      ciamsaForm.trabajadorId,
+2931: trabajadorNombre:  ciamsaForm.trabajadorNombre,
+2932: trabajadorCedula:  ciamsaForm.trabajadorCedula,
+2933: fecha:             ciamsaForm.fecha ? Timestamp.fromDate(new Date(ciamsaForm.fecha+"T12:00:00")) : null,
+2934: fechaStr:          ciamsaForm.fecha,
+2935: servicioId:        ciamsaForm.servicioId,
+2936: servicioNombre:    ciamsaForm.servicioNombre.trim().toUpperCase(),
+2937: tarifaUnitaria:    ciamsaForm.tarifaUnitaria,
+2938: unidad:            ciamsaForm.unidad || "ton",
+2939: cantidadTons:      cantidad,    // total del grupo
+2940: nPersonas,                      // N DE PER
+2941: per:               Math.round(per * 10000) / 10000, // porción por persona
+2942: servicioValorUnitario: ciamsaForm.tarifaUnitaria,
+2943: servicioValor:     netoFinal,
+2944: cantidad:          nPersonas,
+2945: personas:          nPersonas,
+2946: netoAPagar:        netoFinal,
+2947: trabajadoresAsisten: [{

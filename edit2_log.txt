@@ -1,0 +1,75 @@
+=== cuadrillaDiaGuardar (2314-2360) ===
+2314: if (usandoSnapshot) {
+2315: console.info(`[Matriz] Usando snapshot del ${fechaStr} para cuadrilla ${cuadrillaId} (${miembrosDelDia.length}
+2316: } else {
+2317: console.info(`[Matriz] Sin snapshot para ${fechaStr} — usando miembros actuales (${miembrosDelDia.length})`);
+2318: }
+2319: } catch(e) {
+2320: console.error("Error asistencia:", e);
+2321: setAsistentesForm([]); setAusentesForm([]);
+2322: }
+2323: setCargandoAsist(false);
+2324: };
+2325: 
+2326: /* ── Cargar operaciones ── */
+2327: const cargarOperaciones = async () => {
+2328: if (!periodoDesde || !periodoHasta) return;
+2329: setCargandoOps(true);
+2330: try {
+2331: const inicio = Timestamp.fromDate(new Date(periodoDesde+"T00:00:00"));
+2332: const fin    = Timestamp.fromDate(new Date(periodoHasta +"T23:59:59"));
+2333: const snap   = await getDocs(query(
+2334: collection(db,"nomina_operaciones"),
+2335: where("fecha",">=",inicio), where("fecha","<=",fin), orderBy("fecha"),
+2336: ));
+2337: const ops = snap.docs.map(d=>({id:d.id,...d.data()}));
+2338: ops.sort((a,b)=>{
+2339: const nc=(a.cuadrillaNombre||"").localeCompare(b.cuadrillaNombre||"","es");
+2340: return nc!==0?nc:(a.fechaStr||"").localeCompare(b.fechaStr||"");
+2341: });
+2342: setOperaciones(ops);
+2343: } catch(e) { console.error(e); setOperaciones([]); }
+2344: finally { setCargandoOps(false); }
+2345: };
+2346: 
+2347: /* ── CUADRILLA DIARIA: lógica (Terrestre, Ciamsa 2, Ciamsa 3) ──
+2348: El supervisor selecciona qué trabajadores trabajan ese día,
+2349: registra el servicio y la cantidad total del grupo.
+2350: Fórmula: PER = CANTIDAD / N° PERSONAS  →  Neto = PER × TARIFA (por persona)
+2351: */
+2352: const cuadrillaDiaRecalcular = (f) => {
+2353: const n       = f.trabajadoresSeleccionados.length || 1;
+2354: const cant    = parseFloat(f.cantidad) || 0;
+2355: const tarifa  = parseFloat(f.tarifaUnitaria) || 0;
+2356: const unidad  = f.unidad || "ton";
+2357: // Si el servicio es por día (valor fijo por persona/día), neto = tarifa × 1
+2358: // Si es por tonelada, neto = (cant / n) × tarifa
+2359: const per = (unidad === "dia" || unidad === "hora") ? cant : (n > 0 ? cant / n : 0);
+2360: const neto = Math.round(per * tarifa * 100) / 100;
+2361: return { ...f, nPersonas: n, per: Math.round(per * 10000) / 10000, netoCalculado: neto };
+2362: };
+2363: 
+2364: const cuadrillaDiaSetField = (key, val) =>
+2365: setCuadrillaDiaForm(prev => cuadrillaDiaRecalcular({ ...prev, [key]: val }));
+
+=== ciamsaEditId linea: 1943
+1942: const [ciamsaOk,        setCiamsaOk]        = useState(false);
+1943: const [ciamsaEditId,    setCiamsaEditId]    = useState(null);
+1944: 
+1945: // ── Cuadrilla del Día — Terrestre / Ciamsa 2 / Ciamsa 3 ──
+1946: const [cuadDiaFecha,        setCuadDiaFecha]        = useState(hoy());
+
+=== Selector servicio ciamsa linea: 3477
+3474: <div style={{ marginBottom:"0.9rem" }}>
+3475: <label style={labelSt}>🔧 Servicio *</label>
+3476: <div style={{ position:"relative" }}>
+3477: <select value={f.servicioId} onChange={e => cuadrillaDiaSelServicio(e.target.value)}
+3478: style={{ ...selectSt, border:`1.5px solid ${colorCiamsa}50` }}>
+3479: <option value="">— Seleccionar servicio —</option>
+3480: {servicios.map(s => (
+3481: <option key={s.id} value={s.id}>
+3482: {s.nombre}{(s.valor||s.tarifa) > 0 ? ` · ${formatCOP(s.valor||s.tarifa||0)}/${s.unidad||"ton"}` : ""}
+3483: </option>
+3484: ))}
+3485: </select>
+3486: <ChevronDown size={15} style={{ position:"absolute", right:"0.75rem", top:"50%",

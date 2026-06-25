@@ -1944,6 +1944,7 @@ export default function NominaMatriz() {
 
   // ── Cuadrilla del Día — Terrestre / Ciamsa 2 / Ciamsa 3 ──
   const [cuadDiaFecha,        setCuadDiaFecha]        = useState(hoy());
+  const [busqServicioCia,    setBusqServicioCia]    = useState(""); // filtro servicios CIAMSA/Terrestre
   const [cuadDiaTrabajadores, setCuadDiaTrabajadores] = useState([]);
   const [trabsServicio,       setTrabsServicio]       = useState([]);
   const [trabsAdicionales,    setTrabsAdicionales]    = useState([]); // trabajadores adicionales seleccionados (cross-cliente)
@@ -2423,9 +2424,15 @@ export default function NominaMatriz() {
       actualizadoEn: new Date(),
     };
     try {
-      await addDoc(collection(db, "nomina_operaciones"), { ...data, creadoEn: new Date() });
-      // Servicios adicionales
-      for (const se of serviciosExtraCia) {
+      // Si hay ciamsaEditId activo = edición de registro existente
+      if (ciamsaEditId) {
+        await updateDoc(doc(db,"nomina_operaciones",ciamsaEditId), {...data, actualizadoEn:new Date()});
+        setCiamsaEditId(null);
+      } else {
+        await addDoc(collection(db, "nomina_operaciones"), { ...data, creadoEn: new Date() });
+      }
+      // Servicios adicionales (solo en modo nuevo, no en edición)
+      if (!ciamsaEditId) for (const se of serviciosExtraCia) {
         if (!se.servicioNombre || !se.cantidad) continue;
         const cantSe  = parseFloat(se.cantidad)||0;
         const unidSe  = se.unidad||"ton";
@@ -3474,16 +3481,24 @@ export default function NominaMatriz() {
                   <div style={{ marginBottom:"0.9rem" }}>
                     <label style={labelSt}>🔧 Servicio *</label>
                     <div style={{ position:"relative" }}>
-                      <select value={f.servicioId} onChange={e => cuadrillaDiaSelServicio(e.target.value)}
-                        style={{ ...selectSt, border:`1.5px solid ${colorCiamsa}50` }}>
-                        <option value="">— Seleccionar servicio —</option>
-                        {servicios.map(s => (
-                          <option key={s.id} value={s.id}>
-                            {s.nombre}{(s.valor||s.tarifa) > 0 ? ` · ${formatCOP(s.valor||s.tarifa||0)}/${s.unidad||"ton"}` : ""}
-                          </option>
-                        ))}
-                      </select>
-                      <ChevronDown size={15} style={{ position:"absolute", right:"0.75rem", top:"50%",
+                    <input
+                    value={busqServicioCia}
+                    onChange={e=>setBusqServicioCia(e.target.value)}
+                    placeholder="🔍 Buscar servicio..."
+                    style={{...inputSt, marginBottom:"0.35rem", fontSize:"0.85rem", border:`1.5px solid ${colorCiamsa}50`}}
+                    />
+                    <select value={f.servicioId} onChange={e => cuadrillaDiaSelServicio(e.target.value)}
+                    style={{ ...selectSt, border:`1.5px solid ${colorCiamsa}50` }}>
+                      <option value="">— Seleccionar servicio —</option>
+                      {servicios
+                        .filter(s => !busqServicioCia || s.nombre?.toLowerCase().includes(busqServicioCia.toLowerCase()))
+                        .map(s => (
+                        <option key={s.id} value={s.id}>
+                          {s.nombre}{(s.valor||s.tarifa) > 0 ? ` · ${formatCOP(s.valor||s.tarifa||0)}/${s.unidad||"ton"}` : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown size={15} style={{ position:"absolute", right:"0.75rem", top:"50%",
                         transform:"translateY(-50%)", color:"#94a3b8", pointerEvents:"none" }}/>
                     </div>
                   </div>

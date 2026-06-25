@@ -1,0 +1,64 @@
+=== addDoc en cuadrillaDiaGuardar (2420-2450) ===
+2420: id: t.id, nombre: t.nombre, cedula: String(t.cedula || ""),
+2421: })),
+2422: trabajadoresAusentes: [],
+2423: actualizadoEn: new Date(),
+2424: };
+2425: try {
+2426: await addDoc(collection(db, "nomina_operaciones"), { ...data, creadoEn: new Date() });
+2427: // Servicios adicionales
+2428: for (const se of serviciosExtraCia) {
+2429: if (!se.servicioNombre || !se.cantidad) continue;
+2430: const cantSe  = parseFloat(se.cantidad)||0;
+2431: const unidSe  = se.unidad||"ton";
+2432: const perSe   = (unidSe==="dia"||unidSe==="hora") ? cantSe : (n>0 ? cantSe/n : 0);
+2433: const netoSe  = Math.round(perSe*(parseFloat(se.tarifaUnitaria)||0)*100)/100;
+2434: await addDoc(collection(db,"nomina_operaciones"),{
+2435: ...data,
+2436: servicioId:        se.servicioId,
+2437: servicioNombre:    se.servicioNombre.trim().toUpperCase(),
+2438: tarifaUnitaria:    parseFloat(se.tarifaUnitaria)||0,
+2439: unidad:            unidSe,
+2440: cantidadTons:      cantSe,
+2441: per:               Math.round(perSe*10000)/10000,
+2442: servicioValorUnitario: parseFloat(se.tarifaUnitaria)||0,
+2443: servicioValor:     netoSe,
+2444: netoAPagar:        netoSe,
+2445: creadoEn:          new Date(),
+2446: actualizadoEn:     new Date(),
+2447: });
+2448: }
+2449: await cargarOperaciones();
+2450: // Conserva fecha y trabajadores para el siguiente registro del mismo día
+2451: setCuadrillaDiaForm(prev => ({
+2452: ...CUADRILLA_DIA_FORM_INIT,
+2453: fecha: prev.fecha,
+2454: trabajadoresSeleccionados: prev.trabajadoresSeleccionados,
+2455: }));
+
+=== ciamsaIniciarEdicion linea: 2995
+2995: const ciamsaIniciarEdicion = (op) => {
+2996: setCiamsaEditId(op.id);
+2997: const serv = servicios.find(s=>s.nombre.toUpperCase()===op.servicioNombre?.toUpperCase());
+2998: setCiamsaForm(ciamsaRecalcular({
+2999: trabajadorId:    op.trabajadorId||"",
+3000: trabajadorNombre:op.trabajadorNombre||op.cuadrillaNombre||"",
+3001: trabajadorCedula:op.trabajadorCedula||"",
+3002: fecha:           op.fechaStr||"",
+3003: servicioId:      serv?.id||op.servicioId||"",
+3004: servicioNombre:  op.servicioNombre||"",
+3005: tarifaUnitaria:  op.tarifaUnitaria||0,
+3006: unidad:          op.unidad||"ton",
+3007: cantidad:        op.cantidadTons||"",
+3008: nPersonas:       op.nPersonas||1,
+3009: per:             op.per||0,
+3010: netoCalculado:   op.netoAPagar||0,
+3011: esAjuste:        op.esAjuste||false,
+3012: montoAjuste:     op.montoAjuste||"",
+3013: }));
+3014: window.scrollTo({top:0,behavior:"smooth"});
+3015: };
+3016: const ciamsaCancelar = () => { setCiamsaEditId(null); setCiamsaForm(CIAMSA_FORM_INIT); };
+3017: 
+3018: /* ── Eliminar ── */
+3019: const eliminar = async (op) => {
