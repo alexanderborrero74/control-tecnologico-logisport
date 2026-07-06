@@ -6,7 +6,7 @@ import { useRouter } from "next/router";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import {
   collection, getDocs, addDoc, updateDoc, deleteDoc,
-  doc, getDoc, setDoc, query, orderBy, where, Timestamp
+  doc, getDoc, setDoc, query, orderBy, where, Timestamp, onSnapshot
 } from "firebase/firestore";
 import { db } from "@/firebase/firebaseConfig";
 import { getUserRoleByUid } from "@/utils/getUserRole";
@@ -19,6 +19,9 @@ import {
   FileText, DollarSign, Users, Search, UserCheck,
   Zap, Clock, Plus, ChevronRight, UserPlus
 } from "lucide-react";
+
+// Ref global para el listener de servicios
+let _unsubServicios = null;
 
 
 
@@ -1307,7 +1310,7 @@ function MiniCuadrillaPanel({ cuadrillas, servicios, clienteId, onGuardado, onCl
       });
       setOkMsg(`✅ Mini cuadrilla guardada — ${n} miembros · ${miniForm.contenedores} contenedor(es)`);
       setTimeout(() => setOkMsg(""), 4000);
-      setMiniForm({ ...MINI_FORM_INIT, fecha: miniForm.fecha, cuadrillaPrincipalId: miniForm.cuadrillaPrincipalId, cuadrillaPrincipalNombre: miniForm.cuadrillaPrincipalNombre });
+      setMiniForm({ ...MINI_FORM_INIT, fecha: miniForm.fecha, cuadrillaPrincipalId: miniForm.cuadrillaPrincipalId, cuadrillaPrincipalNombre: miniForm.cuadrillaPrincipalNombre, miembrosSeleccionados: miniForm.miembrosSeleccionados });
       await cargarLista();
       onGuardado();
     } catch(e) { alert("Error: " + e.message); }
@@ -1769,9 +1772,16 @@ function NovEditList({ todos, novedades, onGuardar, onCancelar, puedeEditar }) {
                   {novedades.map(n=>(<option key={n.codigo} value={n.codigo}>{n.emoji} {n.label} ({n.codigo})</option>))}
                 </select>
               ) : (
-                <span style={{fontSize:"0.75rem",fontWeight:"700",color:nov?.color||"#475569",background:nov?.bg||"#f1f5f9",borderRadius:"5px",padding:"2px 8px"}}>
-                  {nov?nov.emoji+" "+nov.label:"✓ Normal"}
-                </span>
+              <span style={{fontSize:"0.75rem",fontWeight:"700",color:nov?.color||"#475569",background:nov?.bg||"#f1f5f9",borderRadius:"5px",padding:"2px 8px"}}>
+              {nov?nov.emoji+" "+nov.label:"✓ Normal"}
+              </span>
+              )}
+              {/* Botón quitar novedad */}
+              {w.novedad && puedeEditar && (
+                <button onClick={()=>setNov(w.id,"")}
+                  style={{background:"#f0fdf4",border:"1.5px solid #86efac",borderRadius:"5px",padding:"2px 8px",cursor:"pointer",color:"#15803d",fontWeight:"700",fontSize:"0.7rem",marginLeft:"0.35rem",flexShrink:0}}>
+                  ✓ Quitar
+                </button>
               )}
             </div>
           );
@@ -1944,7 +1954,8 @@ export default function NominaMatriz() {
 
   // ── Cuadrilla del Día — Terrestre / Ciamsa 2 / Ciamsa 3 ──
   const [cuadDiaFecha,        setCuadDiaFecha]        = useState(hoy());
-  const [busqServicioCia,    setBusqServicioCia]    = useState(""); // filtro servicios CIAMSA/Terrestre
+  const [showServDrop,      setShowServDrop]      = useState(false); // dropdown servicios ciamsa/terrestre
+  const [busqServicioCia,    setBusqServicioCia]    = useState("");
   const [cuadDiaTrabajadores, setCuadDiaTrabajadores] = useState([]);
   const [trabsServicio,       setTrabsServicio]       = useState([]);
   const [trabsAdicionales,    setTrabsAdicionales]    = useState([]); // trabajadores adicionales seleccionados (cross-cliente)
@@ -2001,6 +2012,7 @@ export default function NominaMatriz() {
 
   // Novedad del día del trabajador (leída de nomina_asistencia_registro — fuente: Llamado a Lista)
   const [novedadActivaWorker, setNovedadActivaWorker] = useState(null);
+  const [novedadesAnuladas, setNovedadesAnuladas]     = useState(new Set()); // ids de trabajadores a los que se les quitó la novedad manualmente
   const [showEditNovModal,    setShowEditNovModal]    = useState(false);
   const [editNovOp,           setEditNovOp]           = useState(null);
   const [showRegNovForm,      setShowRegNovForm]      = useState(false);
@@ -2045,6 +2057,11 @@ export default function NominaMatriz() {
 
   useEffect(() => { if (!loading) cargarOperaciones(); }, [periodoDesde, periodoHasta, loading]);
 
+  // Cleanup listener de servicios al desmontar
+  useEffect(() => {
+    return () => { if (_unsubServicios) { _unsubServicios(); _unsubServicios = null; } };
+  }, []);
+
   // Recargar al cambiar cliente
   useEffect(() => {
     if (!loading) {
@@ -2070,6 +2087,11 @@ export default function NominaMatriz() {
       setServiciosExtraC3([]);
     }
   }, [clienteActivo]);
+
+  // Limpiar anulaciones manuales al cambiar de fecha
+  useEffect(() => {
+    setNovedadesAnuladas(new Set());
+  }, [form.fecha]);
 
   // Recargar asistencia SPIA cuando cambia cuadrilla O fecha
   // Incluir form.fecha en las dependencias para que al seleccionar un día
@@ -2236,10 +2258,14 @@ export default function NominaMatriz() {
 
   const cargarServicios = async (cId) => {
     const cActivo = cId || "spia";
-    const snap = await getDocs(query(collection(db,"nomina_servicios"),orderBy("nombre")));
-    const all = snap.docs.map(d=>({id:d.id,...d.data()}));
-    const filtered = all.filter(s=>(s.clienteId||"spia")===cActivo);
-    setServicios(filtered.length>0 ? filtered : (cActivo==="spia" ? all.filter(s=>!s.clienteId) : []));
+    // Cancelar listener anterior si existe
+    if (_unsubServicios) { _unsubServicios(); _unsubServicios = null; }
+    try {
+      const snap = await getDocs(query(collection(db,"nomina_servicios"),orderBy("nombre")));
+      const all = snap.docs.map(d=>({id:d.id,...d.data()}));
+      const filtered = all.filter(s=>(s.clienteId||"spia")===cActivo);
+      setServicios(filtered.length>0 ? filtered : (cActivo==="spia" ? all.filter(s=>!s.clienteId) : []));
+    } catch(e) { console.error("Error cargando servicios:",e); }
   };
 
   const cargarCatalogos = async (cId) => {
@@ -2297,8 +2323,8 @@ export default function NominaMatriz() {
 
       // ── 3. Clasificar usando la composición del snapshot ──
       const NOV_REMUNERADAS = ["D"];
-      const asisten  = miembrosDelDia.filter(m => !novedadesDia[m.id] || NOV_REMUNERADAS.includes(novedadesDia[m.id]));
-      const ausentes = miembrosDelDia.filter(m => !!novedadesDia[m.id] && !NOV_REMUNERADAS.includes(novedadesDia[m.id])).map(m=>({...m,novedad:novedadesDia[m.id]}));
+      const asisten  = miembrosDelDia.filter(m => !novedadesDia[m.id] || NOV_REMUNERADAS.includes(novedadesDia[m.id]) || novedadesAnuladas.has(m.id));
+      const ausentes = miembrosDelDia.filter(m => !!novedadesDia[m.id] && !NOV_REMUNERADAS.includes(novedadesDia[m.id]) && !novedadesAnuladas.has(m.id)).map(m=>({...m,novedad:novedadesDia[m.id]}));
       const asistentesM = asisten.map(m => ({...m, novedad:novedadesDia[m.id]||null, esRemunerado:NOV_REMUNERADAS.includes(novedadesDia[m.id]||"")}));
 
       setAsistentesForm(asistentesM);
@@ -2732,7 +2758,13 @@ export default function NominaMatriz() {
         setPeriodoHasta(form.fecha);
       }
       await cargarOperaciones();
-      setForm({...FORM_INIT,cuadrillaId:form.cuadrillaId,cuadrillaNombre:form.cuadrillaNombre,cuadrillaPersonas:form.cuadrillaPersonas,personas:form.cuadrillaPersonas||1,fecha:form.fecha});
+      const _cId  = form.cuadrillaId;
+      const _fech = form.fecha;
+      setForm({...FORM_INIT,cuadrillaId:_cId,cuadrillaNombre:form.cuadrillaNombre,cuadrillaPersonas:form.cuadrillaPersonas,personas:1,fecha:_fech});
+      // trabsAdicionales persiste — el usuario los deselecciona manualmente
+      setShowTrabsPanel(true); // mantener panel abierto para ver los seleccionados
+      // Forzar recarga de asistencia para re-aplicar filtro de novedades
+      if (_cId && _fech) setTimeout(()=>cargarAsistenciaDia(_cId, _fech), 100);
       setServiciosMulti([]);
       setGuardadoOk(true);
       setTimeout(()=>setGuardadoOk(false),2000);
@@ -3480,27 +3512,47 @@ export default function NominaMatriz() {
                   {/* Servicio */}
                   <div style={{ marginBottom:"0.9rem" }}>
                     <label style={labelSt}>🔧 Servicio *</label>
-                    <div style={{ position:"relative" }}>
-                    <input
-                    value={busqServicioCia}
-                    onChange={e=>setBusqServicioCia(e.target.value)}
-                    placeholder="🔍 Buscar servicio..."
-                    style={{...inputSt, marginBottom:"0.35rem", fontSize:"0.85rem", border:`1.5px solid ${colorCiamsa}50`}}
-                    />
-                    <select value={f.servicioId} onChange={e => cuadrillaDiaSelServicio(e.target.value)}
-                    style={{ ...selectSt, border:`1.5px solid ${colorCiamsa}50` }}>
-                      <option value="">— Seleccionar servicio —</option>
-                      {servicios
-                        .filter(s => !busqServicioCia || s.nombre?.toLowerCase().includes(busqServicioCia.toLowerCase()))
-                        .map(s => (
-                        <option key={s.id} value={s.id}>
-                          {s.nombre}{(s.valor||s.tarifa) > 0 ? ` · ${formatCOP(s.valor||s.tarifa||0)}/${s.unidad||"ton"}` : ""}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown size={15} style={{ position:"absolute", right:"0.75rem", top:"50%",
-                        transform:"translateY(-50%)", color:"#94a3b8", pointerEvents:"none" }}/>
+                    <div style={{position:"relative"}}>
+                    {/* Dropdown buscable de servicios */}
+                    <div onClick={()=>{ setShowServDrop(p=>!p); setBusqServicioCia(""); cargarServicios(clienteActivo); }}
+                    style={{...selectSt, border:`1.5px solid ${colorCiamsa}50`, display:"flex", alignItems:"center", justifyContent:"space-between", cursor:"pointer", userSelect:"none", background: f.servicioId?"#f0fdf4":"#fff"}}>
+                    <span style={{color: f.servicioId?"#1e293b":"#94a3b8", fontSize:"0.88rem", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>
+                    {f.servicioNombre || "— Seleccionar servicio —"}
+                    </span>
+                    <ChevronDown size={15} style={{color:"#94a3b8",flexShrink:0}}/>
                     </div>
+                    {showServDrop && (
+                    <div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:999,background:"#fff",border:`1.5px solid ${colorCiamsa}50`,borderRadius:"10px",boxShadow:"0 8px 24px rgba(0,0,0,0.12)",marginTop:"2px",overflow:"hidden"}}>
+                      <div style={{padding:"0.45rem"}}>
+                          <input autoFocus value={busqServicioCia} onChange={e=>setBusqServicioCia(e.target.value)}
+                            placeholder="🔍 Escriba para buscar..."
+                            style={{...inputSt, fontSize:"0.85rem", border:`1.5px solid ${colorCiamsa}80`, height:"36px", padding:"0.3rem 0.7rem"}}
+                        />
+                      </div>
+                    <div style={{maxHeight:"220px",overflowY:"auto"}}>
+                      {servicios.length===0 && (
+                      <div style={{padding:"1rem",textAlign:"center",color:"#94a3b8",fontSize:"0.82rem"}}>
+                      Sin servicios. Agrega en Servicios y Tarifas.
+                      </div>
+                      )}
+                          {servicios
+                            .filter(s=>!busqServicioCia||s.nombre?.toLowerCase().includes(busqServicioCia.toLowerCase()))
+                            .map(s=>(
+                              <div key={s.id} onClick={()=>{ cuadrillaDiaSelServicio(s.id); setShowServDrop(false); setBusqServicioCia(""); }}
+                                style={{padding:"0.5rem 0.85rem",cursor:"pointer",borderBottom:"1px solid #f1f5f9",fontSize:"0.83rem",display:"flex",justifyContent:"space-between",alignItems:"center",background:f.servicioId===s.id?`${colorCiamsa}12`:"transparent"}}
+                                onMouseEnter={e=>e.currentTarget.style.background=`${colorCiamsa}10`}
+                                onMouseLeave={e=>e.currentTarget.style.background=f.servicioId===s.id?`${colorCiamsa}12`:"transparent"}>
+                                <span style={{fontWeight:f.servicioId===s.id?"700":"400",color:f.servicioId===s.id?colorCiamsa:"#1e293b"}}>{s.nombre}</span>
+                                <span style={{fontSize:"0.75rem",color:"#10b981",fontFamily:"monospace",fontWeight:"600",marginLeft:"0.5rem",flexShrink:0}}>{formatCOP(s.valor||s.tarifa||0)}/{s.unidad||"ton"}</span>
+                              </div>
+                            ))}
+                          {busqServicioCia && servicios.filter(s=>s.nombre?.toLowerCase().includes(busqServicioCia.toLowerCase())).length===0 && (
+                            <div style={{padding:"0.75rem",textAlign:"center",color:"#94a3b8",fontSize:"0.82rem"}}>Sin resultados para "{busqServicioCia}"</div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                   </div>
 
                   {/* Cálculo destajo */}
@@ -4016,14 +4068,31 @@ export default function NominaMatriz() {
                       {ausentesForm.length===0 ? (
                         <div style={{fontSize:"0.78rem",color:"#94a3b8"}}>Todos asistieron 🎉</div>
                       ) : ausentesForm.map(w=>(
-                        <div key={w.id} style={{padding:"0.3rem 0",borderBottom:"1px solid #f1f5f9"}}>
-                          <div style={{display:"flex",alignItems:"center",gap:"0.5rem",fontSize:"0.8rem",marginBottom:"0.25rem"}}>
-                            <span>❌</span>
-                            <div>
-                              <div style={{fontWeight:"600",color:"#475569"}}>{w.nombre}</div>
-                              <div style={{fontSize:"0.68rem",color:DANGER,fontWeight:"700"}}>{novLabel(w.novedad)}</div>
-                            </div>
+                      <div key={w.id} style={{padding:"0.3rem 0",borderBottom:"1px solid #f1f5f9"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:"0.5rem",fontSize:"0.8rem",marginBottom:"0.25rem",justifyContent:"space-between"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:"0.5rem"}}>
+                        <span>❌</span>
+                      <div>
+                        <div style={{fontWeight:"600",color:"#475569"}}>{w.nombre}</div>
+                          <div style={{fontSize:"0.68rem",color:DANGER,fontWeight:"700"}}>{novLabel(w.novedad)}</div>
                           </div>
+                    </div>
+                    <button
+                      title="Quitar novedad — pasa a ASISTE"
+                      onClick={async()=>{
+                        // Registrar anulación manual — persiste durante la sesión
+                        setNovedadesAnuladas(prev=>new Set([...prev, w.id]));
+                        // Mover de ausentes a asistentes
+                        setAusentesForm(prev=>prev.filter(x=>x.id!==w.id));
+                        setAsistentesForm(prev=>[...prev,{id:w.id,nombre:w.nombre,cedula:w.cedula||"",novedad:null,esRemunerado:false}]);
+                        setForm(prev=>{const p=(prev.personas||0)+1;return{...prev,personas:p,netoCalculado:Math.round(calcularNetoOperacion(parseFloat(prev.servicioValor)||0,(p+(trabsAdicionales?.length||0)),parseInt(prev.cantidad)||1)*100)/100};});
+                        // Limpiar la novedad en Firestore
+                        await guardarMotivoEnRegistro(w.id, form.fecha, "");
+                      }}
+                      style={{background:"#f0fdf4",border:"1.5px solid #86efac",borderRadius:"6px",padding:"2px 8px",cursor:"pointer",color:"#15803d",fontWeight:"700",fontSize:"0.7rem",whiteSpace:"nowrap",flexShrink:0}}>
+                      ✓ Quitar novedad
+                    </button>
+                  </div>
                           {/* Selector de motivo inline — dropdown compacto */}
                           <div style={{marginLeft:"1.5rem",marginTop:"0.25rem"}}>
                             <select

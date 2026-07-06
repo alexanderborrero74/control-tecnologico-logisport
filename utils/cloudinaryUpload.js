@@ -1,7 +1,7 @@
 // utils/cloudinaryUpload.js — LOGISPORT
-// Misma cuenta Cloudinary que CADEGRAN, preset separado para organizar fotos
+// Misma cuenta y preset que CADEGRAN (dsomqay6y / cadegran_fotos)
 const CLOUD_NAME    = "dsomqay6y";
-const UPLOAD_PRESET = "logisport_fotos";
+const UPLOAD_PRESET = "cadegran_fotos"; // preset unsigned ya existente en la cuenta
 
 export async function subirACloudinary(archivo, onProgress) {
   const formData = new FormData();

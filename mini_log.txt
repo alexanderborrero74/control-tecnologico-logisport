@@ -1,0 +1,29 @@
+=== Estados mini cuadrilla ===
+1199: const [miniForm, setMiniForm] = useState({ ...MINI_FORM_INIT, fecha: hoy() });
+1202: const [miniCuadrillas, setMiniCuadrillas] = useState([]);
+
+=== Resets mini cuadrilla (setMiniForm) ===
+1199: const [miniForm, setMiniForm] = useState({ ...MINI_FORM_INIT, fecha: hoy() });
+1313: setMiniForm({ ...MINI_FORM_INIT, fecha: miniForm.fecha, cuadrillaPrincipalId: miniForm.cuadrillaPrincipalId, cuadrillaPr
+
+=== guardarMini linea: 0
+0: undefined
+1: // pages/nomina/matriz.js
+2: // Registro de Operaciones — SPIA/C1 (cuadrilla) | Cliente2/Cliente3 (destajo individual: PER=Cant/N
+3: 
+4: import { useState, useEffect, useRef } from "react";
+5: import { useRouter } from "next/router";
+6: import { getAuth, onAuthStateChanged } from "firebase/auth";
+7: import {
+8: collection, getDocs, addDoc, updateDoc, deleteDoc,
+9: doc, getDoc, setDoc, query, orderBy, where, Timestamp, onSnapshot
+10: } from "firebase/firestore";
+11: import { db } from "@/firebase/firebaseConfig";
+12: import { getUserRoleByUid } from "@/utils/getUserRole";
+13: import { usePermisosNomina } from "@/utils/usePermisosNomina";
+14: import LayoutWithSidebar from "@/components/LayoutWithSidebar";
+15: import { calcularNetoOperacion, formatCOP } from "@/utils/nominaCalculos";
+16: import {
+17: ArrowLeft, Save, Trash2, Edit2, RefreshCw,
+18: Calendar, ChevronDown, CheckCircle, X,
+19: FileText, DollarSign, Users, Search, UserCheck,

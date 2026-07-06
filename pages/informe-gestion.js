@@ -30,32 +30,37 @@ export default function InformeGestion() {
   const cargarDatos = async () => {
     setLoading(true);
     try {
-      const inicio = new Date(fechaInicio);
-      const fin = new Date(fechaFin);
-      fin.setHours(23, 59, 59);
+      const inicio = new Date(fechaInicio + "T00:00:00");
+      const fin = new Date(fechaFin + "T23:59:59");
 
+      // Servicios técnicos
       const srvSnap = await getDocs(collection(db, "serviciosTecnicos"));
       const srvData = srvSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(s => {
-        if (!s.fecha) return false;
-        const f = s.fecha.toDate ? s.fecha.toDate() : new Date(s.fecha);
-        return f >= inicio && f <= fin;
+        if (!s.fecha) return true; // si no tiene fecha incluir de todas formas
+        try {
+          const f = s.fecha.toDate ? s.fecha.toDate() : new Date(s.fecha);
+          return f >= inicio && f <= fin;
+        } catch { return true; }
       });
       setServicios(srvData);
 
-      const solSnap = await getDocs(collection(db, "solicitudesServicio"));
+      // Solicitudes (colección correcta: "solicitudes")
+      const solSnap = await getDocs(collection(db, "solicitudes"));
       const solData = solSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(s => {
-        if (!s.fecha) return false;
-        const f = s.fecha.toDate ? s.fecha.toDate() : new Date(s.fecha);
-        return f >= inicio && f <= fin;
+        if (!s.fecha) return true;
+        try {
+          const f = s.fecha.toDate ? s.fecha.toDate() : new Date(s.fecha);
+          return f >= inicio && f <= fin;
+        } catch { return true; }
       });
       setSolicitudes(solData);
 
+      // Equipos (sin filtro de fecha)
       const eqSnap = await getDocs(collection(db, "hojaVidaEquipos"));
-      const equiposData = eqSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      console.log('📊 EQUIPOS CARGADOS:', equiposData.length, equiposData);
-      setEquipos(equiposData);
+      setEquipos(eqSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+
     } catch (error) {
-      console.error("Error:", error);
+      console.error("Error cargando informe:", error);
     } finally {
       setLoading(false);
     }

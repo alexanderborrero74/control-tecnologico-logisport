@@ -1,0 +1,30 @@
+=== Llamadas a cargarServicios ===
+2040: await Promise.all([cargarCuadrillas(), cargarClientes(), cargarServicios("spia"), cargarCatalogos("spia"), cargarNovedad
+2051: cargarServicios(clienteActivo);
+
+=== useEffect clienteActivo ===
+
+=== Selector servicio CIAMSA (3480-3500) ===
+3480: {/* Servicio */}
+3481: <div style={{ marginBottom:"0.9rem" }}>
+3482: <label style={labelSt}>🔧 Servicio *</label>
+3483: <div style={{ position:"relative" }}>
+3484: <input
+3485: value={busqServicioCia}
+3486: onChange={e=>setBusqServicioCia(e.target.value)}
+3487: placeholder="🔍 Buscar servicio..."
+3488: style={{...inputSt, marginBottom:"0.35rem", fontSize:"0.85rem", border:`1.5px solid ${colorCiamsa}50`}}
+3489: />
+3490: <select value={f.servicioId} onChange={e => cuadrillaDiaSelServicio(e.target.value)}
+3491: style={{ ...selectSt, border:`1.5px solid ${colorCiamsa}50` }}>
+3492: <option value="">— Seleccionar servicio —</option>
+3493: {servicios
+3494: .filter(s => !busqServicioCia || s.nombre?.toLowerCase().includes(busqServicioCia.toLowerCase()))
+3495: .map(s => (
+3496: <option key={s.id} value={s.id}>
+3497: {s.nombre}{(s.valor||s.tarifa) > 0 ? ` · ${formatCOP(s.valor||s.tarifa||0)}/${s.unidad||"ton"}` : ""}
+3498: </option>
+3499: ))}
+3500: </select>
+3501: <ChevronDown size={15} style={{ position:"absolute", right:"0.75rem", top:"50%",
+3502: transform:"translateY(-50%)", color:"#94a3b8", pointerEvents:"none" }}/>

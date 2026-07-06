@@ -1,0 +1,23 @@
+=== Contexto linea 2051 ===
+2045: 
+2046: useEffect(() => { if (!loading) cargarOperaciones(); }, [periodoDesde, periodoHasta, loading]);
+2047: 
+2048: // Recargar al cambiar cliente
+2049: useEffect(() => {
+2050: if (!loading) {
+2051: cargarServicios(clienteActivo);
+2052: cargarCatalogos(clienteActivo);
+2053: setForm(FORM_INIT);
+2054: setDiasSemanalSeleccionados([]);
+2055: setAsistentesForm([]);
+2056: setAusentesForm([]);
+2057: setCuadrillaDiaForm(CUADRILLA_DIA_FORM_INIT);
+2058: setServiciosExtraCia([]);
+2059: setBusqTrabCiamsa("");
+2060: setBusqSpiaCiamsa("");
+
+=== Selector servicio ciamsaForm ===
+
+=== setClienteActivo ===
+2012: const [clienteActivo, setClienteActivo] = useState("spia");
+3149: <button key={c.id} onClick={()=>setClienteActivo(c.id)}

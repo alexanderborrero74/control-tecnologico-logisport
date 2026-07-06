@@ -1,0 +1,69 @@
+=== MINI_FORM_INIT linea: 1183
+1183: const MINI_FORM_INIT = {
+1184: cuadrillaPrincipalId: "",
+1185: cuadrillaPrincipalNombre: "",
+1186: fecha: "",
+1187: miembrosSeleccionados: [],
+1188: horasInicio: "15:00",
+1189: horasFin: "",
+1190: horas: 3,
+1191: servicioId: "",
+1192: servicioNombre: "",
+1193: servicioValor: 0,
+1194: contenedores: 1,
+1195: netoCalculado: 0,
+1196: };
+1197: 
+
+=== Reset y guardar mini (1280-1330) ===
+1280: });
+1281: // 2. Guardar en nomina_operaciones como operación etiquetada
+1282: await addDoc(collection(db,"nomina_operaciones"), {
+1283: clienteId,
+1284: modoCiamsa: false,
+1285: esMiniCuadrilla: true,
+1286: miniCuadrillaId: miniRef.id,
+1287: cuadrillaPrincipalId:     miniForm.cuadrillaPrincipalId,
+1288: cuadrillaPrincipalNombre: miniForm.cuadrillaPrincipalNombre,
+1289: // La mini cuadrilla se identifica con un nombre especial en las tablas
+1290: cuadrillaId:       `mini_${miniForm.cuadrillaPrincipalId}`,
+1291: cuadrillaNombre:   `⚡ MINI · Cuad ${miniForm.cuadrillaPrincipalNombre}`,
+1292: cuadrilla:         `⚡ MINI · Cuad ${miniForm.cuadrillaPrincipalNombre}`,
+1293: cuadrillaPersonas: n,
+1294: fecha:    Timestamp.fromDate(new Date(miniForm.fecha+"T12:00:00")),
+1295: fechaStr: miniForm.fecha,
+1296: servicioNombre:   miniForm.servicioNombre.toUpperCase(),
+1297: servicioValorUnitario: parseFloat(miniForm.servicioValor)||0,
+1298: servicioValor:    (parseFloat(miniForm.servicioValor)||0) * (parseInt(miniForm.contenedores)||1),
+1299: cantidad:  parseInt(miniForm.contenedores)||1,
+1300: personas:  n,
+1301: horasExtras: parseFloat(miniForm.horas)||0,
+1302: horasInicio: miniForm.horasInicio,
+1303: horasFin:    miniForm.horasFin,
+1304: modoHorasExtras: false,
+1305: netoAPagar: neto,
+1306: trabajadoresAsisten: miniForm.miembrosSeleccionados,
+1307: trabajadoresAusentes: [],
+1308: creadoEn: new Date(),
+1309: actualizadoEn: new Date(),
+1310: });
+1311: setOkMsg(`✅ Mini cuadrilla guardada — ${n} miembros · ${miniForm.contenedores} contenedor(es)`);
+1312: setTimeout(() => setOkMsg(""), 4000);
+1313: setMiniForm({ ...MINI_FORM_INIT, fecha: miniForm.fecha, cuadrillaPrincipalId: miniForm.cuadrillaPrincipalId, cuadrillaPr
+1314: await cargarLista();
+1315: onGuardado();
+1316: } catch(e) { alert("Error: " + e.message); }
+1317: setGuardando(false);
+1318: };
+1319: 
+1320: const eliminarMini = async (m) => {
+1321: if (!confirm(`¿Eliminar mini cuadrilla del ${m.fecha}?`)) return;
+1322: try {
+1323: await deleteDoc(doc(db, "nomina_mini_cuadrillas", m.id));
+1324: // Buscar y eliminar la operación asociada
+1325: const opSnap = await getDocs(query(
+1326: collection(db,"nomina_operaciones"),
+1327: where("miniCuadrillaId","==",m.id)
+1328: ));
+1329: for (const d of opSnap.docs) await deleteDoc(d.ref);
+1330: await cargarLista();

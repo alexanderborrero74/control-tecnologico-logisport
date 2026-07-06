@@ -1,0 +1,32 @@
+2706: trabajadoresAusentes: ausentesForm.map(a=>({id:a.id,nombre:a.nombre,novedad:a.novedad})),
+4056: ) : ausentesForm.map(w=>(
+
+=== ausentesForm.map (2706) ===
+2703: ...asistentesForm.map(a=>({id:a.id,nombre:a.nombre,cedula:a.cedula||""})),
+2704: ...trabsAdicionales.map(t=>({id:t.id,nombre:t.nombre,cedula:t.cedula||"",clienteId:t.clienteId||"",clienteLabel:t.client
+2705: ],
+2706: trabajadoresAusentes: ausentesForm.map(a=>({id:a.id,nombre:a.nombre,novedad:a.novedad})),
+2707: actualizadoEn: new Date(),
+2708: };
+2709: try {
+2710: if (editandoId) {
+2711: await updateDoc(doc(db,"nomina_operaciones",editandoId),data);
+2712: setEditandoId(null);
+2713: } else {
+2714: await addDoc(collection(db,"nomina_operaciones"),{...data,creadoEn:new Date()});
+2715: }
+2716: // ── Guardar servicios adicionales (multi-servicio) ──
+2717: for (const sm of serviciosMulti) {
+2718: if (!sm.servicioNombre || !sm.cantidad) continue;
+2719: const cantSm  = parseInt(sm.cantidad)||1;
+2720: const personasSm = parseInt(form.personas)||1;
+2721: const netoSm  = Math.round(calcularNetoOperacion(parseFloat(sm.servicioValor)||0, personasSm, cantSm)*100)/100;
+2722: await addDoc(collection(db,"nomina_operaciones"),{
+2723: ...data,
+2724: servicioNombre:        sm.servicioNombre.trim().toUpperCase(),
+2725: servicioValorUnitario: parseFloat(sm.servicioValor)||0,
+2726: servicioValor:         (parseFloat(sm.servicioValor)||0) * cantSm,
+2727: cantidad:              cantSm,
+2728: netoAPagar:            netoSm,
+2729: creadoEn:              new Date(),
+2730: actualizadoEn:         new Date(),

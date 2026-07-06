@@ -1,0 +1,51 @@
+guardar SPIA en linea: 2666
+2726: servicioValor:         (parseFloat(sm.servicioValor)||0) * cantSm,
+2727: cantidad:              cantSm,
+2728: netoAPagar:            netoSm,
+2729: creadoEn:              new Date(),
+2730: actualizadoEn:         new Date(),
+2731: });
+2732: }
+2733: // Guardar novedad del trabajador individual (campo novedad)
+2734: if (form.tipoSeleccion==="trabajador" && form.novedad && form.fecha) {
+2735: const trabId = form.cuadrillaId.replace("trab_","");
+2736: await guardarMotivoEnRegistro(trabId, form.fecha, form.novedad);
+2737: }
+2738: // Guardar motivo legacy
+2739: if (form.motivo && form.tipoSeleccion==="trabajador" && form.cuadrillaId && form.fecha) {
+2740: const trabId = form.cuadrillaId.replace("trab_","");
+2741: await guardarMotivoEnRegistro(trabId, form.fecha, form.motivo);
+2742: }
+2743: // Si la fecha de la operación es mayor que periodoHasta, extender el período
+2744: if (form.fecha && form.fecha > periodoHasta) {
+2745: setPeriodoHasta(form.fecha);
+2746: }
+2747: await cargarOperaciones();
+2748: setForm({...FORM_INIT,cuadrillaId:form.cuadrillaId,cuadrillaNombre:form.cuadrillaNombre,cuadrillaPersonas:form.cuadrilla
+2749: setServiciosMulti([]);
+2750: setGuardadoOk(true);
+2751: setTimeout(()=>setGuardadoOk(false),2000);
+2752: tablaRef.current?.scrollIntoView({behavior:"smooth",block:"start"});
+2753: } catch(e) { alert("Error: "+e.message); }
+2754: setGuardando(false);
+2755: };
+2756: 
+2757: const iniciarEdicion = (op) => {
+2758: setEditandoId(op.id);
+2759: const serv = servicios.find(s=>s.nombre.toUpperCase()===op.servicioNombre?.toUpperCase());
+2760: const cua  = cuadrillasAsistencia.find(c=>c.id===op.cuadrillaId||c.nombre===op.cuadrillaNombre);
+2761: setForm(recalcular({
+2762: cuadrillaId:      cua?.id||op.cuadrillaId||"",
+2763: cuadrillaNombre:  op.cuadrillaNombre||op.cuadrilla||"",
+2764: cuadrillaPersonas:op.cuadrillaPersonas||op.personas||1,
+2765: fecha:            op.fechaStr||"",
+2766: servicioId:       serv?.id||"",
+2767: servicioNombre:   op.servicioNombre||"",
+2768: servicioValor:    op.servicioValorUnitario||op.servicioValor||0,
+2769: cantidad:         op.cantidad||1,
+2770: personas:         op.personas||1,
+2771: netoCalculado:    op.netoAPagar||0,
+2772: }));
+2773: window.scrollTo({top:0,behavior:"smooth"});
+2774: };
+2775: const cancelarEdicion = () => { setEditandoId(null); setForm(FORM_INIT); };

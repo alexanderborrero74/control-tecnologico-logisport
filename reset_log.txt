@@ -1,0 +1,51 @@
+guardar en linea: 730
+810: setErrNombre("");
+811: setForm({...CONJUNTO_FORM_INIT,fecha:hoy()});
+812: setServiciosExtra([]);
+813: };
+814: 
+815: const eliminarConjunto = async (c) => {
+816: if (!confirm(`¿Eliminar conjunto "${c.nombre}"?`)) return;
+817: try {
+818: await deleteDoc(doc(db,"nomina_conjuntos",c.id));
+819: const opSnap = await getDocs(query(collection(db,"nomina_operaciones"),where("conjuntoId","==",c.id)));
+820: for (const d of opSnap.docs) await deleteDoc(d.ref);
+821: await cargarHistorial();
+822: onGuardado();
+823: } catch(e) { alert("Error: "+e.message); }
+824: };
+825: 
+826: const CONJ_COLOR = "#7c3aed";
+827: const q = busq.toLowerCase().trim();
+828: 
+829: return (
+830: <div style={{background:"#fff",borderRadius:"16px",
+831: boxShadow:"0 4px 24px rgba(124,58,237,0.10)",
+832: border:`2px solid ${CONJ_COLOR}30`,
+833: marginBottom:"1.5rem",overflow:"hidden"}}>
+834: {/* Header */}
+835: <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",
+836: padding:"0.9rem 1.25rem",
+837: background:`linear-gradient(135deg,${CONJ_COLOR}15 0%,#f5f3ff 100%)`,
+838: borderBottom:`2px solid ${CONJ_COLOR}20`}}>
+839: <div style={{display:"flex",alignItems:"center",gap:"0.6rem"}}>
+840: <div style={{background:CONJ_COLOR,borderRadius:"10px",padding:"0.5rem",
+841: display:"flex",alignItems:"center",justifyContent:"center"}}>
+842: <Users size={18} color="#fff"/>
+843: </div>
+844: <div>
+845: <div style={{fontWeight:"800",fontSize:"1rem",color:CONJ_COLOR}}>🔗 Conjuntos de Cuadrillas</div>
+846: <div style={{fontSize:"0.75rem",color:"#94a3b8"}}>Agrupa trabajadores de distintas cuadrillas en una operación</div>
+847: </div>
+848: </div>
+849: <button onClick={onClose}
+850: style={{background:"#f1f5f9",border:"none",borderRadius:"8px",padding:"0.5rem",cursor:"pointer",color:"#64748b"}}>
+851: <X size={16}/>
+852: </button>
+853: </div>
+854: 
+855: <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0"}}>
+856: {/* ── COLUMNA IZQ: Formulario ── */}
+857: <div style={{padding:"1.25rem",borderRight:`1px solid ${CONJ_COLOR}15`}}>
+858: <div style={{fontWeight:"800",fontSize:"0.82rem",
+859: color:editandoConjuntoId?"#92400e":CONJ_COLOR,

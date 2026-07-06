@@ -1,457 +1,326 @@
+// pages/licencias.js — LOGISPORT
+// Licencias almacenadas en Cloudinary + Firestore (permite subir PDF, imágenes, Word)
 import { useRouter } from "next/router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { db } from "@/firebase/firebaseConfig";
+import {
+  collection, addDoc, getDocs, deleteDoc, doc,
+  serverTimestamp, orderBy, query,
+} from "firebase/firestore";
+import { getAuth, onAuthStateChanged } from "firebase/auth";
 import LayoutWithSidebar from "@/components/LayoutWithSidebar";
 import PageHeader from "@/components/PageHeader";
 
+const CLOUD_NAME    = "dsomqay6y";
+const UPLOAD_PRESET = "cadegran_fotos";
+
+// Tipos aceptados
+const TIPOS_ACEPTADOS = ".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.webp,.bmp";
+
+async function subirACloudinary(archivo, onProgress) {
+  const fd = new FormData();
+  fd.append("file", archivo);
+  fd.append("upload_preset", UPLOAD_PRESET);
+
+  const esImagen = archivo.type.startsWith("image/");
+  const esPDF    = archivo.type === "application/pdf";
+  const resourceType = esImagen ? "image" : "raw";
+
+  if (onProgress) onProgress(10);
+
+  const res = await fetch(
+    "https://api.cloudinary.com/v1_1/" + CLOUD_NAME + "/" + resourceType + "/upload",
+    { method: "POST", body: fd }
+  );
+
+  if (onProgress) onProgress(80);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error?.message || "Error al subir a Cloudinary");
+  }
+  const data = await res.json();
+  if (onProgress) onProgress(100);
+  return { url: data.secure_url, publicId: data.public_id };
+}
+
+function iconoArchivo(ext) {
+  if (ext === "pdf") return "📄";
+  if (["doc","docx"].includes(ext)) return "📝";
+  if (["xls","xlsx"].includes(ext)) return "📊";
+  if (["jpg","jpeg","png","gif","webp","bmp"].includes(ext)) return "🖼️";
+  return "📎";
+}
+
 export default function Licencias() {
-  const router = useRouter();
-  const [carpetas, setCarpetas] = useState([]);
-  const [archivos, setArchivos] = useState([]);
-  const [carpetaActual, setCarpetaActual] = useState(null);
+  const router  = useRouter();
+  const inputRef = useRef(null);
+
+  const [usuario, setUsuario]         = useState(null);
+  const [licencias, setLicencias]     = useState([]);
+  const [cargando, setCargando]       = useState(true);
+  const [subiendo, setSubiendo]       = useState(false);
+  const [progreso, setProgreso]       = useState(0);
+  const [mensaje, setMensaje]         = useState("");
+  const [error, setError]             = useState("");
   const [archivoActivo, setArchivoActivo] = useState(null);
-  const [cargando, setCargando] = useState(true);
+  const [archivoPendiente, setArchivoPendiente] = useState(null);
+  const [nombrePersonalizado, setNombrePersonalizado] = useState("");
+  const [categoria, setCategoria]     = useState("");
 
+  // Auth
   useEffect(() => {
-    cargarLicencias();
-  }, [carpetaActual]);
+    const auth = getAuth();
+    const unsub = onAuthStateChanged(auth, u => setUsuario(u || null));
+    return () => unsub();
+  }, []);
 
+  // Cargar licencias desde Firestore
   const cargarLicencias = async () => {
     setCargando(true);
     try {
-      const url = carpetaActual 
-        ? `/api/licencias?folder=${encodeURIComponent(carpetaActual)}`
-        : '/api/licencias';
-      
-      const response = await fetch(url);
-      const data = await response.json();
-
-      if (carpetaActual) {
-        // Estamos dentro de una carpeta
-        setCarpetas([]);
-        setArchivos(data || []);
-      } else {
-        // Vista principal
-        setCarpetas(data.carpetas || []);
-        setArchivos(data.archivos || []);
-      }
-    } catch (error) {
-      console.error("Error al cargar licencias:", error);
-      setCarpetas([]);
-      setArchivos([]);
+      const q = query(collection(db, "licencias"), orderBy("creadoEn", "desc"));
+      const snap = await getDocs(q);
+      setLicencias(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    } catch (e) {
+      setError("No se pudieron cargar las licencias.");
     } finally {
       setCargando(false);
     }
   };
 
-  const abrirCarpeta = (nombreCarpeta) => {
-    setCarpetaActual(nombreCarpeta);
+  useEffect(() => { cargarLicencias(); }, []);
+
+  // Seleccionar archivo
+  const handleSeleccionar = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setArchivoPendiente(file);
+    setNombrePersonalizado(file.name.replace(/\.[^.]+$/, ""));
+    setError("");
   };
 
-  const volverAtras = () => {
-    setCarpetaActual(null);
+  // Subir archivo
+  const handleSubir = async () => {
+    if (!archivoPendiente || subiendo) return;
+    if (!usuario) { setError("Debes iniciar sesion."); return; }
+
+    setSubiendo(true);
+    setProgreso(0);
+    setError("");
+    setMensaje("");
+
+    try {
+      const resultado = await subirACloudinary(archivoPendiente, setProgreso);
+      const ext = archivoPendiente.name.split(".").pop().toLowerCase();
+
+      await addDoc(collection(db, "licencias"), {
+        nombre:      nombrePersonalizado.trim() || archivoPendiente.name,
+        nombreOriginal: archivoPendiente.name,
+        extension:   ext,
+        url:         resultado.url,
+        publicId:    resultado.publicId,
+        categoria:   categoria.trim() || "General",
+        tamano:      archivoPendiente.size,
+        creadoEn:    serverTimestamp(),
+        uid:         usuario.uid,
+        email:       usuario.email,
+      });
+
+      setMensaje("Archivo subido correctamente.");
+      setArchivoPendiente(null);
+      setNombrePersonalizado("");
+      setCategoria("");
+      if (inputRef.current) inputRef.current.value = "";
+      await cargarLicencias();
+    } catch (e) {
+      setError("Error al subir: " + e.message);
+    } finally {
+      setSubiendo(false);
+      setProgreso(0);
+      setTimeout(() => setMensaje(""), 4000);
+    }
   };
 
-  const renderArchivo = (archivo) => {
-    const ruta = carpetaActual ? archivo.ruta : archivo.nombre;
-    const extension = archivo.nombre.split(".").pop().toLowerCase();
-
-    if (extension === "pdf") {
-      return (
-        <iframe
-          src={`/licencias/${ruta}`}
-          title={archivo.nombre}
-          width="100%"
-          height="400px"
-          style={{ border: "none" }}
-        ></iframe>
-      );
+  // Eliminar licencia
+  const handleEliminar = async (lic) => {
+    if (!confirm("Eliminar " + lic.nombre + "?")) return;
+    try {
+      await deleteDoc(doc(db, "licencias", lic.id));
+      setMensaje("Eliminado.");
+      setTimeout(() => setMensaje(""), 2000);
+      await cargarLicencias();
+    } catch (e) {
+      setError("No se pudo eliminar.");
     }
-
-    if (extension === "xlsx" || extension === "xls") {
-      const fullUrl = `${window.location.origin}/licencias/${ruta}`;
-      return (
-        <iframe
-          src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(fullUrl)}`}
-          width="100%"
-          height="400px"
-          style={{ border: "none" }}
-          title={archivo.nombre}
-        ></iframe>
-      );
-    }
-
-    if (extension === "docx" || extension === "doc") {
-      const fullUrl = `${window.location.origin}/licencias/${ruta}`;
-      return (
-        <iframe
-          src={`https://docs.google.com/gview?url=${encodeURIComponent(fullUrl)}&embedded=true`}
-          width="100%"
-          height="400px"
-          style={{ border: "none" }}
-          title={archivo.nombre}
-        ></iframe>
-      );
-    }
-
-    if (["png", "jpg", "jpeg"].includes(extension)) {
-      return (
-        <img
-          src={`/licencias/${ruta}`}
-          alt={archivo.nombre}
-          style={{ width: "100%", height: "400px", objectFit: "contain" }}
-        />
-      );
-    }
-
-    return <p>El archivo no es compatible para previsualización.</p>;
   };
 
-  const descargarArchivo = (archivo) => {
-    const ruta = carpetaActual ? archivo.ruta : archivo.nombre;
-    const link = document.createElement('a');
-    link.href = `/licencias/${ruta}`;
-    link.download = archivo.nombre;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  // Renderizar preview en modal
+  const renderPreview = (lic) => {
+    const ext = lic.extension || "";
+    if (["jpg","jpeg","png","gif","webp","bmp"].includes(ext)) {
+      return <img src={lic.url} alt={lic.nombre} style={{ width: "100%", height: "100%", objectFit: "contain" }} />;
+    }
+    if (ext === "pdf") {
+      return <iframe src={lic.url} title={lic.nombre} style={{ width: "100%", height: "100%", border: "none" }} />;
+    }
+    if (["doc","docx"].includes(ext)) {
+      return <iframe src={"https://docs.google.com/gview?url=" + encodeURIComponent(lic.url) + "&embedded=true"} title={lic.nombre} style={{ width: "100%", height: "100%", border: "none" }} />;
+    }
+    if (["xls","xlsx"].includes(ext)) {
+      return <iframe src={"https://view.officeapps.live.com/op/embed.aspx?src=" + encodeURIComponent(lic.url)} title={lic.nombre} style={{ width: "100%", height: "100%", border: "none" }} />;
+    }
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", flexDirection: "column", gap: 16 }}>
+        <div style={{ fontSize: 80 }}>{iconoArchivo(ext)}</div>
+        <div style={{ fontSize: 18, color: "#374151", fontWeight: 700 }}>{lic.nombre}</div>
+        <a href={lic.url} download={lic.nombreOriginal} target="_blank" rel="noreferrer"
+          style={{ padding: "12px 24px", background: "#0B3D91", color: "#fff", borderRadius: 8, textDecoration: "none", fontWeight: 700 }}>
+          Descargar archivo
+        </a>
+      </div>
+    );
   };
+
+  // Agrupar por categoría
+  const grupos = licencias.reduce((acc, lic) => {
+    const cat = lic.categoria || "General";
+    if (!acc[cat]) acc[cat] = [];
+    acc[cat].push(lic);
+    return acc;
+  }, {});
 
   return (
     <LayoutWithSidebar>
       <PageHeader titulo="Licencias de Software" />
-      <div style={{ padding: "24px" }}>
-        {/* Logos Fijos */}
-        <div style={{ position: "fixed", top: 10, left: 10, zIndex: 2000 }}></div>
-        <div style={{ position: "fixed", top: 10, right: 10, zIndex: 2000 }}>
-          <img
-            src="/nexoti-logo.svg?v=1"
-            alt="NexoTI"
-            style={{ height: 56, width: "auto", objectFit: "contain" }}
-          />
-        </div>
+      <div style={{ padding: 24, maxWidth: 1400, margin: "0 auto" }}>
 
-        {/* Encabezado con navegación */}
-        <div style={{ marginBottom: "24px" }}>
-          <h1
-            style={{
-              fontSize: "36px",
-              color: "#2c3e50",
-              textShadow: "2px 2px 4px rgba(0,0,0,0.3)",
-              fontWeight: "900",
-              letterSpacing: "1px",
-              textAlign: "center",
-              marginBottom: "16px",
-            }}
-          >
-            📜 Licencias de Software
-          </h1>
+        {mensaje && <div style={s.alertOk}>{mensaje}</div>}
+        {error   && <div style={s.alertErr}>{error}</div>}
 
-          {/* Breadcrumb */}
-          <div style={{ 
-            display: "flex", 
-            alignItems: "center", 
-            gap: "12px",
-            justifyContent: "center",
-            marginBottom: "16px"
-          }}>
-            <button
-              onClick={() => router.push("/")}
-              style={{
-                padding: "8px 16px",
-                backgroundColor: "#2980b9",
-                color: "white",
-                border: "none",
-                borderRadius: "6px",
-                cursor: "pointer",
-                fontWeight: "600",
-              }}
-            >
-              🏠 Inicio
+        {/* Panel de subida */}
+        <div style={s.uploadBox}>
+          <div style={s.uploadTitle}>Subir nuevo archivo de licencia</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: 12, alignItems: "end", flexWrap: "wrap" }}>
+            <div>
+              <label style={s.label}>Archivo (PDF, Word, Excel, Imagen)</label>
+              <input ref={inputRef} type="file" accept={TIPOS_ACEPTADOS} onChange={handleSeleccionar}
+                style={{ ...s.input, cursor: "pointer" }} />
+            </div>
+            <div>
+              <label style={s.label}>Nombre personalizado</label>
+              <input type="text" value={nombrePersonalizado} onChange={e => setNombrePersonalizado(e.target.value)}
+                placeholder="Ej: Licencia Kaspersky 2025" style={s.input} />
+            </div>
+            <div>
+              <label style={s.label}>Categoría</label>
+              <input type="text" value={categoria} onChange={e => setCategoria(e.target.value)}
+                placeholder="Ej: Antivirus, Windows, Office..." style={s.input} />
+            </div>
+            <button onClick={handleSubir} disabled={!archivoPendiente || subiendo}
+              style={{ ...s.btnSubir, opacity: archivoPendiente && !subiendo ? 1 : 0.5, cursor: archivoPendiente && !subiendo ? "pointer" : "not-allowed" }}>
+              {subiendo ? "Subiendo..." : "Subir"}
             </button>
-
-            {carpetaActual && (
-              <>
-                <span style={{ fontSize: "20px", color: "#7f8c8d" }}>›</span>
-                <button
-                  onClick={volverAtras}
-                  style={{
-                    padding: "8px 16px",
-                    backgroundColor: "#95a5a6",
-                    color: "white",
-                    border: "none",
-                    borderRadius: "6px",
-                    cursor: "pointer",
-                    fontWeight: "600",
-                  }}
-                >
-                  ← Volver a Licencias
-                </button>
-                <span style={{ fontSize: "20px", color: "#7f8c8d" }}>›</span>
-                <span style={{ 
-                  fontSize: "18px", 
-                  fontWeight: "700",
-                  color: "#2c3e50",
-                  padding: "8px 16px",
-                  backgroundColor: "#ecf0f1",
-                  borderRadius: "6px"
-                }}>
-                  📁 {carpetaActual}
-                </span>
-              </>
-            )}
           </div>
+
+          {/* Barra de progreso */}
+          {subiendo && (
+            <div style={{ marginTop: 16 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
+                <span>Subiendo archivo...</span><span>{progreso}%</span>
+              </div>
+              <div style={{ height: 8, background: "rgba(255,255,255,0.3)", borderRadius: 8 }}>
+                <div style={{ width: progreso + "%", height: "100%", background: "#fff", borderRadius: 8, transition: "width 0.3s" }} />
+              </div>
+            </div>
+          )}
+
+          {archivoPendiente && !subiendo && (
+            <div style={{ marginTop: 12, fontSize: 13, color: "rgba(255,255,255,0.9)" }}>
+              Archivo seleccionado: <strong>{archivoPendiente.name}</strong> ({(archivoPendiente.size / 1024).toFixed(0)} KB)
+            </div>
+          )}
         </div>
 
+        {/* Lista de licencias agrupadas por categoría */}
         {cargando ? (
-          <div style={{ textAlign: "center", padding: "40px" }}>
-            <p style={{ fontSize: "18px", color: "#7f8c8d" }}>Cargando licencias...</p>
+          <div style={{ textAlign: "center", padding: 60, color: "#6b7280", fontSize: 18 }}>Cargando licencias...</div>
+        ) : Object.keys(grupos).length === 0 ? (
+          <div style={{ textAlign: "center", padding: 60, background: "#f9fafb", borderRadius: 12, color: "#9ca3af" }}>
+            <div style={{ fontSize: 64, marginBottom: 16 }}>📜</div>
+            <div style={{ fontSize: 18, fontWeight: 700 }}>No hay licencias. Sube el primer archivo arriba.</div>
           </div>
         ) : (
-          <>
-            {/* Carpetas (solo en vista principal) */}
-            {!carpetaActual && carpetas.length > 0 && (
-              <div style={{ marginBottom: "32px" }}>
-                <h2 style={{ 
-                  fontSize: "24px", 
-                  fontWeight: "700",
-                  color: "#2c3e50",
-                  marginBottom: "16px",
-                  borderBottom: "3px solid #3498db",
-                  paddingBottom: "8px"
-                }}>
-                  📂 Carpetas de Licencias
-                </h2>
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
-                    gap: "16px",
-                  }}
-                >
-                  {carpetas.map((carpeta, index) => (
-                    <div
-                      key={index}
-                      onClick={() => abrirCarpeta(carpeta.nombre)}
-                      style={{
-                        border: "2px solid #3498db",
-                        borderRadius: "12px",
-                        padding: "24px",
-                        cursor: "pointer",
-                        textAlign: "center",
-                        background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-                        color: "white",
-                        transition: "all 0.3s ease",
-                        boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.transform = "translateY(-4px)";
-                        e.currentTarget.style.boxShadow = "0 8px 20px rgba(0,0,0,0.25)";
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.transform = "translateY(0)";
-                        e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.15)";
-                      }}
-                    >
-                      <div style={{ fontSize: "48px", marginBottom: "12px" }}>📁</div>
-                      <div style={{ 
-                        fontSize: "20px", 
-                        fontWeight: "700",
-                        textShadow: "1px 1px 2px rgba(0,0,0,0.3)"
-                      }}>
-                        {carpeta.nombre}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+          Object.entries(grupos).map(([cat, items]) => (
+            <div key={cat} style={{ marginBottom: 32 }}>
+              <div style={{ fontWeight: 800, fontSize: 18, color: "#0B3D91", marginBottom: 12, paddingBottom: 8, borderBottom: "3px solid #0B3D91" }}>
+                📂 {cat} ({items.length})
               </div>
-            )}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
+                {items.map(lic => (
+                  <div key={lic.id} style={s.card}>
+                    {/* Header */}
+                    <div style={s.cardHeader}>
+                      <span style={{ fontSize: 22 }}>{iconoArchivo(lic.extension)}</span>
+                      <span style={{ flex: 1, fontWeight: 700, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{lic.nombre}</span>
+                      <span style={{ fontSize: 10, background: "rgba(255,255,255,0.2)", padding: "2px 6px", borderRadius: 4, fontWeight: 600 }}>{(lic.extension || "").toUpperCase()}</span>
+                    </div>
 
-            {/* Archivos */}
-            {archivos.length > 0 && (
-              <div>
-                <h2 style={{ 
-                  fontSize: "24px", 
-                  fontWeight: "700",
-                  color: "#2c3e50",
-                  marginBottom: "16px",
-                  borderBottom: "3px solid #9b59b6",
-                  paddingBottom: "8px"
-                }}>
-                  📄 {carpetaActual ? `Licencias - ${carpetaActual}` : 'Licencias de Software'}
-                </h2>
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
-                    gap: "16px",
-                  }}
-                >
-                  {archivos.map((archivo, index) => (
-                    <div
-                      key={index}
-                      style={{
-                        border: "1px solid #ccc",
-                        borderRadius: "8px",
-                        overflow: "hidden",
-                        boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
-                        transition: "all 0.2s ease",
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.2)";
-                        e.currentTarget.style.transform = "translateY(-2px)";
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.boxShadow = "0 2px 8px rgba(0,0,0,0.1)";
-                        e.currentTarget.style.transform = "translateY(0)";
-                      }}
-                    >
-                      <div
-                        style={{
-                          padding: "12px",
-                          background: "linear-gradient(135deg, #9b59b6 0%, #8e44ad 100%)",
-                          color: "white",
-                          fontWeight: "bold",
-                          fontSize: "14px",
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                        }}
-                      >
-                        <span style={{ flex: 1, marginRight: "8px" }}>{archivo.nombre}</span>
-                        <div style={{ display: "flex", gap: "4px" }}>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setArchivoActivo(archivo);
-                            }}
-                            style={{
-                              padding: "4px 8px",
-                              backgroundColor: "#3498db",
-                              color: "white",
-                              border: "none",
-                              borderRadius: "4px",
-                              cursor: "pointer",
-                              fontSize: "12px",
-                            }}
-                            title="Ver licencia"
-                          >
-                            👁️
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              descargarArchivo(archivo);
-                            }}
-                            style={{
-                              padding: "4px 8px",
-                              backgroundColor: "#27ae60",
-                              color: "white",
-                              border: "none",
-                              borderRadius: "4px",
-                              cursor: "pointer",
-                              fontSize: "12px",
-                            }}
-                            title="Descargar licencia"
-                          >
-                            ⬇️
-                          </button>
+                    {/* Preview miniatura */}
+                    <div style={{ height: 140, overflow: "hidden", background: "#f3f4f6", cursor: "pointer" }} onClick={() => setArchivoActivo(lic)}>
+                      {["jpg","jpeg","png","gif","webp","bmp"].includes(lic.extension) ? (
+                        <img src={lic.url} alt={lic.nombre} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      ) : (
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", flexDirection: "column", gap: 8 }}>
+                          <span style={{ fontSize: 48 }}>{iconoArchivo(lic.extension)}</span>
+                          <span style={{ fontSize: 12, color: "#6b7280", fontWeight: 600 }}>Clic para ver</span>
                         </div>
-                      </div>
-                      <div 
-                        style={{ cursor: "pointer" }}
-                        onClick={() => setArchivoActivo(archivo)}
-                      >
-                        {renderArchivo(archivo)}
-                      </div>
+                      )}
                     </div>
-                  ))}
-                </div>
-              </div>
-            )}
 
-            {carpetas.length === 0 && archivos.length === 0 && (
-              <div style={{ 
-                textAlign: "center", 
-                padding: "60px 20px",
-                backgroundColor: "#ecf0f1",
-                borderRadius: "12px"
-              }}>
-                <div style={{ fontSize: "64px", marginBottom: "16px" }}>📜</div>
-                <p style={{ fontSize: "18px", color: "#7f8c8d", fontWeight: "600" }}>
-                  No hay licencias disponibles en esta carpeta
-                </p>
+                    {/* Botones */}
+                    <div style={{ display: "flex", gap: 8, padding: 10 }}>
+                      <button onClick={() => setArchivoActivo(lic)}
+                        style={{ flex: 1, padding: "8px", background: "#0B3D91", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: 600, fontSize: 12 }}>
+                        👁️ Ver
+                      </button>
+                      <a href={lic.url} download={lic.nombreOriginal} target="_blank" rel="noreferrer"
+                        style={{ flex: 1, padding: "8px", background: "#10b981", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: 600, fontSize: 12, textAlign: "center", textDecoration: "none" }}>
+                        ⬇️ Descargar
+                      </a>
+                      <button onClick={() => handleEliminar(lic)}
+                        style={{ padding: "8px 10px", background: "#ef4444", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: 600, fontSize: 12 }}>
+                        🗑️
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
-            )}
-          </>
+            </div>
+          ))
         )}
 
-        {/* Modal para visualizar en grande */}
+        {/* Modal vista completa */}
         {archivoActivo && (
-          <div
-            style={{
-              position: "fixed",
-              top: 0,
-              left: 0,
-              width: "100vw",
-              height: "100vh",
-              backgroundColor: "rgba(0,0,0,0.7)",
-              display: "flex",
-              justifyContent: "center",
-              alignItems: "center",
-              zIndex: 3000,
-            }}
-            onClick={() => setArchivoActivo(null)}
-          >
-            <div
-              style={{
-                width: "90%",
-                height: "90%",
-                backgroundColor: "white",
-                borderRadius: "8px",
-                overflow: "hidden",
-                position: "relative",
-              }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              {renderArchivo(archivoActivo)}
-              
-              {/* Botones del modal */}
-              <div style={{
-                position: "absolute",
-                top: "10px",
-                right: "10px",
-                display: "flex",
-                gap: "8px",
-                zIndex: 3100
-              }}>
-                <button
-                  onClick={() => descargarArchivo(archivoActivo)}
-                  style={{
-                    backgroundColor: "#27ae60",
-                    color: "white",
-                    border: "none",
-                    padding: "8px 16px",
-                    borderRadius: "4px",
-                    cursor: "pointer",
-                    fontWeight: "600",
-                  }}
-                >
-                  ⬇️ Descargar
-                </button>
-                <button
-                  style={{
-                    backgroundColor: "#c0392b",
-                    color: "white",
-                    border: "none",
-                    padding: "8px 16px",
-                    borderRadius: "4px",
-                    cursor: "pointer",
-                    fontWeight: "600",
-                  }}
-                  onClick={() => setArchivoActivo(null)}
-                >
-                  ✕ Cerrar
-                </button>
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9000 }}
+            onClick={() => setArchivoActivo(null)}>
+            <div style={{ width: "92%", height: "90%", background: "#fff", borderRadius: 12, overflow: "hidden", position: "relative" }}
+              onClick={e => e.stopPropagation()}>
+              {/* Barra modal */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", background: "#0B3D91", color: "#fff" }}>
+                <span style={{ fontWeight: 700, fontSize: 15 }}>{iconoArchivo(archivoActivo.extension)} {archivoActivo.nombre}</span>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <a href={archivoActivo.url} download={archivoActivo.nombreOriginal} target="_blank" rel="noreferrer"
+                    style={{ padding: "6px 14px", background: "#10b981", color: "#fff", borderRadius: 6, fontWeight: 700, fontSize: 13, textDecoration: "none" }}>
+                    ⬇️ Descargar
+                  </a>
+                  <button onClick={() => setArchivoActivo(null)}
+                    style={{ padding: "6px 14px", background: "#ef4444", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: 700 }}>
+                    ✕ Cerrar
+                  </button>
+                </div>
+              </div>
+              <div style={{ height: "calc(100% - 48px)" }}>
+                {renderPreview(archivoActivo)}
               </div>
             </div>
           </div>
@@ -460,3 +329,15 @@ export default function Licencias() {
     </LayoutWithSidebar>
   );
 }
+
+const s = {
+  uploadBox:   { background: "linear-gradient(135deg,#0B3D91,#007acc)", padding: 24, borderRadius: 16, marginBottom: 28, boxShadow: "0 8px 32px rgba(11,61,145,0.25)" },
+  uploadTitle: { color: "#fff", fontSize: 17, fontWeight: 800, marginBottom: 16 },
+  label:       { color: "#fff", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 6 },
+  input:       { width: "100%", padding: "10px 12px", border: "none", borderRadius: 8, fontSize: 13, background: "#fff", outline: "none" },
+  btnSubir:    { padding: "10px 24px", background: "#10b981", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 14, whiteSpace: "nowrap" },
+  card:        { borderRadius: 12, border: "1px solid #e5e7eb", background: "#fff", overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.07)" },
+  cardHeader:  { display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", background: "linear-gradient(135deg,#9b59b6,#8e44ad)", color: "#fff" },
+  alertOk:     { background: "#d1fae5", border: "2px solid #10b981", color: "#065f46", padding: "12px 18px", borderRadius: 10, marginBottom: 16, fontWeight: 600 },
+  alertErr:    { background: "#fee2e2", border: "2px solid #ef4444", color: "#991b1b", padding: "12px 18px", borderRadius: 10, marginBottom: 16, fontWeight: 600 },
+};

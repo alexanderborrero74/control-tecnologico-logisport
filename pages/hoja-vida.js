@@ -906,13 +906,16 @@ export default function HojaVidaEquipos() {
             <div style={styles.rowGrid3}>
               <div>
                 <label style={styles.label}>Cargo</label>
-                <input
-                  type="text"
-                  list="cargoOptions"
+                <select
                   style={styles.input}
                   value={formData.cargo}
                   onChange={(e) => handleChange("cargo", e.target.value)}
-                />
+                >
+                  <option value="">— Selecciona cargo —</option>
+                  {opcionesCargos.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
               </div>
 
               <div>
@@ -1378,11 +1381,7 @@ export default function HojaVidaEquipos() {
       </div>
 
       {/* datalist para sugerencias */}
-      <datalist id="cargoOptions">
-        {opcionesCargos.map((o) => (
-          <option key={o} value={o} />
-        ))}
-      </datalist>
+      {/* cargoOptions ya no necesario - ahora es select */}
       {/* PC ahora es <select>; no usamos datalist para PC */}
       <datalist id="officeOptions">
         {OFFICE_PRESETS.map((o) => (

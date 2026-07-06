@@ -1,0 +1,33 @@
+=== useEffect cierre (2060-2080) ===
+2060: setBusqSpiaCiamsa("");
+2061: setC2Form(CIAMSA2_FORM_INIT);
+2062: setC2EditId(null);
+2063: setCiamsaForm(CIAMSA_FORM_INIT);
+2064: setCiamsaEditId(null);
+2065: setEditandoId(null);
+2066: setTrabsAdicionales([]);
+2067: setShowTrabsPanel(false);
+2068: setBusqTrabAd("");
+2069: setServiciosExtraC2([]);
+2070: setServiciosExtraC3([]);
+2071: }
+2072: }, [clienteActivo]);
+2073: 
+2074: // Recargar asistencia SPIA cuando cambia cuadrilla O fecha
+2075: // Incluir form.fecha en las dependencias para que al seleccionar un día
+2076: // de cuadrilla semanal se recargue automáticamente el snapshot correcto
+2077: useEffect(() => {
+2078: if (isCiamsa) return;
+2079: if (form.tipoSeleccion === "trabajador") return;
+2080: if (form.cuadrillaId && form.fecha) {
+
+=== Selectores de servicio en toda la página ===
+997: <select value={form.servicioId} onChange={e=>selServicio(e.target.value)}
+1043: <select value={se.servicioId} onChange={e=>sExtraUpdate(se.uid,"servicioId",e.target.value)}
+1583: <select value={miniForm.servicioId} onChange={e => selServicio(e.target.value)}
+3490: <select value={f.servicioId} onChange={e => cuadrillaDiaSelServicio(e.target.value)}
+3608: <select value={se.servicioId} onChange={e=>sExtraCiaUpdate(se.uid,"servicioId",e.target.value)} styl
+3758: <select value={se.servicioId} onChange={e=>sExtraC3Update(se.uid,"servicioId",e.target.value)} style
+4285: <select value={form.servicioId} onChange={e=>seleccionarServicio(e.target.value)} style={selectSt}>
+4389: <select value={sm.servicioId} onChange={e=>sMultiUpdate(sm.uid,"servicioId",e.target.value)} style={
+4887: <select value={filtroDetServicio} onChange={e=>setFiltroDetServicio(e.target.value)} style={{...sele

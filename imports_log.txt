@@ -1,0 +1,53 @@
+=== Imports firebase (lineas 1-35) ===
+1: // pages/nomina/matriz.js
+2: // Registro de Operaciones — SPIA/C1 (cuadrilla) | Cliente2/Cliente3 (destajo individual: PER=Cant/NPer, Neto=PER×Tarifa
+3: 
+4: import { useState, useEffect, useRef } from "react";
+5: import { useRouter } from "next/router";
+6: import { getAuth, onAuthStateChanged } from "firebase/auth";
+7: import {
+8: collection, getDocs, addDoc, updateDoc, deleteDoc,
+9: doc, getDoc, setDoc, query, orderBy, where, Timestamp
+10: } from "firebase/firestore";
+11: import { db } from "@/firebase/firebaseConfig";
+12: import { getUserRoleByUid } from "@/utils/getUserRole";
+13: import { usePermisosNomina } from "@/utils/usePermisosNomina";
+14: import LayoutWithSidebar from "@/components/LayoutWithSidebar";
+15: import { calcularNetoOperacion, formatCOP } from "@/utils/nominaCalculos";
+16: import {
+17: ArrowLeft, Save, Trash2, Edit2, RefreshCw,
+18: Calendar, ChevronDown, CheckCircle, X,
+19: FileText, DollarSign, Users, Search, UserCheck,
+20: Zap, Clock, Plus, ChevronRight, UserPlus
+21: } from "lucide-react";
+22: 
+23: 
+24: 
+25: 
+26: 
+27: 
+28: const inputSt   = {width:"100%",padding:"0.7rem 0.9rem",border:"1.5px solid #e2e8f0",borderRadius:"10px",fontSize:"0.93r
+29: const selectSt  = {width:"100%",padding:"0.7rem 2.2rem 0.7rem 0.9rem",border:"1.5px solid #e2e8f0",borderRadius:"10px",f
+30: const readonlySt= {padding:"0.7rem 0.9rem",background:"#f8fafc",border:"1.5px solid #e2e8f0",borderRadius:"10px",fontSiz
+31: const tdSt      = {padding:"0.38rem 0.6rem",verticalAlign:"middle",borderBottom:"1px solid #d0d7e0",borderRight:"1px sol
+32: 
+33: const PRIMARY = "#0B3D91";
+34: const ACCENT  = "#00AEEF";
+35: const SUCCESS = "#10b981";
+
+onSnapshot importado: false
+
+=== cargarServicios completa ===
+2236: 
+2237: const cargarServicios = async (cId) => {
+2238: const cActivo = cId || "spia";
+2239: const snap = await getDocs(query(collection(db,"nomina_servicios"),orderBy("nombre")));
+2240: const all = snap.docs.map(d=>({id:d.id,...d.data()}));
+2241: const filtered = all.filter(s=>(s.clienteId||"spia")===cActivo);
+2242: setServicios(filtered.length>0 ? filtered : (cActivo==="spia" ? all.filter(s=>!s.clienteId) : []));
+2243: };
+2244: 
+2245: const cargarCatalogos = async (cId) => {
+2246: try {
+2247: const cActivo = cId || "spia";
+2248: const t = await getDocs(query(collection(db,"nomina_trabajadores"), orderBy("nombre")));

@@ -1,0 +1,105 @@
+
+> control-tecnologico-logisport@0.1.0 build
+> next build
+
+⚠ `eslint` configuration in next.config.js is no longer supported. See more info here: https://nextjs.org/docs/app/api-reference/cli/next#next-lint-options
+⚠ Invalid next.config.js options detected: 
+⚠     Unrecognized key(s) in object: 'eslint'
+⚠ See more info here: https://nextjs.org/docs/messages/invalid-next-config
+⚠ Warning: Next.js inferred your workspace root, but it may not be correct.
+ We detected multiple lockfiles and selected the directory of E:\DATOS\copiacontroltecnologico\package-lock.json as the root directory.
+ To silence this warning, set `turbopack.root` in your Next.js config, or consider removing one of the lockfiles if it's not needed.
+   See https://nextjs.org/docs/app/api-reference/config/next-config-js/turbopack#root-directory for more information.
+ Detected additional lockfiles: 
+   * E:\DATOS\copiacontroltecnologico\logisport\control-tecnologico-logisport\package-lock.json
+
+▲ Next.js 16.1.6 (Turbopack)
+- Environments: .env.local
+
+  Skipping validation of types
+  Creating an optimized production build ...
+✓ Compiled successfully in 73s
+  Collecting page data using 3 workers ...
+  Generating static pages using 3 workers (0/55) ...
+  Generating static pages using 3 workers (13/55) 
+  Generating static pages using 3 workers (27/55) 
+  Generating static pages using 3 workers (41/55) 
+✓ Generating static pages using 3 workers (55/55) in 536.6ms
+  Finalizing page optimization ...
+
+Route (pages)
+┌ ○ /
+├   /_app
+├ ○ /404
+├ ○ /admin-corregir-servicios
+├ ○ /admin-solicitudes
+├ ○ /admin-usuarios
+├ ƒ /api/agent-ingest
+├ ƒ /api/crear-usuario-auth
+├ ƒ /api/documentacion
+├ ƒ /api/enviarCorreoElectronico
+├ ƒ /api/hello
+├ ƒ /api/licencias
+├ ƒ /api/migrar-trabajadores-2026
+├ ƒ /api/monitoreo-list
+├ ƒ /api/notificar-nueva-clave
+├ ƒ /api/proxy-imagen
+├ ƒ /api/renovar-caducidad-clave
+├ ƒ /api/test-agent
+├ ƒ /api/test-caducidad-correo
+├ ƒ /api/test-correo
+├ ƒ /api/upload-image
+├ ƒ /api/verificar-caducidad-claves
+├ ○ /cambiar-clave
+├ ○ /capsulas-admin
+├ ○ /claves-usuarios
+├ ○ /control-de-contrasenas
+├ ○ /copia servicios-tecnicos
+├ ○ /debug-pendientes
+├ ○ /debug-servicios
+├ ○ /documentacionti
+├ ○ /estadisticas
+├ ○ /estadisticas_responsive
+├ ○ /historial-credenciales
+├ ○ /hoja-vida
+├ ○ /hoja-vida_responsive
+├ ○ /indicadores-gestion
+├ ○ /informe-gestion
+├ ○ /licencias
+├ ○ /login
+├ ○ /mi-pago
+├ ○ /monitoreo
+├ ○ /nomina
+├ ○ /nomina/adelantos
+├ ○ /nomina/administrar
+├ ○ /nomina/asistencia
+├ ○ /nomina/clientes
+├ ○ /nomina/control-roles
+├ ○ /nomina/cuadrillas
+├ ○ /nomina/desprendibles
+├ ○ /nomina/historial
+├ ○ /nomina/liquidar
+├ ○ /nomina/liquidar_unificada
+├ ○ /nomina/matriz
+├ ○ /nomina/nomina-ciamsa2
+├ ○ /nomina/seed-servicios
+├ ○ /nomina/servicios
+├ ○ /nomina/trabajadores
+├ ○ /nube
+├ ○ /Nueva carpeta/hoja-vida
+├ ○ /Nueva carpeta/servicios-tecnicos
+├ ○ /procesoit
+├ ○ /registro-fotografico
+├ ○ /seguimiento-codigos-asociados
+├ ○ /servicios-tecnicos
+├ ○ /serviciospendientes
+├ ○ /solicitudserviciotecnico
+├ ○ /test-email
+├ ○ /ti-implementado
+├ ○ /trazabilidad-logins
+├ ○ /usuario-aplicaciones-licencias
+└ ○ /usuario-aplicaciones-licencias_responsive
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+

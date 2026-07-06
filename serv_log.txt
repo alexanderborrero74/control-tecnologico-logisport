@@ -1,0 +1,60 @@
+=== cargarServicios linea: 2237
+2237: const cargarServicios = async (cId) => {
+2238: const cActivo = cId || "spia";
+2239: const snap = await getDocs(query(collection(db,"nomina_servicios"),orderBy("nombre")));
+2240: const all = snap.docs.map(d=>({id:d.id,...d.data()}));
+2241: const filtered = all.filter(s=>(s.clienteId||"spia")===cActivo);
+2242: setServicios(filtered.length>0 ? filtered : (cActivo==="spia" ? all.filter(s=>!s.clienteId) : []));
+2243: };
+2244: 
+2245: const cargarCatalogos = async (cId) => {
+2246: try {
+2247: const cActivo = cId || "spia";
+2248: const t = await getDocs(query(collection(db,"nomina_trabajadores"), orderBy("nombre")));
+2249: if(!t.empty) {
+2250: const all = t.docs.map(d=>({id:d.id,...d.data()}));
+2251: const activos   = all.filter(w => w.activo !== false);
+2252: const filtered  = activos.filter(w=>(w.clienteIds||["spia"]).includes(cActivo));
+2253: setListaTrabajadores(filtered.length>0?filtered:activos);
+2254: setTodosTrabajadores(activos); // todos los activos sin filtro de cliente
+2255: }
+2256: } catch {}
+668: const [serviciosExtra, setServiciosExtra] = useState([]);
+699: const sExtraAdd = () => setServiciosExtra(prev => [
+702: const sExtraUpdate = (uid, field, val) => setServiciosExtra(prev => prev.map(s => {
+714: const sExtraRemove = (uid) => setServiciosExtra(prev => prev.filter(s => s.uid !== uid));
+788: setServiciosExtra([]);
+801: setServiciosExtra([]);
+809: setServiciosExtra([]);
+1808: const [servicios,            setServicios]            = useState([]);
+1854: const [serviciosMultiCiamsa, setServiciosMultiCiamsa] = useState([]);
+1856: const sMultiCiamsaAdd = () => setServiciosMultiCiamsa(prev => [
+1859: const sMultiCiamsaUpdate = (uid, field, val) => setServiciosMultiCiamsa(prev => prev.map(s => {
+1875: const sMultiCiamsaRemove = (uid) => setServiciosMultiCiamsa(prev => prev.filter(s => s.uid !== uid));
+1878: const [serviciosMulti, setServiciosMulti] = useState([]);
+1882: const sMultiAdd = () => setServiciosMulti(prev => [
+1887: const sMultiUpdate = (uid, field, val) => setServiciosMulti(prev => prev.map(s => {
+1903: const sMultiRemove = (uid) => setServiciosMulti(prev => prev.filter(s => s.uid !== uid));
+1906: const [serviciosExtraCia, setServiciosExtraCia] = useState([]);
+1908: const sExtraCiaAdd = () => setServiciosExtraCia(prev=>[...prev,{uid:sExtraCiaNext.current++,servicioId:"",servicioNombre
+1909: const sExtraCiaUpdate = (uid,field,val) => setServiciosExtraCia(prev=>prev.map(s=>{
+1920: const sExtraCiaRemove = (uid) => setServiciosExtraCia(prev=>prev.filter(s=>s.uid!==uid));
+1947: const [busqServicioCia,    setBusqServicioCia]    = useState(""); // filtro servicios CIAMSA/Terrestre
+1969: const [serviciosExtraC2, setServiciosExtraC2] = useState([]);
+1971: const sExtraC2Add = () => setServiciosExtraC2(prev=>[...prev,{uid:sExtraC2Next.current++,servicioId:"",servicioNombre:""
+1972: const sExtraC2Update = (uid,field,val) => setServiciosExtraC2(prev=>prev.map(s=>{
+1979: const sExtraC2Remove = (uid) => setServiciosExtraC2(prev=>prev.filter(s=>s.uid!==uid));
+1982: const [serviciosExtraC3, setServiciosExtraC3] = useState([]);
+1984: const sExtraC3Add = () => setServiciosExtraC3(prev=>[...prev,{uid:sExtraC3Next.current++,servicioId:"",servicioNombre:""
+1985: const sExtraC3Update = (uid,field,val) => setServiciosExtraC3(prev=>prev.map(s=>{
+1993: const sExtraC3Remove = (uid) => setServiciosExtraC3(prev=>prev.filter(s=>s.uid!==uid));
+2058: setServiciosExtraCia([]);
+2069: setServiciosExtraC2([]);
+2070: setServiciosExtraC3([]);
+2242: setServicios(filtered.length>0 ? filtered : (cActivo==="spia" ? all.filter(s=>!s.clienteId) : []));
+2463: setServiciosExtraCia([]);
+2736: setServiciosMulti([]);
+2856: setServiciosExtraC2([]);
+2994: setServiciosExtraC3([]);
+3485: value={busqServicioCia}
+3494: .filter(s => !busqServicioCia || s.nombre?.toLowerCase().includes(busqServicioCia.toLowerCase()))

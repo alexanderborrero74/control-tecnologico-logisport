@@ -1,0 +1,129 @@
+Vercel CLI 54.7.1 (Node.js 24.14.0)
+Retrieving project…
+Deploying soporteias-projects/control-tecnologico-logisport
+Uploading [--------------------] (0.0B/297.6KB)
+Uploading [=====---------------] (84.7KB/297.6KB)
+Uploading [===========---------] (164.7KB/297.6KB)
+Uploading [===============-----] (228.7KB/297.6KB)
+Uploading [====================] (297.6KB/297.6KB)
+  Inspect     https://vercel.com/soporteias-projects/control-tecnologico-logisport/FPXvqQYuSZoDvVT38p7EfXbM66VC
+▲ Production  https://control-tecnologico-logisport-fgr06nofz-soporteias-projects.vercel.app
+https://control-tecnologico-logisport-fgr06nofz-soporteias-projects.vercel.appBuilding…
+Building…
+Running build in Washington, D.C., USA (East) – iad1
+Build machine configuration: 4 cores, 8 GB
+Retrieving list of deployment files...
+Downloading 491 deployment files...
+Restored build cache from previous deployment (6XeGdLJTCMjS6FZfV9yow7RQ31yz)
+Running "vercel build"
+Vercel CLI 54.17.1
+Warning: Detected "engines": { "node": ">=18.0.0" } in your `package.json` that will automatically upgrade when a new major Node.js Version is released. Learn More: https://vercel.link/node-version
+Installing dependencies...
+up to date in 1s
+187 packages are looking for funding
+run `npm fund` for details
+Detected Next.js version: 16.1.6
+Running "npm run build"
+> control-tecnologico-logisport@0.1.0 build
+> next build
+⚠ `eslint` configuration in next.config.js is no longer supported. See more info here: https://nextjs.org/docs/app/api-reference/cli/next#next-lint-options
+⚠ Invalid next.config.js options detected:
+⚠     Unrecognized key(s) in object: 'eslint'
+⚠ See more info here: https://nextjs.org/docs/messages/invalid-next-config
+▲ Next.js 16.1.6 (Turbopack)
+Skipping validation of types
+Creating an optimized production build ...
+✓ Compiled successfully in 13.4s
+Collecting page data using 3 workers ...
+Generating static pages using 3 workers (0/55) ...
+Generating static pages using 3 workers (13/55)
+Generating static pages using 3 workers (27/55)
+Generating static pages using 3 workers (41/55)
+✓ Generating static pages using 3 workers (55/55) in 268.1ms
+Finalizing page optimization ...
+Route (pages)
+┌ ○ /
+├   /_app
+├ ○ /404
+├ ○ /admin-corregir-servicios
+├ ○ /admin-solicitudes
+├ ○ /admin-usuarios
+├ ƒ /api/agent-ingest
+├ ƒ /api/crear-usuario-auth
+├ ƒ /api/documentacion
+├ ƒ /api/enviarCorreoElectronico
+├ ƒ /api/hello
+├ ƒ /api/licencias
+├ ƒ /api/migrar-trabajadores-2026
+├ ƒ /api/monitoreo-list
+├ ƒ /api/notificar-nueva-clave
+├ ƒ /api/proxy-imagen
+├ ƒ /api/renovar-caducidad-clave
+├ ƒ /api/test-agent
+├ ƒ /api/test-caducidad-correo
+├ ƒ /api/test-correo
+├ ƒ /api/upload-image
+├ ƒ /api/verificar-caducidad-claves
+├ ○ /cambiar-clave
+├ ○ /capsulas-admin
+├ ○ /claves-usuarios
+├ ○ /control-de-contrasenas
+├ ○ /copia servicios-tecnicos
+├ ○ /debug-pendientes
+├ ○ /debug-servicios
+├ ○ /documentacionti
+├ ○ /estadisticas
+├ ○ /estadisticas_responsive
+├ ○ /historial-credenciales
+├ ○ /hoja-vida
+├ ○ /hoja-vida_responsive
+├ ○ /indicadores-gestion
+├ ○ /informe-gestion
+├ ○ /licencias
+├ ○ /login
+├ ○ /mi-pago
+├ ○ /monitoreo
+├ ○ /nomina
+├ ○ /nomina/adelantos
+├ ○ /nomina/administrar
+├ ○ /nomina/asistencia
+├ ○ /nomina/clientes
+├ ○ /nomina/control-roles
+├ ○ /nomina/cuadrillas
+├ ○ /nomina/desprendibles
+├ ○ /nomina/historial
+├ ○ /nomina/liquidar
+├ ○ /nomina/liquidar_unificada
+├ ○ /nomina/matriz
+├ ○ /nomina/nomina-ciamsa2
+├ ○ /nomina/seed-servicios
+├ ○ /nomina/servicios
+├ ○ /nomina/trabajadores
+├ ○ /nube
+├ ○ /Nueva carpeta/hoja-vida
+├ ○ /Nueva carpeta/servicios-tecnicos
+├ ○ /procesoit
+├ ○ /registro-fotografico
+├ ○ /seguimiento-codigos-asociados
+├ ○ /servicios-tecnicos
+├ ○ /serviciospendientes
+├ ○ /solicitudserviciotecnico
+├ ○ /test-email
+├ ○ /ti-implementado
+├ ○ /trazabilidad-logins
+├ ○ /usuario-aplicaciones-licencias
+└ ○ /usuario-aplicaciones-licencias_responsive
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+Traced Next.js server files in: 61.845ms
+Created all serverless functions in: 592.717ms
+Collected static files (public/, static/, .next/static): 15.646ms
+Build Completed in /vercel/output [19s]
+Deploying outputs...
+Deployment completed
+Creating build cache...
+[2K[1A[2K[G▲ Production  https://control-tecnologico-logisport-fgr06nofz-soporteias-projects.vercel.app
+Completing…
+▲ Aliased     https://logisport.vercel.app
+
+✓ Ready in 41s
