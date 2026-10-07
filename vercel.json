@@ -3,6 +3,10 @@
     {
       "path": "/api/verificar-caducidad-claves",
       "schedule": "0 12 * * *"
+    },
+    {
+      "path": "/api/verificar-caducidad-pc-windows",
+      "schedule": "0 12 * * *"
     }
   ]
 }

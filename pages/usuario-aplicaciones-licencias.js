@@ -28,7 +28,7 @@ const CARGO_PRESETS = [
 
 const NOMBRE_PC_PRESETS = Array.from({ length: 100 }, (_, i) => {
   const n = String(i + 1).padStart(3, "0");
-  return `SIDECOMEX${n}`;
+  return `LOGISPORT${n}`;
 });
 
 export default function UsuarioAplicacionesLicencias() {

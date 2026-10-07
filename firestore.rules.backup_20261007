@@ -1,0 +1,363 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ============================================
+    // FUNCIONES AUXILIARES
+    // ============================================
+    
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isAdmin() {
+      return isSignedIn() && 
+             (request.auth.token.rol == 'admin' || 
+              request.auth.token.rol == 'owner' ||
+              get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.rol in ['admin', 'owner']);
+    }
+    
+    function isSelf(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+    
+    // ============================================
+    // CONFIGURACIÓN Y CÁPSULAS
+    // ============================================
+    
+    match /configuracion/capsulas {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+    
+    // ============================================
+    // CATÁLOGO DE USUARIOS
+    // ============================================
+    
+    match /usuariosCatalogo/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isAdmin();
+    }
+    
+    // ============================================
+    // CATÁLOGO DE CARGOS (NUEVO)
+    // ============================================
+    
+    match /cargosCatalogo/{cargoId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+    
+    // ============================================
+    // CARGOS (LEGACY - mantener por compatibilidad)
+    // ============================================
+    
+    match /cargos/{cargoId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+    
+    // ============================================
+    // USUARIOS DEL SISTEMA
+    // ============================================
+    
+    match /usuarios/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSelf(userId) || isAdmin();
+      allow delete: if isAdmin();
+    }
+    
+    // ============================================
+    // TRAZABILIDAD DE LOGINS
+    // ============================================
+    
+    match /logins/{loginId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+    
+    // ============================================
+    // SOLICITUDES DE SERVICIO TÉCNICO
+    // ============================================
+    
+    match /solicitudes/{solicitudId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isAdmin();
+    }
+    
+    // ============================================
+    // SERVICIOS TÉCNICOS
+    // ============================================
+    
+    match /serviciosTecnicos/{servicioId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isAdmin();
+    }
+    
+    // ============================================
+    // HOJA DE VIDA DE EQUIPOS
+    // ============================================
+    
+    match /hojaVidaEquipos/{equipoId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isAdmin();
+    }
+    
+    // ============================================
+    // LICENCIAS
+    // ============================================
+    
+    match /licencias/{licenciaId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isAdmin();
+    }
+    
+    // ============================================
+    // SERVICIOS PENDIENTES
+    // ============================================
+    
+    match /pendientes/{pendienteId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+    
+    // ============================================
+    // ALERTAS
+    // ============================================
+    
+    match /alertas/{alertaId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+    
+    // ============================================
+    // CÁPSULAS DE SEGURIDAD
+    // ============================================
+    
+    match /capsulas/{capsulaId} {
+      allow read: if isSignedIn();
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+    
+    // ============================================
+    // CATÁLOGOS GENERALES
+    // ============================================
+    
+    match /catalogos/{catalogoId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isAdmin();
+    }
+    
+    // ============================================
+    // CONTADORES (para consecutivos)
+    // ============================================
+    
+    match /contadores/{contadorId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isAdmin();
+    }
+    
+    // ============================================
+    // REGISTRO FOTOGRÁFICO
+    // ============================================
+    
+    match /registroFotografico/{registroId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+    
+    // ============================================
+    // CATÁLOGO DE EQUIPOS (PCs)
+    // ============================================
+
+    match /equiposCatalogo/{equipoId} {
+      allow read: if isSignedIn();
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // ============================================
+    // HISTORIAL DE CLAVES (solo admin puede leer/escribir)
+    // ============================================
+
+    match /historialClaves/{registroId} {
+      allow read: if isAdmin();
+      allow create: if isSignedIn();
+      allow update, delete: if isAdmin();
+    }
+    
+    // ============================================
+    // DOCUMENTACIÓN TI
+    // ============================================
+    
+    match /documentacion/{documentoId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isAdmin();
+    }
+    
+    // ============================================
+    // CREDENCIALES - SOFTWARE
+    // ============================================
+    
+    match /credenciales_software/{credencialId} {
+      allow read: if isSignedIn();
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+    
+    // ============================================
+    // CREDENCIALES - CORREO
+    // ============================================
+    
+    match /credenciales_correo/{credencialId} {
+      allow read: if isSignedIn();
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+    
+    // ============================================
+    // CREDENCIALES - GENERAL
+    // ============================================
+    
+    match /credenciales_general/{credencialId} {
+      allow read: if isSignedIn();
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // ============================================
+    // TÉCNICOS
+    // ============================================
+
+    match /tecnicos/{tecnicoId} {
+      allow read: if isSignedIn();
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // ============================================
+    // CONFIGURACIÓN ACCESOS / GATE MÓDULOS
+    // ============================================
+
+    match /configuracion/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /config_accesos/{moduloId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // ============================================
+    // MONITOREO DE EQUIPOS
+    // ============================================
+
+    match /monitoreo/{clientId} {
+      allow read: if isSignedIn();
+      allow write: if true;
+
+      match /equipos/{equipoId} {
+        allow read: if isSignedIn();
+        allow write: if true;
+
+        match /reports/{reportId} {
+          allow read: if isSignedIn();
+          allow write: if true;
+        }
+      }
+    }
+
+    match /apagadosHistoricos/{docId} {
+      allow read: if isSignedIn();
+      allow write: if true;
+    }
+
+    // ============================================
+    // NÓMINA
+    // ============================================
+
+    match /nomina_trabajadores/{id}        { allow read, write: if isSignedIn(); }
+    match /nomina_servicios/{id}           { allow read, write: if isSignedIn(); }
+    match /nomina_operaciones/{id}         { allow read, write: if isSignedIn(); }
+    match /nomina_periodos/{id}            { allow read: if true; allow write: if isSignedIn(); }
+    match /nomina_cargos/{id}             { allow read, write: if isSignedIn(); }
+    match /nomina_cuadrillas_config/{id}   { allow read, write: if isSignedIn(); }
+    match /nomina_asistencia/{id}          { allow read, write: if isSignedIn(); }
+    match /nomina_asistencia_registro/{id} { allow read, write: if isSignedIn(); }
+    match /nomina_motivos/{id}             { allow read, write: if isSignedIn(); }
+    match /nomina_observaciones/{id}       { allow read, write: if isSignedIn(); }
+    match /nomina_novedades/{id}           { allow read, write: if isSignedIn(); }
+    match /nomina_novedades_trabajador/{id}{ allow read, write: if isSignedIn(); }
+    match /nomina_adelantos/{id}           { allow read, write: if isSignedIn(); }
+    match /nomina_comida/{id}              { allow read, write: if isSignedIn(); }
+    match /nomina_clientes/{id}            { allow read, write: if isSignedIn(); }
+    match /nomina_subgrupos/{id}           { allow read, write: if isSignedIn(); }
+    match /nomina_desprendibles/{id}       { allow read: if true; allow write: if isSignedIn(); }
+    match /nomina_mini_cuadrillas/{id}     { allow read, write: if isSignedIn(); }
+    match /nomina_conjuntos/{id}            { allow read, write: if isSignedIn(); }
+    match /nomina_conjuntos_operacion/{id} { allow read, write: if isSignedIn(); }
+    match /nomina_cuadrilla_snapshot/{id}  { allow read, write: if isSignedIn(); }
+    match /nomina_fijo_c2/{id}             { allow read, write: if isSignedIn(); }
+    match /nomina_resultado_c2/{id}        { allow read, write: if isSignedIn(); }
+    match /nomina_servicios/{id}           { allow read, write: if isSignedIn(); }
+    match /nomina_permisos_usuario/{uid}   {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+      allow write: if isAdmin();
+    }
+
+    // ============================================
+    // MAIL
+    // ============================================
+
+    match /mail/{messageId} {
+      allow create: if isSignedIn();
+      allow read, update, delete: if false;
+    }
+    
+    // ============================================
+    // REGLA POR DEFECTO - DENEGAR TODO
+    // ============================================
+    
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

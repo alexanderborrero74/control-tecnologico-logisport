@@ -17,11 +17,19 @@ import PageHeader from "@/components/PageHeader";
    Configuración de módulos
 ========================= */
 const MODULES = [
-  { key: "servidor", title: "Servidor", collection: "credenciales_servidor", needsPage: false },
-  { key: "correo", title: "Correo", collection: "credenciales_correo", needsPage: false },
-  { key: "nube", title: "Nube", collection: "credenciales_nube", needsPage: false },
-  { key: "syga", title: "Syga", collection: "credenciales_syga", needsPage: false },
-  { key: "sitios", title: "Sitios de internet", collection: "credenciales_sitios", needsPage: true },
+  { key: "servidor", title: "Servidor", collection: "credenciales_servidor", needsPage: false, needsEmail: true },
+  { key: "correo", title: "Correo", collection: "credenciales_correo", needsPage: false, needsEmail: true },
+  { key: "nube", title: "Nube", collection: "credenciales_nube", needsPage: false, needsEmail: true },
+  { key: "syga", title: "Syga", collection: "credenciales_syga", needsPage: false, needsEmail: true },
+  { key: "sitios", title: "Sitios de internet", collection: "credenciales_sitios", needsPage: true, needsEmail: true },
+  {
+    key: "pcwindows",
+    title: "PC de Windows",
+    collection: "credenciales_pc_windows",
+    needsPage: false,
+    needsEmail: true,
+    createLabel: "Enviar",
+  },
 ];
 
 /* =========================
@@ -215,7 +223,7 @@ const SingleNameFilter = memo(function SingleNameFilter({ users, selected, onCha
    Módulo de credenciales
 ========================= */
 function CredentialModule({ config, selectedUsers, onReportOverdue, onReportUsers }) {
-  const { key, title, collection: colName, needsPage } = config;
+  const { key, title, collection: colName, needsPage, needsEmail, createLabel } = config;
 
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -224,6 +232,7 @@ function CredentialModule({ config, selectedUsers, onReportOverdue, onReportUser
   const [nuevoUsuario, setNuevoUsuario] = useState("");
   const [nuevaClaveInicial, setNuevaClaveInicial] = useState("");
   const [nuevaPagina, setNuevaPagina] = useState("");
+  const [nuevoCorreo, setNuevoCorreo] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -259,26 +268,49 @@ function CredentialModule({ config, selectedUsers, onReportOverdue, onReportUser
   }, [items, key, title, needsPage, onReportOverdue, onReportUsers]);
 
   // Crear registro
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   const handleCrear = async (e) => {
     e.preventDefault();
-    if (!nuevoUsuario.trim() || !nuevaClaveInicial.trim() || (needsPage && !nuevaPagina.trim())) {
-      alert("Completa los campos requeridos.");
+    if (
+      !nuevoUsuario.trim() ||
+      !nuevaClaveInicial.trim() ||
+      (needsPage && !nuevaPagina.trim()) ||
+      (needsEmail && !EMAIL_RE.test(nuevoCorreo.trim()))
+    ) {
+      alert(needsEmail ? "Completa los campos requeridos (el correo debe ser válido)." : "Completa los campos requeridos.");
       return;
     }
+    const fechaCambioInicial = new Date().toISOString();
     const docData = {
       usuario: nuevoUsuario.trim(),
       ...(needsPage ? { pagina: nuevaPagina.trim() } : {}),
+      ...(needsEmail ? { correo: nuevoCorreo.trim().toLowerCase() } : {}),
       claveActual: nuevaClaveInicial.trim(),
       claveAnterior: "",
-      fechaCambio: new Date().toISOString(),
+      fechaCambio: fechaCambioInicial,
       historial: [],
       codigo: genCode(),
       creadoAt: serverTimestamp(),
     };
     await addDoc(collection(db, colName), docData);
+
+    if (needsEmail) {
+      const asunto = `Nueva clave registrada - ${title}`;
+      const cuerpo = [
+        `Se registró una nueva clave en el módulo: ${title}`,
+        `Usuario: ${nuevoUsuario.trim()}`,
+        `Correo del usuario: ${nuevoCorreo.trim().toLowerCase()}`,
+        `Clave inicial: ${nuevaClaveInicial.trim()}`,
+        `Fecha de registro: ${fmtDate(fechaCambioInicial)}`,
+        `Caducidad: ${DIAS_RECORDATORIO} días (aprox. 2 meses) desde la fecha de registro.`,
+      ].join("\n");
+      enviarCorreo("soportesistemas@soporteia.net", asunto, cuerpo);
+    }
+
     setNuevoUsuario("");
     setNuevaClaveInicial("");
     setNuevaPagina("");
+    setNuevoCorreo("");
     await load();
   };
 
@@ -310,11 +342,28 @@ function CredentialModule({ config, selectedUsers, onReportOverdue, onReportUser
       `Módulo: ${title}`,
       needsPage && it.pagina ? `Página: ${it.pagina}` : undefined,
       `Usuario: ${it.usuario || "-"}`,
+      needsEmail && it.correo ? `Correo del usuario: ${it.correo}` : undefined,
       `Clave nueva: ${String(nuevaClave).trim()}`,
       `Fecha de cambio: ${fmtDate(updated.fechaCambio)}`,
     ].filter(Boolean).join("\n");
 
     enviarCorreo("soportesistemas@soporteia.net", asunto, cuerpo);
+
+    if (needsEmail && it.correo) {
+      const asuntoUsuario = `Confirmación de cambio de clave - ${title}`;
+      const cuerpoUsuario = [
+        `Hola ${it.usuario || ""},`,
+        ``,
+        `Se registró un cambio de tu contraseña en el módulo: ${title}`,
+        needsPage && it.pagina ? `Página: ${it.pagina}` : undefined,
+        `Fecha de cambio: ${fmtDate(updated.fechaCambio)}`,
+        ``,
+        `Recuerda que la vigencia de esta clave es de ${DIAS_RECORDATORIO} días (2 meses). Te avisaremos nuevamente cuando falten pocos días para el vencimiento.`,
+        ``,
+        `LOGISPORT — Área de Sistemas`,
+      ].filter(Boolean).join("\n");
+      enviarCorreo(it.correo, asuntoUsuario, cuerpoUsuario);
+    }
   };
 
   // Filtrado según usuarios (solo 1 seleccionado)
@@ -339,7 +388,7 @@ function CredentialModule({ config, selectedUsers, onReportOverdue, onReportUser
   } else {
     listContent = filteredItems.map((it) => (
       <li key={stableKey(it.id)} style={{ listStyle: "none" }}>
-        <ItemRow item={it} needsPage={needsPage} onUpdate={handleActualizarClave} />
+        <ItemRow item={it} needsPage={needsPage} needsEmail={needsEmail} onUpdate={handleActualizarClave} />
       </li>
     ));
   }
@@ -366,13 +415,23 @@ function CredentialModule({ config, selectedUsers, onReportOverdue, onReportUser
           onChange={(e) => setNuevoUsuario(e.target.value)}
           style={styles.input}
         />
+        {needsEmail && (
+          <input
+            type="email"
+            required
+            placeholder="Correo del usuario (obligatorio)"
+            value={nuevoCorreo}
+            onChange={(e) => setNuevoCorreo(e.target.value)}
+            style={styles.input}
+          />
+        )}
         <input
           placeholder="Clave inicial"
           value={nuevaClaveInicial}
           onChange={(e) => setNuevaClaveInicial(e.target.value)}
           style={styles.input}
         />
-        <button type="submit" style={styles.primaryBtn}>Crear</button>
+        <button type="submit" style={styles.primaryBtn}>{createLabel || "Crear"}</button>
       </form>
 
       {/* Lista (contenedor estable) */}
@@ -384,7 +443,7 @@ function CredentialModule({ config, selectedUsers, onReportOverdue, onReportUser
 /* =========================
    Ítem
 ========================= */
-const ItemRow = memo(function ItemRow({ item, needsPage, onUpdate }) {
+const ItemRow = memo(function ItemRow({ item, needsPage, needsEmail, onUpdate }) {
   const [nuevaClave, setNuevaClave] = useState("");
   const [showHistory, setShowHistory] = useState(false);
   const ms = msUntilDue(item.fechaCambio);
@@ -403,6 +462,11 @@ const ItemRow = memo(function ItemRow({ item, needsPage, onUpdate }) {
           <span style={{ ...styles.badge, background: "#e0f2fe", color: "#075985" }}>
             Usuario: {item.usuario || "—"}
           </span>
+          {needsEmail && item.correo && (
+            <span style={{ ...styles.badge, background: "#ede9fe", color: "#5b21b6" }}>
+              Correo: {item.correo}
+            </span>
+          )}
           <span
             style={{
               ...styles.badge,

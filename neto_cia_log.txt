@@ -1,0 +1,46 @@
+=== Neto y formula cuadrillaDia ===
+85: nPersonas: 0,   // auto = trabajadoresSeleccionados.length
+86: per: 0,         // cantidad / nPersonas
+108: nPersonas:1,   // N DE PER — cuántas personas comparten este trabajo
+1995: const sExtraC3Add = () => setServiciosExtraC3(prev=>[...prev,{uid:sExtraC3Next.current++,servicioId:"",servicioNombre:""
+2000: const cant=parseFloat(next.cantidad)||0; const np=parseInt(next.nPersonas)||1;
+2388: return { ...f, nPersonas: n, per: Math.round(per * 10000) / 10000, netoCalculado: neto };
+2439: nPersonas:      n,
+2850: nPersonas:         1,
+2921: const nPersonas  = parseInt(f.nPersonas)        || 1;
+2923: const per        = nPersonas > 0 ? cantidad / nPersonas : 0;
+2953: const nPersonas = parseInt(ciamsaForm.nPersonas)  || 1;
+2954: const per       = nPersonas > 0 ? cantidad / nPersonas : 0;
+2979: nPersonas,                      // N DE PER
+2983: cantidad:          nPersonas,
+2984: personas:          nPersonas,
+3009: const np3 = parseInt(se.nPersonas)||1;
+3018: nPersonas:np3, per:Math.round(per3*10000)/10000,
+3047: nPersonas:       op.nPersonas||1,
+3602: background: f.netoCalculado > 0 ? "#f0fdf4" : "#f8fafc",
+3603: border:`2px solid ${f.netoCalculado > 0 ? SUCCESS : "#e2e8f0"}`,
+3606: {f.netoCalculado > 0 ? formatCOP(f.netoCalculado) : "—"}
+3608: {f.netoCalculado > 0 && sel.length > 1 && (
+3611: Total grupo: {formatCOP(f.netoCalculado * sel.length)}
+3751: <input type="number" min="1" value={ciamsaForm.nPersonas}
+3752: onChange={e=>ciamsaSetField("nPersonas",e.target.value)}
+3765: = {ciamsaForm.cantidad||"0"} ÷ {ciamsaForm.nPersonas}
+3823: <input type="number" min="1" value={se.nPersonas} onChange={e=>sExtraC3Update(se.uid,"nPersonas",e.target.value)} style=
+4635: <td style={{...tdSt,fontFamily:"monospace",color:"#64748b",textAlign:"center"}}>{op.nPersonas||1}</td>
+
+=== cuadrillaDiaRecalcular (2379) ===
+2379: const cuadrillaDiaRecalcular = (f) => {
+2380: const n       = f.trabajadoresSeleccionados.length || 1;
+2381: const cant    = parseFloat(f.cantidad) || 0;
+2382: const tarifa  = parseFloat(f.tarifaUnitaria) || 0;
+2383: const unidad  = f.unidad || "ton";
+2384: // Si el servicio es por día (valor fijo por persona/día), neto = tarifa × 1
+2385: // Si es por tonelada, neto = (cant / n) × tarifa
+2386: const per = (unidad === "dia" || unidad === "hora") ? cant : (n > 0 ? cant / n : 0);
+2387: const neto = Math.round(per * tarifa * 100) / 100;
+2388: return { ...f, nPersonas: n, per: Math.round(per * 10000) / 10000, netoCalculado: neto };
+2389: };
+2390: 
+2391: const cuadrillaDiaSetField = (key, val) =>
+2392: setCuadrillaDiaForm(prev => cuadrillaDiaRecalcular({ ...prev, [key]: val }));
+2393: 

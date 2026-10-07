@@ -262,6 +262,17 @@ service cloud.firestore {
     }
 
     // ============================================
+    // CREDENCIALES - PC DE WINDOWS
+    // ============================================
+
+    match /credenciales_pc_windows/{credencialId} {
+      allow read: if isSignedIn();
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // ============================================
     // TÉCNICOS
     // ============================================
 
