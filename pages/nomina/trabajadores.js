@@ -285,10 +285,11 @@ export default function NominaTrabajadores() {
       lista.sort((a, b) => (a.orden || 99) - (b.orden || 99));
       setCuadrillasAsistencia(lista);
       // Construir mapa inverso: workerId → nombre cuadrilla
+      // Solo incluir miembros activos (no bloqueados) para que bloqueados puedan inactivarse
       const mapa = {};
       lista.forEach(c => {
         (c.miembros || []).forEach(m => {
-          mapa[m.id] = c.nombre;
+          if (!m.bloqueadoEnCuadrilla) mapa[m.id] = c.nombre;
         });
       });
       setWorkerCuadrillaMap(mapa);

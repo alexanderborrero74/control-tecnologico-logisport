@@ -908,7 +908,7 @@ function ConjuntosPanel({ cuadrillas, servicios, clienteId, onGuardado, onClose,
                 const cliId   = c.clienteId || "spia";
                 const cliInfo = (clientes||[]).find(x=>x.id===cliId) || {nombre:cliId.toUpperCase(),color:"#64748b"};
                 const miembrosFilt = (c.miembros||[]).filter(m =>
-                  !q || m.nombre?.toLowerCase().includes(q) || String(m.cedula||'').includes(busq)
+                  !m.bloqueadoEnCuadrilla && (!q || m.nombre?.toLowerCase().includes(q) || String(m.cedula||'').includes(busq))
                 );
                 if (miembrosFilt.length===0 && !q) return null;
                 if (miembrosFilt.length===0) return null;
@@ -1218,7 +1218,7 @@ function MiniCuadrillaPanel({ cuadrillas, servicios, clienteId, onGuardado, onCl
   });
 
   const cuadActual = cuadrillas.find(c => c.id === miniForm.cuadrillaPrincipalId);
-  const miembros   = cuadActual?.miembros || [];
+  const miembros   = (cuadActual?.miembros || []).filter(m => !m.bloqueadoEnCuadrilla);
 
   const toggleMiembro = (m) => {
     const sel = miniForm.miembrosSeleccionados;
@@ -1453,7 +1453,7 @@ function MiniCuadrillaPanel({ cuadrillas, servicios, clienteId, onGuardado, onCl
 
           {/* 3️⃣ Personal adicional de otros clientes */}
           {cuadActual && (todosTrabajadores||[]).length > 0 && (() => {
-            const idsEnCuad = new Set((cuadActual?.miembros||[]).map(m=>m.id));
+            const idsEnCuad = new Set((cuadActual?.miembros||[]).filter(m=>!m.bloqueadoEnCuadrilla).map(m=>m.id));
             const yaSelIds  = new Set(miniForm.miembrosSeleccionados.map(m=>m.id));
             const qa = busqAdicional.toLowerCase().trim();
             const adicionales = (todosTrabajadores||[])
@@ -2304,7 +2304,7 @@ export default function NominaMatriz() {
       // miembrosDelDia = composición real de ese día
       let miembrosDelDia = snapDoc.exists()
         ? (snapDoc.data().miembros || [])   // ← snapshot encontrado ✔
-        : (c.miembros || []);                // ← fallback: miembros actuales
+        : (c.miembros || []).filter(m => !m.bloqueadoEnCuadrilla);  // ← fallback: miembros actuales (sin bloqueados)
       const usandoSnapshot = snapDoc.exists();
 
       if (miembrosDelDia.length === 0) {
